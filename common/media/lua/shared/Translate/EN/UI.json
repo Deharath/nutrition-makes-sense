@@ -1,0 +1,23 @@
+{
+    "UI_NMS_Section_Fuel": "Energy Reserves",
+    "UI_NMS_Fuel_State_Low": "Low",
+    "UI_NMS_Fuel_State_Depleted": "Depleted",
+    "UI_NMS_Fuel_RecoveryPenalty": "Stamina Recovery",
+    "UI_NMS_Deprivation_Header": "Malnourishment",
+    "UI_NMS_Deprivation_Severity_Mild": "Mild",
+    "UI_NMS_Deprivation_Severity_Moderate": "Moderate",
+    "UI_NMS_Deprivation_Severity_Severe": "Severe",
+    "UI_NMS_Deprivation_Direction_Recovering": "Recovering",
+    "UI_NMS_Deprivation_Direction_Worsening": "Worsening",
+    "UI_NMS_Deprivation_Direction_Stable": "Stable",
+    "UI_NMS_Deprivation_EndurancePenalty": "Stamina Recovery",
+    "UI_NMS_Deprivation_FatiguePenalty": "Fatigue Rate",
+    "UI_NMS_Deprivation_MeleePenalty": "Melee Damage",
+    "UI_NMS_Section_Protein": "Protein",
+    "UI_NMS_Protein_Low": "Low",
+    "UI_NMS_Protein_HealingPenalty": "Wound Healing",
+    "UI_NMS_ModOptions_Title": "Nutrition Makes Sense",
+    "UI_NMS_ModOptions_Debug_Title": "Debug",
+    "UI_NMS_ModOptions_DebugTooltips": "Show Debug Food Tooltips",
+    "UI_NMS_ModOptions_DebugTooltips_Tooltip": "Toggle NMS debug food tooltip numbers while the game is running with -debug."
+}

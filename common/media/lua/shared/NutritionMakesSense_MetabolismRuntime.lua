@@ -14,6 +14,7 @@ local DEPOSIT_EPSILON = 0.001
 local SYNC_EPSILON = 0.0001
 local DEFAULT_WORKLOAD_SOURCE = "fallback_rest"
 local activityCacheByPlayerKey = {}
+local scriptedWorkloadOverrideByPlayerKey = {}
 
 local function log(msg)
     if NutritionMakesSense.log then
@@ -43,6 +44,15 @@ end
 
 local function clamp(value, minValue, maxValue)
     return Metabolism.clamp(value, minValue, maxValue)
+end
+
+local function roundToStep(value, step)
+    local numeric = tonumber(value) or 0
+    local unit = tonumber(step) or 1
+    if unit <= 0 then
+        return numeric
+    end
+    return math.floor((numeric / unit) + 0.5) * unit
 end
 
 local function isClientOnly()
@@ -213,12 +223,12 @@ local function seedFuel(nutrition)
     return clamp(observedCalories, Metabolism.FUEL_PENALTY_THRESHOLD, 1500)
 end
 
-local function seedMacroReserve(nutrition, getterName, defaultValue, maxValue)
+local function seedProteinReserve(nutrition, getterName)
     local observed = tonumber(nutrition and safeCall(nutrition, getterName) or nil)
     if observed ~= nil and observed > 0 then
-        return clamp(observed, 0, maxValue)
+        return clamp(observed, 0, Metabolism.PROTEIN_MAX)
     end
-    return defaultValue
+    return Metabolism.DEFAULT_PROTEIN
 end
 
 local function seedWeight(nutrition)
@@ -360,11 +370,8 @@ function Runtime.ensureStateForPlayer(playerObj)
     end
     if state.initialized ~= true then
         state.fuel = seedFuel(nutrition)
-        state.carbs = seedMacroReserve(nutrition, "getCarbohydrates", Metabolism.DEFAULT_MACROS.carbs, Metabolism.MACRO_MAX.carbs)
-        state.fats = seedMacroReserve(nutrition, "getLipids", Metabolism.DEFAULT_MACROS.fats, Metabolism.MACRO_MAX.fats)
-        state.proteins = seedMacroReserve(nutrition, "getProteins", Metabolism.DEFAULT_MACROS.proteins, Metabolism.MACRO_MAX.proteins)
+        state.proteins = seedProteinReserve(nutrition, "getProteins")
         state.weightKg = seedWeight(nutrition)
-        state.energyBalanceKcal = 0
         state.weightController = 0
         state.lastZone = Metabolism.getFuelZone(state.fuel)
         state.lastHungerMultiplier = Metabolism.getFuelHungerMultiplier(state.fuel)
@@ -384,12 +391,9 @@ function Runtime.ensureStateForPlayer(playerObj)
         state.lastCorrectionGain = 0
         state.lastExtraEnduranceDrain = 0
         state.lastWeightDeltaKg = 0
-        state.lastWeightChangeKcal = 0
         state.lastWeightRateKgPerWeek = 0
         state.lastExertionMultiplier = 1.0
-        state.lastCarbDeficiency = Metabolism.getMacroDeficiencyProgress("carbs", state.carbs)
-        state.lastFatDeficiency = Metabolism.getMacroDeficiencyProgress("fats", state.fats)
-        state.lastProteinDeficiency = Metabolism.getMacroDeficiencyProgress("proteins", state.proteins)
+        state.lastProteinDeficiency = Metabolism.getProteinDeficiencyProgress(state.proteins)
         state.lastMetAverage = Metabolism.MET_REST
         state.lastMetPeak = Metabolism.MET_REST
         state.lastEffectiveEnduranceMet = Metabolism.MET_REST
@@ -407,15 +411,12 @@ function Runtime.ensureStateForPlayer(playerObj)
         state.lastImmediateFillTarget = 0
         state.lastImmediateFillVanilla = 0
         state.lastImmediateFillCorrection = 0
-        state.lastCarbEnduranceMultiplier = Metabolism.getCarbEnduranceMultiplier(state.carbs, state.lastEffectiveEnduranceMet)
-        state.lastFatWeightLossMultiplier = Metabolism.getFatWeightLossMultiplier(state.fats, state.energyBalanceKcal, state.weightController)
         state.lastProteinHealingMultiplier = Metabolism.getProteinHealingMultiplier(state.proteins)
+        state.lastAcuteFuelRecoveryScale = Metabolism.getFuelRecoveryScale(state.fuel)
         log(string.format(
-            "[STATE_INIT] player=%s fuel=%.1f carbs=%.1f fats=%.1f proteins=%.1f weight=%.3f zone=%s",
+            "[STATE_INIT] player=%s fuel=%.1f proteins=%.1f weight=%.3f zone=%s",
             tostring(getPlayerLabel(playerObj)),
             tonumber(state.fuel or 0),
-            tonumber(state.carbs or 0),
-            tonumber(state.fats or 0),
             tonumber(state.proteins or 0),
             tonumber(state.weightKg or Metabolism.DEFAULT_WEIGHT_KG),
             tostring(state.lastZone or Metabolism.getFuelZone(state.fuel))
@@ -464,9 +465,71 @@ local function getTimedActionMet(playerObj)
     return nil
 end
 
+local function normalizeScriptedWorkloadOverride(workload, reason)
+    if type(workload) ~= "table" then
+        return nil
+    end
+
+    local normalized = Metabolism.normalizeWorkload({
+        averageMet = tonumber(workload.averageMet) or tonumber(workload.met) or Metabolism.MET_REST,
+        peakMet = tonumber(workload.peakMet) or tonumber(workload.averageMet) or tonumber(workload.met) or Metabolism.MET_REST,
+        observedHours = tonumber(workload.observedHours) or 0,
+        heavyHours = tonumber(workload.heavyHours) or 0,
+        veryHeavyHours = tonumber(workload.veryHeavyHours) or 0,
+        source = tostring(workload.source or "scripted_override"),
+        sleepObserved = workload.sleepObserved == true,
+    })
+    normalized.reason = tostring(reason or workload.reason or "scripted-override")
+    normalized.targetName = workload.targetName and tostring(workload.targetName) or nil
+    return normalized
+end
+
+function Runtime.setScriptedWorkloadOverride(playerObj, workload, reason)
+    local key = getPlayerCacheKey(playerObj)
+    local normalized = normalizeScriptedWorkloadOverride(workload, reason)
+    if not key or not normalized then
+        return nil
+    end
+
+    scriptedWorkloadOverrideByPlayerKey[key] = normalized
+    return normalized
+end
+
+function Runtime.getScriptedWorkloadOverride(playerObj)
+    local key = getPlayerCacheKey(playerObj)
+    if not key then
+        return nil
+    end
+    return scriptedWorkloadOverrideByPlayerKey[key]
+end
+
+function Runtime.clearScriptedWorkloadOverride(playerObj, reason)
+    local key = getPlayerCacheKey(playerObj)
+    if not key then
+        return false
+    end
+
+    local existing = scriptedWorkloadOverrideByPlayerKey[key]
+    scriptedWorkloadOverrideByPlayerKey[key] = nil
+    if existing then
+        log(string.format(
+            "[SCRIPTED_WORKLOAD_CLEAR] player=%s source=%s reason=%s",
+            tostring(getPlayerLabel(playerObj)),
+            tostring(existing.source or "scripted_override"),
+            tostring(reason or "clear-scripted-override")
+        ))
+    end
+    return existing ~= nil
+end
+
 local function sampleLiveWorkload(playerObj)
     if not playerObj then
         return nil
+    end
+
+    local scriptedOverride = Runtime.getScriptedWorkloadOverride(playerObj)
+    if scriptedOverride then
+        return normalizeScriptedWorkloadOverride(scriptedOverride, scriptedOverride.reason)
     end
 
     if safeCall(playerObj, "isAsleep") == true then
@@ -692,16 +755,17 @@ local function syncVisibleWeight(nutrition, state)
     local losing = weightRate < -0.05
     local gainingLot = gaining and (weightRate > 0.25 or weightController > 0.5)
     local desiredWeight = tonumber(state.weightKg or Metabolism.DEFAULT_WEIGHT_KG)
-    local currentWeight = tonumber(safeCall(nutrition, "getWeight")) or desiredWeight
+    local visibleWeight = roundToStep(desiredWeight, 0.1)
+    local currentWeight = tonumber(safeCall(nutrition, "getWeight")) or visibleWeight
     local currentGain = safeCall(nutrition, "isIncWeight") == true
     local currentGainLot = safeCall(nutrition, "isIncWeightLot") == true
     local currentLoss = safeCall(nutrition, "isDecWeight") == true
 
-    if math.abs(currentWeight - desiredWeight) > SYNC_EPSILON
+    if math.abs(currentWeight - visibleWeight) > SYNC_EPSILON
         or currentGain ~= gaining
         or currentGainLot ~= gainingLot
         or currentLoss ~= losing then
-        safeCall(nutrition, "setWeight", desiredWeight)
+        safeCall(nutrition, "setWeight", visibleWeight)
         safeCall(nutrition, "setIncWeight", gaining)
         safeCall(nutrition, "setIncWeightLot", gainingLot)
         safeCall(nutrition, "setDecWeight", losing)
@@ -717,12 +781,9 @@ local function refreshDerivedState(state, reason)
     state.lastFuelPressureFactor = Metabolism.getFuelPressureFactor(state.fuel)
     state.lastGateMultiplier = Metabolism.getHungerGateMultiplier(state.fuel)
     state.lastWeightTrait = Metabolism.getWeightTrait(state.weightKg)
-    state.lastCarbDeficiency = Metabolism.getMacroDeficiencyProgress("carbs", state.carbs)
-    state.lastFatDeficiency = Metabolism.getMacroDeficiencyProgress("fats", state.fats)
-    state.lastProteinDeficiency = Metabolism.getMacroDeficiencyProgress("proteins", state.proteins)
-    state.lastCarbEnduranceMultiplier = Metabolism.getCarbEnduranceMultiplier(state.carbs, state.lastEffectiveEnduranceMet)
-    state.lastFatWeightLossMultiplier = Metabolism.getFatWeightLossMultiplier(state.fats, state.energyBalanceKcal, state.weightController)
+    state.lastProteinDeficiency = Metabolism.getProteinDeficiencyProgress(state.proteins)
     state.lastProteinHealingMultiplier = Metabolism.getProteinHealingMultiplier(state.proteins)
+    state.lastAcuteFuelRecoveryScale = Metabolism.getFuelRecoveryScale(state.fuel)
     state.lastTraceReason = tostring(reason or state.lastTraceReason or "debug-set")
     return state
 end
@@ -945,12 +1006,11 @@ function Runtime.debugSetStateFields(playerObj, updates, reason)
     local changed = {}
     for fieldName, rawValue in pairs(updates) do
         if fieldName == "fuel"
-            or fieldName == "carbs"
-            or fieldName == "fats"
             or fieldName == "proteins"
-            or fieldName == "energyBalanceKcal"
             or fieldName == "weightKg"
-            or fieldName == "weightController" then
+            or fieldName == "weightController"
+            or fieldName == "deprivation"
+            or fieldName == "satietyBuffer" then
             local before = state[fieldName]
             state[fieldName] = tonumber(rawValue) or before
             changed[#changed + 1] = {
@@ -999,13 +1059,12 @@ function Runtime.debugResetState(playerObj, reason)
     local bodyDamage = getPlayerBodyDamage(playerObj)
     local state = Metabolism.newState({
         initialized = true,
-        fuel = Metabolism.DEFAULT_FUEL,
-        carbs = Metabolism.DEFAULT_MACROS.carbs,
-        fats = Metabolism.DEFAULT_MACROS.fats,
-        proteins = Metabolism.DEFAULT_MACROS.proteins,
-        energyBalanceKcal = 0,
+        fuel = 1300,
+        proteins = Metabolism.DEFAULT_PROTEIN,
         weightKg = Metabolism.DEFAULT_WEIGHT_KG,
         weightController = 0,
+        satietyBuffer = 0.8,
+        deprivation = 0,
         lastWorldHours = getWorldHours(),
         lastMetAverage = Metabolism.MET_REST,
         lastMetPeak = Metabolism.MET_REST,
@@ -1032,7 +1091,6 @@ function Runtime.debugResetState(playerObj, reason)
         lastCorrectionGain = 0,
         lastExtraEnduranceDrain = 0,
         lastWeightDeltaKg = 0,
-        lastWeightChangeKcal = 0,
         lastWeightRateKgPerWeek = 0,
         lastExertionMultiplier = 1.0,
         lastTraceReason = tostring(reason or "debug-reset"),
@@ -1049,11 +1107,9 @@ function Runtime.debugResetState(playerObj, reason)
     setNutritionAnchor(nutrition)
 
     log(string.format(
-        "[NMS_DEV_RESET] player=%s fuel=%.1f carbs=%.1f fats=%.1f proteins=%.1f weight=%.3f reason=%s",
+        "[NMS_DEV_RESET] player=%s fuel=%.1f proteins=%.1f weight=%.3f reason=%s",
         tostring(getPlayerLabel(playerObj)),
         tonumber(state.fuel or 0),
-        tonumber(state.carbs or 0),
-        tonumber(state.fats or 0),
         tonumber(state.proteins or 0),
         tonumber(state.weightKg or 0),
         tostring(reason or "debug-reset")
@@ -1247,12 +1303,14 @@ function Runtime.observePlayerWorkload(playerObj, reason)
         return live
     end
 
+    local state = Runtime.ensureStateForPlayer(playerObj)
+
     cache.weightedMetHours = cache.weightedMetHours + (live.averageMet * deltaHours)
     cache.observedHours = cache.observedHours + deltaHours
     cache.peakMet = math.max(cache.peakMet or live.peakMet, live.peakMet or live.averageMet)
     cache.sleepObserved = cache.sleepObserved or live.sleepObserved == true
     cache.sourceHours[live.source or DEFAULT_WORKLOAD_SOURCE] = (cache.sourceHours[live.source or DEFAULT_WORKLOAD_SOURCE] or 0) + deltaHours
-    cache.pendingBurnKcal = (cache.pendingBurnKcal or 0) + (Metabolism.getFuelBurnPerHourFromMet(live) * deltaHours)
+    cache.pendingBurnKcal = (cache.pendingBurnKcal or 0) + (Metabolism.getFuelBurnPerHourFromMet(live, state and state.weightKg) * deltaHours)
 
     if (live.averageMet or 0) >= Metabolism.MET_HEAVY_THRESHOLD then
         cache.heavyHours = cache.heavyHours + deltaHours
@@ -1261,21 +1319,43 @@ function Runtime.observePlayerWorkload(playerObj, reason)
         cache.veryHeavyHours = cache.veryHeavyHours + deltaHours
     end
 
-    local state = Runtime.ensureStateForPlayer(playerObj)
     local stats = getPlayerStats(playerObj)
     if state and stats then
-        local instantDrainPerHour = Metabolism.getInstantEnduranceDrainPerHourFromMet(live)
-        if instantDrainPerHour > 0 then
-            local deprivationMultiplier = Metabolism.getExertionPenaltyMultiplier(state.visibleHunger)
-            local carbMultiplier = Metabolism.getCarbEnduranceMultiplier(state.carbs, live.effectiveEnduranceMet)
-            local instantDrain = instantDrainPerHour * deprivationMultiplier * carbMultiplier * deltaHours
-            if instantDrain > 0 then
-                removeEndurance(playerObj, stats, instantDrain)
-                cache.appliedEnduranceDrain = (cache.appliedEnduranceDrain or 0) + instantDrain
+        local endurance = getCharacterStatValue(stats, "ENDURANCE", "getEndurance")
+        local previous = state.lastEnduranceObserved
+        if endurance ~= nil then
+            local controlled = endurance
+            local regenScale = 1.0
+            local deprivDrain = 0
+
+            if previous ~= nil then
+                local delta = endurance - previous
+                local deprivation = tonumber(state.deprivation) or 0
+                local fuelRecoveryScale = Metabolism.getFuelRecoveryScale(state.fuel)
+
+                if delta > 0 then
+                    regenScale = Metabolism.getDeprivationRegenScale(deprivation) * fuelRecoveryScale
+                    controlled = previous + delta * regenScale
+                end
+
+                if delta <= 0 and deprivation > Metabolism.DEPRIVATION_ENDURANCE_ONSET then
+                    deprivDrain = Metabolism.getDeprivationActivityDrain(deprivation, live.averageMet) * deltaHours
+                    controlled = controlled - deprivDrain
+                end
             end
+
+            controlled = Metabolism.clamp(controlled, 0, 1)
+            if previous ~= nil and math.abs(controlled - endurance) > 0.0002 then
+                setStatValue(stats, "ENDURANCE", "setEndurance", controlled)
+            end
+
+            state.lastEnduranceObserved = controlled
+            state.lastEnduranceRegenScale = regenScale
+            state.lastEnduranceDeprivDrain = deprivDrain
+            cache.appliedEnduranceDrain = (cache.appliedEnduranceDrain or 0) + math.max(0, endurance - controlled)
         end
 
-        local fatigueAccel = Metabolism.getFatigueAccelFactor(state.visibleHunger)
+        local fatigueAccel = Metabolism.getFatigueAccelFactor(state.deprivation)
         if fatigueAccel > 1.0 and not live.sleepObserved then
             local vanillaFatiguePerHour = 0.042
             local extraFatigue = vanillaFatiguePerHour * (fatigueAccel - 1.0) * deltaHours
@@ -1381,11 +1461,10 @@ function Runtime.updatePlayer(playerObj, reason)
 
     if math.abs(tonumber(advanceReport.weightDeltaKg or 0)) >= 0.001 or tonumber(advanceReport.extraEnduranceDrain or 0) > 0 then
         log(string.format(
-            "[BODY_STATE] player=%s weight=%.3f deltaKg=%.4f balance=%.1f controller=%.2f trait=%s metAvg=%.2f metPeak=%.2f extraEndurance=%.4f",
+            "[BODY_STATE] player=%s weight=%.3f deltaKg=%.4f controller=%.2f trait=%s metAvg=%.2f metPeak=%.2f extraEndurance=%.4f",
             tostring(playerLabel),
             tonumber(state.weightKg or Metabolism.DEFAULT_WEIGHT_KG),
             tonumber(advanceReport.weightDeltaKg or 0),
-            tonumber(state.energyBalanceKcal or 0),
             tonumber(state.weightController or 0),
             tostring(state.lastWeightTrait or "Normal"),
             tonumber(advanceReport.averageMet or state.lastMetAverage or Metabolism.MET_REST),
@@ -1394,18 +1473,15 @@ function Runtime.updatePlayer(playerObj, reason)
         ))
     end
 
-    if tonumber(state.lastCarbDeficiency or 0) > 0
-        or tonumber(state.lastFatDeficiency or 0) > 0
-        or tonumber(state.lastProteinDeficiency or 0) > 0 then
+    if tonumber(state.lastProteinDeficiency or 0) > 0
+        or tonumber(state.lastAcuteFuelRecoveryScale or 1.0) < 0.999 then
         log(string.format(
-            "[MACRO_STATE] player=%s carbDef=%.3f fatDef=%.3f proteinDef=%.3f carbExertion=%.3f fatWeight=%.3f proteinHealing=%.3f",
+            "[NUTRITION_STATE] player=%s proteinDef=%.3f proteinHealing=%.3f fuelRecovery=%.3f deprivation=%.3f",
             tostring(playerLabel),
-            tonumber(state.lastCarbDeficiency or 0),
-            tonumber(state.lastFatDeficiency or 0),
             tonumber(state.lastProteinDeficiency or 0),
-            tonumber(state.lastCarbEnduranceMultiplier or 1.0),
-            tonumber(state.lastFatWeightLossMultiplier or 1.0),
-            tonumber(state.lastProteinHealingMultiplier or 1.0)
+            tonumber(state.lastProteinHealingMultiplier or 1.0),
+            tonumber(state.lastAcuteFuelRecoveryScale or 1.0),
+            tonumber(state.deprivation or 0)
         ))
     end
 

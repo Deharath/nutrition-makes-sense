@@ -79,6 +79,82 @@ local function addLayoutRow(layout, payload)
     return layoutItem
 end
 
+local function getLayoutItems(layout)
+    if not layout then
+        return nil
+    end
+
+    local items = layout.items
+    if items ~= nil then
+        return items
+    end
+    if type(layout) == "table" then
+        return layout["items"]
+    end
+    return nil
+end
+
+local function getListSize(list)
+    if not list then
+        return 0
+    end
+
+    local size = safeCall(list, "size")
+    if size ~= nil then
+        return tonumber(size) or 0
+    end
+
+    return tonumber(#list) or 0
+end
+
+local function getListEntry(list, index)
+    if not list then
+        return nil
+    end
+
+    local entry = safeCall(list, "get", index)
+    if entry ~= nil then
+        return entry
+    end
+
+    return list[index + 1]
+end
+
+local function removeListEntry(list, index)
+    if not list then
+        return nil
+    end
+
+    local removed = safeCall(list, "remove", index)
+    if removed ~= nil then
+        return removed
+    end
+
+    if type(list) == "table" then
+        return table.remove(list, index + 1)
+    end
+
+    return nil
+end
+
+local function insertListEntry(list, index, entry)
+    if not list or entry == nil then
+        return false
+    end
+
+    local inserted = safeCall(list, "add", index, entry)
+    if inserted ~= nil then
+        return true
+    end
+
+    if type(list) == "table" then
+        table.insert(list, index + 1, entry)
+        return true
+    end
+
+    return false
+end
+
 local function rawLookup(tableLike, key)
     if not tableLike then
         return nil
@@ -100,6 +176,92 @@ local function getModData(item)
         return nil
     end
     return safeCall(item, "getModData") or item.modData
+end
+
+local function getLabelPrefix(textKey)
+    return tostring(getText(textKey) or "") .. ":"
+end
+
+local function labelStartsWith(layoutItem, prefix)
+    local label = tostring(layoutItem and layoutItem.label or "")
+    return prefix ~= "" and label:sub(1, #prefix) == prefix
+end
+
+local LAYOUT_ITEM_FIELDS = {
+    "label",
+    "r0",
+    "g0",
+    "b0",
+    "a0",
+    "hasValue",
+    "couldHaveValue",
+    "value",
+    "rightJustify",
+    "r1",
+    "g1",
+    "b1",
+    "a1",
+    "progressFraction",
+    "labelWidth",
+    "valueWidth",
+    "valueWidthRight",
+    "progressWidth",
+    "height",
+}
+
+local function snapshotLayoutItem(layoutItem)
+    if not layoutItem then
+        return nil
+    end
+
+    local snapshot = {}
+    for _, fieldName in ipairs(LAYOUT_ITEM_FIELDS) do
+        snapshot[fieldName] = layoutItem[fieldName]
+    end
+    return snapshot
+end
+
+local function applyLayoutItemSnapshot(layoutItem, snapshot)
+    if not layoutItem or not snapshot then
+        return false
+    end
+
+    for _, fieldName in ipairs(LAYOUT_ITEM_FIELDS) do
+        layoutItem[fieldName] = snapshot[fieldName]
+    end
+    return true
+end
+
+local function bubbleLayoutItemToIndex(items, sourceIndex, targetIndex)
+    if not items or sourceIndex == nil or targetIndex == nil or sourceIndex <= targetIndex then
+        return false
+    end
+
+    local movingItem = getListEntry(items, sourceIndex)
+    if not movingItem then
+        return false
+    end
+
+    local movingSnapshot = snapshotLayoutItem(movingItem)
+    if not movingSnapshot then
+        return false
+    end
+
+    for index = sourceIndex, targetIndex + 1, -1 do
+        local current = getListEntry(items, index)
+        local previous = getListEntry(items, index - 1)
+        if current and previous then
+            applyLayoutItemSnapshot(current, snapshotLayoutItem(previous))
+        end
+    end
+
+    local targetItem = getListEntry(items, targetIndex)
+    if not targetItem then
+        return false
+    end
+
+    applyLayoutItemSnapshot(targetItem, movingSnapshot)
+    return true
 end
 
 local function hasTrait(character, traitName, traitEnum)
@@ -190,16 +352,17 @@ local function resolveViewer(viewer)
 end
 
 local function isDebugTooltipMode()
-    if type(isDebugEnabled) == "function" and isDebugEnabled() then
-        return true
+    local clientOptions = NutritionMakesSense and NutritionMakesSense.ClientOptions or nil
+    if clientOptions and type(clientOptions.getShowDebugFoodTooltips) == "function" then
+        local override = clientOptions.getShowDebugFoodTooltips()
+        if override ~= nil then
+            return override == true
+        end
     end
 
-    local core = type(getCore) == "function" and getCore() or nil
-    if core and type(core.getDebug) == "function" then
-        local ok, enabled = pcall(core.getDebug, core)
-        if ok and enabled then
-            return true
-        end
+    local devSupport = NutritionMakesSense and NutritionMakesSense.DevSupport or nil
+    if devSupport and type(devSupport.isDebugLaunch) == "function" and devSupport.isDebugLaunch() then
+        return true
     end
 
     if type(isClient) == "function" and isClient() and type(getAccessLevel) == "function" then
@@ -310,23 +473,27 @@ function TooltipLogic.getVanillaNutritionVisibility(item, viewer)
 end
 
 function TooltipLogic.getSatietyDescriptor(values)
-    if not Metabolism or type(Metabolism.getSatietyDescriptorFromValues) ~= "function" then
-        local hunger = normalizeHungerValue(values and values.hunger)
-        if hunger >= 24 then
-            return "Sustaining"
-        end
-        if hunger >= 14 then
-            return "Filling"
-        end
-        if hunger >= 7 then
-            return "Light"
-        end
-        if hunger > 0 then
-            return "Brief"
-        end
-        return nil
+    local hungerDrop = nil
+    if Metabolism and type(Metabolism.getImmediateHungerDrop) == "function" then
+        hungerDrop = tonumber(Metabolism.getImmediateHungerDrop(values, 1))
     end
-    return Metabolism.getSatietyDescriptorFromValues(values)
+    if hungerDrop == nil then
+        hungerDrop = normalizeHungerValue(values and values.hunger) * 0.01
+    end
+
+    if hungerDrop >= 0.18 then
+        return "Hearty"
+    end
+    if hungerDrop >= 0.11 then
+        return "Filling"
+    end
+    if hungerDrop >= 0.05 then
+        return "Light"
+    end
+    if hungerDrop > 0 then
+        return "Minimal"
+    end
+    return nil
 end
 
 function TooltipLogic.getEnergyDescriptor(values)
@@ -376,7 +543,7 @@ function TooltipLogic.getDominantMacroDescriptor(values)
     return top.label
 end
 
-function TooltipLogic.buildDescriptorRows(item)
+function TooltipLogic.buildDescriptorRows(item, viewer)
     if not TooltipLogic.isFoodItem(item) then
         return {}
     end
@@ -384,27 +551,35 @@ function TooltipLogic.buildDescriptorRows(item)
     local values = readFoodValues(item)
     local rows = {}
     local debugMode = isDebugTooltipMode()
+    local visibility = TooltipLogic.getVanillaNutritionVisibility(item, viewer)
 
     local satiety = TooltipLogic.getSatietyDescriptor(values)
     if satiety then
         local label = "Satiety"
-        if debugMode and Metabolism and type(Metabolism.getSatietyContribution) == "function" then
-            label = string.format("Satiety [%s]", formatDebugNumber(Metabolism.getSatietyContribution(values), 2))
+        if debugMode and Metabolism and type(Metabolism.getImmediateHungerDrop) == "function" then
+            label = string.format("Satiety [%s]", formatDebugNumber(Metabolism.getImmediateHungerDrop(values, 1), 2))
         end
         rows[#rows + 1] = { label = label, value = satiety }
     end
 
+    if debugMode and Metabolism and type(Metabolism.getSatietyContribution) == "function" then
+        rows[#rows + 1] = {
+            label = "Satiety Buffer",
+            value = formatDebugNumber(Metabolism.getSatietyContribution(values, 1), 2),
+        }
+    end
+
     local energy = TooltipLogic.getEnergyDescriptor(values)
     if energy then
-        local label = "Energy"
+        local label = "Energy Content"
         if debugMode then
-            label = string.format("Energy [%s kcal]", formatDebugNumber(values.kcal, 0))
+            label = string.format("Energy Content [%s kcal]", formatDebugNumber(values.kcal, 0))
         end
         rows[#rows + 1] = { label = label, value = energy }
     end
 
     local macro = TooltipLogic.getDominantMacroDescriptor(values)
-    if macro then
+    if macro and not visibility.exactNumbersVisible then
         local label = "Macro"
         if debugMode then
             label = string.format(
@@ -427,21 +602,107 @@ function TooltipLogic.buildFixtureSnapshot(item, viewer)
         visibility = visibility.reason,
         blocker = visibility.blocker,
         exactNumbersVisible = visibility.exactNumbersVisible,
-        descriptors = TooltipLogic.buildDescriptorRows(item),
+        descriptors = TooltipLogic.buildDescriptorRows(item, viewer),
     }
 end
 
+function TooltipLogic.injectDescriptorRowsIntoEmbeddedLayout(layout, item)
+    if not layout or not item or not TooltipLogic.isFoodItem(item) then
+        return false, "not_food"
+    end
+
+    local rows = TooltipLogic.buildDescriptorRows(item)
+    if #rows == 0 then
+        return false, "no_rows"
+    end
+
+    local items = getLayoutItems(layout)
+    if not items then
+        return false, "items_inaccessible"
+    end
+
+    local hungerLabel = getLabelPrefix("Tooltip_food_Hunger")
+    local firstFoodPrefixes = {
+        hungerLabel,
+        getLabelPrefix("Tooltip_food_Thirst"),
+        getLabelPrefix("Tooltip_food_Endurance"),
+        getLabelPrefix("Tooltip_food_Stress"),
+        getLabelPrefix("Tooltip_food_Boredom"),
+        getLabelPrefix("Tooltip_food_Unhappiness"),
+        getLabelPrefix("Tooltip_food_MinutesToCook"),
+        tostring(getText("IGUI_invpanel_Cooking") or "") .. ":",
+        tostring(getText("IGUI_invpanel_Burning") or "") .. ":",
+        tostring(getText("IGUI_invpanel_FreezingTime") or "") .. ":",
+        getLabelPrefix("Tooltip_food_Nutrition"),
+    }
+
+    local insertionIndex = nil
+    local hungerIndex = nil
+    local size = getListSize(items)
+
+    for index = 0, size - 1 do
+        local layoutItem = getListEntry(items, index)
+        if layoutItem then
+            if hungerIndex == nil and labelStartsWith(layoutItem, hungerLabel) then
+                hungerIndex = index
+            end
+            if insertionIndex == nil then
+                for _, prefix in ipairs(firstFoodPrefixes) do
+                    if labelStartsWith(layoutItem, prefix) then
+                        insertionIndex = index
+                        break
+                    end
+                end
+            end
+        end
+    end
+
+    if insertionIndex == nil then
+        insertionIndex = getListSize(items)
+    end
+
+    local rowInsertIndex = insertionIndex
+
+    if hungerIndex ~= nil then
+        rowInsertIndex = hungerIndex
+    end
+
+    for _, row in ipairs(rows) do
+        local layoutItem = addLayoutRow(layout, {
+            label = tostring(row.label) .. ":",
+            value = tostring(row.value),
+        })
+        if not layoutItem then
+            return false, "add_row_failed"
+        end
+
+        local sourceIndex = getListSize(items) - 1
+        if sourceIndex > rowInsertIndex then
+            if not bubbleLayoutItemToIndex(items, sourceIndex, rowInsertIndex) then
+                return false, "bubble_failed"
+            end
+        end
+        rowInsertIndex = rowInsertIndex + 1
+    end
+
+    if hungerIndex ~= nil then
+        local removalIndex = hungerIndex + #rows
+        removeListEntry(items, removalIndex)
+    end
+
+    return true, "embedded"
+end
+
 function TooltipLogic.appendDescriptorRowsToLayout(layout, item)
+    return TooltipLogic.appendDescriptorRowsToLayoutForViewer(layout, item, nil)
+end
+
+function TooltipLogic.appendDescriptorRowsToLayoutForViewer(layout, item, viewer)
     if not layout or not item or not TooltipLogic.isFoodItem(item) then
         return false
     end
 
-    local visibility = TooltipLogic.getVanillaNutritionVisibility(item)
-    if visibility.exactNumbersVisible then
-        return false
-    end
-
-    local rows = TooltipLogic.buildDescriptorRows(item)
+    local rows = TooltipLogic.buildDescriptorRows(item, viewer)
     if #rows == 0 then
         return false
     end
@@ -468,7 +729,8 @@ function TooltipLogic.appendDescriptorsToTooltip(tooltip, item)
     safeCall(layout, "setMinLabelWidth", 80)
     safeCall(layout, "setMinValueWidth", 80)
 
-    if not TooltipLogic.appendDescriptorRowsToLayout(layout, item) then
+    local viewer = safeCall(tooltip, "getCharacter")
+    if not TooltipLogic.appendDescriptorRowsToLayoutForViewer(layout, item, viewer) then
         safeCall(tooltip, "endLayout", layout)
         return false
     end

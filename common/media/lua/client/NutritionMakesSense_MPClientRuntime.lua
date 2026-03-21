@@ -461,9 +461,9 @@ local function applyLocalConsume(playerObj, item, consumedValues, fraction, reas
         Runtime.applyVisibleHungerTarget(playerObj, immediateHunger.targetVisibleHunger, (reason or "local-consume") .. "-hunger")
     end
 
-    local DevPanel = NutritionMakesSense.DevPanel
-    if DevPanel and type(DevPanel.noteConsumeEvent) == "function" then
-        DevPanel.noteConsumeEvent({
+    local DevSupport = NutritionMakesSense.DevSupport
+    if DevSupport and type(DevSupport.noteConsumeEvent) == "function" then
+        DevSupport.noteConsumeEvent({
             reason = reason or "local-consume",
             item = fullType,
             consume_source = resolveConsumeAuthoritySource(item),
@@ -490,6 +490,76 @@ local function applyLocalConsume(playerObj, item, consumedValues, fraction, reas
         tonumber(consumedValues.proteins or 0),
         tonumber(immediateHunger and immediateHunger.drop or 0)
     ))
+
+    local spices = safeCall(item, "getSpices")
+    local extraItems = safeCall(item, "getExtraItems")
+    local ingredientTypes = {}
+    if spices and safeCall(spices, "size") then
+        for i = 0, safeCall(spices, "size") - 1 do
+            ingredientTypes[#ingredientTypes + 1] = { type = tostring(safeCall(spices, "get", i) or "?"), role = "spice" }
+        end
+    end
+    if extraItems and safeCall(extraItems, "size") then
+        for i = 0, safeCall(extraItems, "size") - 1 do
+            ingredientTypes[#ingredientTypes + 1] = { type = tostring(safeCall(extraItems, "get", i) or "?"), role = "extra" }
+        end
+    end
+
+    if #ingredientTypes > 0 then
+        local sm = type(getScriptManager) == "function" and getScriptManager() or (ScriptManager and ScriptManager.instance)
+        local totalKcal, totalCarbs, totalFats, totalProt = 0, 0, 0, 0
+        local lines = {}
+        for _, ing in ipairs(ingredientTypes) do
+            local script = sm and safeCall(sm, "getItem", ing.type)
+            local kcal = script and tonumber(safeCall(script, "getCalories")) or nil
+            local carbs = script and tonumber(safeCall(script, "getCarbohydrates")) or nil
+            local fats = script and tonumber(safeCall(script, "getLipids")) or nil
+            local prot = script and tonumber(safeCall(script, "getProteins")) or nil
+            if kcal then totalKcal = totalKcal + kcal end
+            if carbs then totalCarbs = totalCarbs + carbs end
+            if fats then totalFats = totalFats + fats end
+            if prot then totalProt = totalProt + prot end
+            lines[#lines + 1] = string.format("  [%s] %s kcal=%.0f c=%.1f f=%.1f p=%.1f",
+                ing.role, ing.type,
+                tonumber(kcal or 0), tonumber(carbs or 0), tonumber(fats or 0), tonumber(prot or 0))
+        end
+        local baseScript = sm and safeCall(sm, "getItem", fullType)
+        local baseKcal = baseScript and tonumber(safeCall(baseScript, "getCalories")) or 0
+        local baseCarbs = baseScript and tonumber(safeCall(baseScript, "getCarbohydrates")) or 0
+        local baseFats = baseScript and tonumber(safeCall(baseScript, "getLipids")) or 0
+        local baseProt = baseScript and tonumber(safeCall(baseScript, "getProteins")) or 0
+
+        log("[LOCAL_CONSUME_RECIPE] item=" .. tostring(fullType) .. " ingredients=" .. #ingredientTypes)
+        log(string.format("[LOCAL_CONSUME_RECIPE]  [base] %s kcal=%.0f c=%.1f f=%.1f p=%.1f",
+            tostring(fullType), baseKcal, baseCarbs, baseFats, baseProt))
+        for _, line in ipairs(lines) do
+            log("[LOCAL_CONSUME_RECIPE]" .. line)
+        end
+        log(string.format("[LOCAL_CONSUME_RECIPE]  BASE+INGREDIENTS kcal=%.0f c=%.1f f=%.1f p=%.1f",
+            baseKcal + totalKcal, baseCarbs + totalCarbs, baseFats + totalFats, baseProt + totalProt))
+        log(string.format("[LOCAL_CONSUME_RECIPE]  NMS_CONSUMED     kcal=%.1f c=%.1f f=%.1f p=%.1f (fraction=%.3f)",
+            tonumber(consumedValues.kcal or 0), tonumber(consumedValues.carbs or 0),
+            tonumber(consumedValues.fats or 0), tonumber(consumedValues.proteins or 0),
+            tonumber(fraction or 0)))
+    end
+
+    local baseHunger = tonumber(safeCall(item, "getBaseHunger")) or nil
+    local hungChange = tonumber(safeCall(item, "getHungChange")) or nil
+    local calories = tonumber(safeCall(item, "getCalories"))
+    local carbs_raw = tonumber(safeCall(item, "getCarbohydrates"))
+    local lipids = tonumber(safeCall(item, "getLipids"))
+    local proteins_raw = tonumber(safeCall(item, "getProteins"))
+    local function fmtNum(v) if v == nil or v ~= v then return "NaN" end return tostring(v) end
+    if baseHunger or calories then
+        log(string.format(
+            "[LOCAL_CONSUME_RAW] item=%s baseHunger=%s hungChange=%s calories=%s carbs=%s lipids=%s proteins=%s",
+            tostring(fullType),
+            fmtNum(baseHunger), fmtNum(hungChange),
+            fmtNum(calories), fmtNum(carbs_raw),
+            fmtNum(lipids), fmtNum(proteins_raw)
+        ))
+    end
+
     return true
 end
 

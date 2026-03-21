@@ -1,14 +1,20 @@
 NutritionMakesSense = NutritionMakesSense or {}
 
 require "NutritionMakesSense_Boot"
+require "NutritionMakesSense_DevSupport"
 require "NutritionMakesSense_MPClientRuntime"
+require "NutritionMakesSense_ClientOptions"
 require "NutritionMakesSense_TooltipOverlay"
 require "NutritionMakesSense_ItemAuthority"
+require "NutritionMakesSense_HealthPanelHook"
+require "NutritionMakesSense_MalnourishedMoodle"
+require "NutritionMakesSense_WeightDisplayHook"
 
 local TAG = "[NutritionMakesSense]"
 local DEV_PANEL_HOTKEY = Keyboard and Keyboard.KEY_NUMPAD6 or nil
 local TOOL_PANEL_HOTKEY = Keyboard and Keyboard.KEY_NUMPAD7 or nil
 local TEST_PANEL_HOTKEY = Keyboard and Keyboard.KEY_NUMPAD8 or nil
+local DevSupport = NutritionMakesSense.DevSupport or {}
 
 local function log(msg)
     if NutritionMakesSense.log then
@@ -118,12 +124,12 @@ local function logFoodItemDebug(item)
     log("[FOOD_DEBUG] stored  " .. formatValues(stored))
 end
 
-local function tryLoadDevPanel()
-    if NutritionMakesSense.DevPanel then
+local function tryLoadDevModule(globalKey, requirePath, label)
+    if NutritionMakesSense[globalKey] then
         return true
     end
 
-    local ok, result = pcall(require, "dev/NutritionMakesSense_DevPanel")
+    local ok, result = pcall(require, requirePath)
     if ok then
         return true
     end
@@ -133,46 +139,20 @@ local function tryLoadDevPanel()
         return false
     end
 
-    logError("require DevPanel", err)
+    logError("require " .. tostring(label), err)
     return false
+end
+
+local function tryLoadDevPanel()
+    return tryLoadDevModule("DevPanel", "dev/NutritionMakesSense_DevPanel", "DevPanel")
 end
 
 local function tryLoadToolPanel()
-    if NutritionMakesSense.ToolPanel then
-        return true
-    end
-
-    local ok, result = pcall(require, "dev/NutritionMakesSense_ToolPanel")
-    if ok then
-        return true
-    end
-
-    local err = tostring(result)
-    if string.find(string.lower(err), "not found", 1, true) then
-        return false
-    end
-
-    logError("require ToolPanel", err)
-    return false
+    return tryLoadDevModule("ToolPanel", "dev/NutritionMakesSense_ToolPanel", "ToolPanel")
 end
 
 local function tryLoadTestPanel()
-    if NutritionMakesSense.TestPanel then
-        return true
-    end
-
-    local ok, result = pcall(require, "dev/NutritionMakesSense_TestPanel")
-    if ok then
-        return true
-    end
-
-    local err = tostring(result)
-    if string.find(string.lower(err), "not found", 1, true) then
-        return false
-    end
-
-    logError("require TestPanel", err)
-    return false
+    return tryLoadDevModule("TestPanel", "dev/NutritionMakesSense_TestPanel", "TestPanel")
 end
 
 local function canUseDevPanel()
@@ -180,74 +160,28 @@ local function canUseDevPanel()
         return false
     end
 
-    if type(isDebugEnabled) == "function" and isDebugEnabled() then
-        return true
-    end
-
-    local core = type(getCore) == "function" and getCore() or nil
-    if core and type(core.getDebug) == "function" then
-        local ok, enabled = pcall(core.getDebug, core)
-        if ok and enabled then
-            return true
-        end
-    end
-
-    if type(isClient) == "function" and isClient() and type(getAccessLevel) == "function" then
-        local ok, accessLevel = pcall(getAccessLevel)
-        if ok and (accessLevel == "admin" or accessLevel == "moderator") then
-            return true
-        end
-    end
-
-    return false
+    return DevSupport.canUseDevTools and DevSupport.canUseDevTools() or false
 end
 
-local function toggleDevPanel()
-    tryLoadDevPanel()
-    local DevPanel = NutritionMakesSense.DevPanel
-    if not DevPanel or type(DevPanel.toggle) ~= "function" then
-        log("dev panel unavailable")
+local function toggleLoadedPanel(tryLoad, globalKey, label)
+    tryLoad()
+    local panel = NutritionMakesSense[globalKey]
+    if not panel or type(panel.toggle) ~= "function" then
+        log(string.lower(tostring(label)) .. " unavailable")
         return
     end
 
-    local ok, err = pcall(DevPanel.toggle)
+    local ok, err = pcall(panel.toggle)
     if not ok then
-        logError("toggleDevPanel", err)
-    end
-end
-
-local function toggleToolPanel()
-    tryLoadToolPanel()
-    local ToolPanel = NutritionMakesSense.ToolPanel
-    if not ToolPanel or type(ToolPanel.toggle) ~= "function" then
-        log("tool panel unavailable")
-        return
-    end
-
-    local ok, err = pcall(ToolPanel.toggle)
-    if not ok then
-        logError("toggleToolPanel", err)
-    end
-end
-
-local function toggleTestPanel()
-    tryLoadTestPanel()
-    local TestPanel = NutritionMakesSense.TestPanel
-    if not TestPanel or type(TestPanel.toggle) ~= "function" then
-        log("test panel unavailable")
-        return
-    end
-
-    local ok, err = pcall(TestPanel.toggle)
-    if not ok then
-        logError("toggleTestPanel", err)
+        logError("toggle" .. tostring(label), err)
     end
 end
 
 local function onGameBoot()
-    tryLoadDevPanel()
-    tryLoadToolPanel()
-    tryLoadTestPanel()
+    if canUseDevPanel() then
+        tryLoadToolPanel()
+        tryLoadTestPanel()
+    end
     if DEV_PANEL_HOTKEY and NutritionMakesSense.DevPanel then
         log("dev panel hotkey available: Numpad 6")
     end
@@ -264,15 +198,15 @@ local function onKeyPressed(key)
         return
     end
     if DEV_PANEL_HOTKEY and key == DEV_PANEL_HOTKEY then
-        toggleDevPanel()
+        toggleLoadedPanel(tryLoadDevPanel, "DevPanel", "DevPanel")
         return
     end
     if TOOL_PANEL_HOTKEY and key == TOOL_PANEL_HOTKEY then
-        toggleToolPanel()
+        toggleLoadedPanel(tryLoadToolPanel, "ToolPanel", "ToolPanel")
         return
     end
     if TEST_PANEL_HOTKEY and key == TEST_PANEL_HOTKEY then
-        toggleTestPanel()
+        toggleLoadedPanel(tryLoadTestPanel, "TestPanel", "TestPanel")
     end
 end
 
@@ -283,9 +217,9 @@ local function onFillWorldObjectContextMenu(player, context, worldobjects, test)
     if test and ISWorldObjectContextMenu and ISWorldObjectContextMenu.Test then
         return true
     end
-    context:addDebugOption("NMS Dev Panel", nil, toggleDevPanel)
-    context:addDebugOption("NMS Tool Panel", nil, toggleToolPanel)
-    context:addDebugOption("NMS Test Panel", nil, toggleTestPanel)
+    context:addDebugOption("NMS Dev Panel", nil, function() toggleLoadedPanel(tryLoadDevPanel, "DevPanel", "DevPanel") end)
+    context:addDebugOption("NMS Tool Panel", nil, function() toggleLoadedPanel(tryLoadToolPanel, "ToolPanel", "ToolPanel") end)
+    context:addDebugOption("NMS Test Panel", nil, function() toggleLoadedPanel(tryLoadTestPanel, "TestPanel", "TestPanel") end)
 end
 
 local function onFillInventoryObjectContextMenu(player, context, items)
@@ -343,7 +277,7 @@ local function onMeleeAttackStart(character, chargeDelta, weapon)
         return
     end
 
-    local mult = Metabolism.getMeleeDamageMultiplier(state.visibleHunger)
+    local mult = Metabolism.getMeleeDamageMultiplier(state.deprivation)
     if mult >= 1.0 then
         return
     end

@@ -112,6 +112,13 @@ local function hasVanillaDynamicValues(item)
     if safeCall(item, "isCustomWeight") == true then
         return true
     end
+    local spices = safeCall(item, "getSpices")
+    if spices and safeCall(spices, "size") and safeCall(spices, "size") > 0 then
+        return true
+    end
+    if safeCall(item, "haveExtraItems") == true then
+        return true
+    end
     return false
 end
 
@@ -1180,6 +1187,9 @@ function ItemAuthority.getResolvedNutritionSource(item)
     if not entry or not fullType then
         return nil
     end
+    if resolveEntrySource(entry) == "authored" and hasVanillaDynamicValues(item) then
+        return nil
+    end
     return resolveEntrySource(entry)
 end
 
@@ -1328,9 +1338,9 @@ function ItemAuthority.seedComputedPayload(item, values, reason)
     local remainingFraction = resolveRemainingFraction(item, current, total)
     applySnapshot(item, buildAppliedSnapshot(total, remainingFraction))
 
-    local DevPanel = NutritionMakesSense.DevPanel
-    if DevPanel and type(DevPanel.noteSeedEvent) == "function" then
-        DevPanel.noteSeedEvent({
+    local DevSupport = NutritionMakesSense.DevSupport
+    if DevSupport and type(DevSupport.noteSeedEvent) == "function" then
+        DevSupport.noteSeedEvent({
             reason = reason or "computed-seed",
             item = fullType,
             kcal = total.kcal,
@@ -1397,9 +1407,9 @@ function ItemAuthority.accumulateComputedPayload(item, addedValues, reason)
     local remainingFraction = resolveRemainingFraction(item, current, combined)
     applySnapshot(item, buildAppliedSnapshot(combined, remainingFraction))
 
-    local DevPanel = NutritionMakesSense.DevPanel
-    if DevPanel and type(DevPanel.noteSeedEvent) == "function" then
-        DevPanel.noteSeedEvent({
+    local DevSupport = NutritionMakesSense.DevSupport
+    if DevSupport and type(DevSupport.noteSeedEvent) == "function" then
+        DevSupport.noteSeedEvent({
             reason = reason or "computed-accumulate",
             item = fullType,
             kcal = combined.kcal,

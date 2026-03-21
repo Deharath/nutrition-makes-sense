@@ -39,8 +39,6 @@ local C = {
     fuel     = { r = 0.86, g = 0.56, b = 0.22, a = 1.0 },
     hunger   = { r = 0.82, g = 0.36, b = 0.30, a = 1.0 },
     satiety  = { r = 0.36, g = 0.68, b = 0.82, a = 1.0 },
-    carbs    = { r = 0.95, g = 0.78, b = 0.28, a = 1.0 },
-    fats     = { r = 0.78, g = 0.42, b = 0.30, a = 1.0 },
     proteins = { r = 0.36, g = 0.76, b = 0.46, a = 1.0 },
     good     = { r = 0.38, g = 0.75, b = 0.42, a = 1.0 },
     warn     = { r = 0.93, g = 0.76, b = 0.27, a = 1.0 },
@@ -174,27 +172,21 @@ local function drawLabeledBar(self, y, fraction, color, label, valueText)
     return y + BAR_H + BAR_BOT_PAD
 end
 
-local function drawStackedMacroBar(self, y, carbs, fats, proteins)
-    local maxC = Metabolism.MACRO_MAX and Metabolism.MACRO_MAX.carbs or 1400
-    local maxF = Metabolism.MACRO_MAX and Metabolism.MACRO_MAX.fats or 420
-    local maxP = Metabolism.MACRO_MAX and Metabolism.MACRO_MAX.proteins or 350
-    local total = maxC + maxF + maxP
+local function drawProteinReserveBar(self, y, proteins)
+    local maxP = Metabolism.PROTEIN_MAX or 350
     local w = PANEL_W - PAD * 2
 
-    self:drawText("Reserves", PAD, y, C.label.r, C.label.g, C.label.b, C.label.a, FONT_S)
+    self:drawText("Protein Reserve", PAD, y, C.label.r, C.label.g, C.label.b, C.label.a, FONT_S)
     self:drawTextRight(
-        string.format("C:%s  F:%s  P:%s", fmt(carbs, 0), fmt(fats, 0), fmt(proteins, 0)),
+        string.format("%s / %s g", fmt(proteins, 0), fmt(maxP, 0)),
         PANEL_W - PAD, y, C.value.r, C.value.g, C.value.b, C.value.a, FONT_S)
     y = y + LINE_H + BAR_TOP_PAD
 
     self:drawRect(PAD, y, w, BAR_H, C.bar_bg.a, C.bar_bg.r, C.bar_bg.g, C.bar_bg.b)
-    local cw = math.floor(w * clamp(carbs / total, 0, 1))
-    local fw = math.floor(w * clamp(fats / total, 0, 1))
-    local pw = math.floor(w * clamp(proteins / total, 0, 1))
-    local x = PAD
-    if cw > 0 then self:drawRect(x, y, cw, BAR_H, 0.8, C.carbs.r, C.carbs.g, C.carbs.b); x = x + cw end
-    if fw > 0 then self:drawRect(x, y, fw, BAR_H, 0.8, C.fats.r, C.fats.g, C.fats.b); x = x + fw end
-    if pw > 0 then self:drawRect(x, y, pw, BAR_H, 0.8, C.proteins.r, C.proteins.g, C.proteins.b) end
+    local pw = math.floor(w * clamp(proteins / maxP, 0, 1))
+    if pw > 0 then
+        self:drawRect(PAD, y, pw, BAR_H, 0.8, C.proteins.r, C.proteins.g, C.proteins.b)
+    end
 
     return y + BAR_H + BAR_BOT_PAD
 end
@@ -205,19 +197,17 @@ local CSV_HEADER = table.concat({
     "elapsed_min", "game_min", "game_speed",
     "work_tier", "met_avg", "met_peak", "met_source",
     "visible_hunger", "visible_endurance", "visible_fatigue",
-    "nms_fuel", "nms_zone",
-    "nms_carbs", "nms_fats", "nms_proteins",
-    "nms_energy_balance", "nms_weight_kg", "nms_weight_trait",
+    "nms_fuel", "nms_zone", "nms_fuel_recovery",
+    "nms_proteins", "nms_weight_kg", "nms_weight_trait",
     "nms_weight_rate_kg_week", "nms_weight_controller",
     "nms_satiety_buffer", "nms_satiety_quality", "nms_satiety_return_factor",
     "nms_hunger_band", "nms_hunger_drop", "nms_hunger_mechanical",
     "nms_fuel_pressure", "nms_gate_mult", "nms_met_hunger_factor",
     "nms_passive_hunger_gain", "nms_burn_kcal", "nms_deposit_kcal",
-    "nms_extra_endurance",
-    "nms_carb_def", "nms_fat_def", "nms_protein_def",
-    "nms_carb_endurance_mult", "nms_fat_weight_mult", "nms_protein_heal_mult",
+    "nms_extra_endurance", "nms_end_regen_scale", "nms_end_depriv_drain",
+    "nms_protein_def", "nms_protein_heal_mult",
     "nms_exertion_mult",
-    "nms_deprivation_end", "nms_deprivation_fat", "nms_deprivation_melee",
+    "nms_deprivation", "nms_deprivation_end", "nms_deprivation_fat", "nms_deprivation_melee",
     "event_reason", "event_item", "event_fraction",
     "event_pre_hunger", "event_target_hunger",
     "event_kcal", "event_carbs", "event_fats", "event_proteins",
@@ -251,10 +241,8 @@ local function recordSample(snap)
         tostring(snap.fatigue or ""),
         tostring(s.fuel or ""),
         tostring(s.lastZone or ""),
-        tostring(s.carbs or ""),
-        tostring(s.fats or ""),
+        tostring(s.lastAcuteFuelRecoveryScale or ""),
         tostring(s.proteins or ""),
-        tostring(s.energyBalanceKcal or ""),
         tostring(s.weightKg or ""),
         tostring(s.lastWeightTrait or ""),
         tostring(s.lastWeightRateKgPerWeek or ""),
@@ -272,16 +260,15 @@ local function recordSample(snap)
         tostring(s.lastBurnKcal or ""),
         tostring(s.lastDepositKcal or ""),
         tostring(s.lastExtraEnduranceDrain or ""),
-        tostring(s.lastCarbDeficiency or ""),
-        tostring(s.lastFatDeficiency or ""),
+        tostring(s.lastEnduranceRegenScale or ""),
+        tostring(s.lastEnduranceDeprivDrain or ""),
         tostring(s.lastProteinDeficiency or ""),
-        tostring(s.lastCarbEnduranceMultiplier or ""),
-        tostring(s.lastFatWeightLossMultiplier or ""),
         tostring(s.lastProteinHealingMultiplier or ""),
         tostring(s.lastExertionMultiplier or ""),
-        tostring(Metabolism.getExertionPenaltyMultiplier(tonumber(s.visibleHunger) or 0)),
-        tostring(Metabolism.getFatigueAccelFactor(tonumber(s.visibleHunger) or 0)),
-        tostring(Metabolism.getMeleeDamageMultiplier(tonumber(s.visibleHunger) or 0)),
+        tostring(s.deprivation or 0),
+        tostring(Metabolism.getExertionPenaltyMultiplier(tonumber(s.deprivation) or 0)),
+        tostring(Metabolism.getFatigueAccelFactor(tonumber(s.deprivation) or 0)),
+        tostring(Metabolism.getMeleeDamageMultiplier(tonumber(s.deprivation) or 0)),
         tostring(ev and ev.reason or ""),
         tostring(ev and ev.item or ""),
         tostring(ev and ev.fraction or ""),
@@ -523,37 +510,28 @@ function NMS_DevOverlay:render()
     y = drawLabeledBar(self, y, fuel / fuelMax, zoneColor,
         zone, fmt(fuel, 0) .. " / " .. fmt(fuelMax, 0))
 
-    local balance = tonumber(s.energyBalanceKcal) or 0
-    local balColor = balance >= 0 and C.good or C.bad
+    local fuelRecovery = tonumber(s.lastAcuteFuelRecoveryScale) or 1
+    local recColor = fuelRecovery >= 0.98 and C.good or (fuelRecovery >= 0.92 and C.warn or C.bad)
     local burn = tonumber(s.lastBurnKcal) or 0
     local deposit = tonumber(s.lastDepositKcal) or 0
-    y = drawRow(self, y, "Balance",
-        string.format("%s kcal  burn:%s  dep:%s",
-            fmts(balance, 0), fmt(burn, 0), fmt(deposit, 0)), balColor)
+    y = drawRow(self, y, "Flow",
+        string.format("burn:%s kcal  dep:%s kcal", fmt(burn, 0), fmt(deposit, 0)))
+    y = drawRow(self, y, "Recovery",
+        string.format("endurance x%s", fmt(fuelRecovery, 2)), recColor)
 
-    ---------------------------------------------------------------- Macros
-    y = drawSection(self, y, "Macros")
-    local mc = tonumber(s.carbs) or 0
-    local mf = tonumber(s.fats) or 0
+    ---------------------------------------------------------------- Protein
+    y = drawSection(self, y, "Protein")
     local mp = tonumber(s.proteins) or 0
-    y = drawStackedMacroBar(self, y, mc, mf, mp)
+    y = drawProteinReserveBar(self, y, mp)
 
-    local cd = tonumber(s.lastCarbDeficiency) or 0
-    local fd = tonumber(s.lastFatDeficiency) or 0
     local pd = tonumber(s.lastProteinDeficiency) or 0
-    if cd > 0 or fd > 0 or pd > 0 then
-        y = drawRow(self, y, "Deficiency",
-            string.format("C:%s  F:%s  P:%s", pct(cd), pct(fd), pct(pd)), C.warn)
+    if pd > 0 then
+        y = drawRow(self, y, "Deficiency", pct(pd), C.warn)
     end
 
-    local carbEnd = tonumber(s.lastCarbEnduranceMultiplier) or 1
-    local fatWt = tonumber(s.lastFatWeightLossMultiplier) or 1
     local protHeal = tonumber(s.lastProteinHealingMultiplier) or 1
-    if math.abs(carbEnd - 1) > 0.005 or math.abs(fatWt - 1) > 0.005 or math.abs(protHeal - 1) > 0.005 then
-        y = drawRow(self, y, "Effects",
-            string.format("end:x%s  wt:x%s  heal:x%s",
-                fmt(carbEnd, 2), fmt(fatWt, 2), fmt(protHeal, 2)),
-            C.warn)
+    if math.abs(protHeal - 1) > 0.005 then
+        y = drawRow(self, y, "Healing", string.format("x%s", fmt(protHeal, 2)), C.warn)
     end
 
     ---------------------------------------------------------------- Body
@@ -584,16 +562,21 @@ function NMS_DevOverlay:render()
         pct(endurance), fmts(extraEnd, 4), fmt(exertion, 2)))
     y = drawRow(self, y, "Fatigue", pct(fatigue))
 
-    local hungerForPenalties = tonumber(s.visibleHunger) or 0
-    local endPenalty = Metabolism.getExertionPenaltyMultiplier(hungerForPenalties)
-    local fatAccel = Metabolism.getFatigueAccelFactor(hungerForPenalties)
-    local meleeMult = Metabolism.getMeleeDamageMultiplier(hungerForPenalties)
-    if endPenalty > 1.005 or fatAccel > 1.005 or meleeMult < 0.995 then
+    local deprivation = tonumber(s.deprivation) or 0
+    local endPenalty = Metabolism.getExertionPenaltyMultiplier(deprivation)
+    local fatAccel = Metabolism.getFatigueAccelFactor(deprivation)
+    local meleeMult = Metabolism.getMeleeDamageMultiplier(deprivation)
+    if deprivation > 0.01 or endPenalty > 1.005 then
         y = drawSection(self, y, "Deprivation")
-        y = drawRow(self, y, "Penalties",
-            string.format("end:x%s  fat:x%s  melee:x%s",
-                fmt(endPenalty, 2), fmt(fatAccel, 2), fmt(meleeMult, 2)),
-            C.warn)
+        local depColor = deprivation > 0.5 and C.bad or deprivation > 0.1 and C.warn or C.dim
+        y = drawLabeledBar(self, y, deprivation, depColor,
+            "Deprivation", fmt(deprivation, 3) .. " / 1.0")
+        if endPenalty > 1.005 or fatAccel > 1.005 or meleeMult < 0.995 then
+            y = drawRow(self, y, "Penalties",
+                string.format("end:x%s  fat:x%s  melee:x%s",
+                    fmt(endPenalty, 2), fmt(fatAccel, 2), fmt(meleeMult, 2)),
+                C.warn)
+        end
     end
 
     ---------------------------------------------------------------- Last Eat
@@ -668,6 +651,16 @@ end
 function NMS_DevPanel()
     local ok, err = pcall(DevPanel.toggle)
     if not ok then print("[NutritionMakesSense][ERROR] NMS_DevPanel: " .. tostring(err)) end
+end
+
+local function onTickSampler()
+    if recording then
+        DevPanel.sampleTick(false)
+    end
+end
+
+if Events and Events.OnTick and type(Events.OnTick.Add) == "function" then
+    Events.OnTick.Add(onTickSampler)
 end
 
 return DevPanel

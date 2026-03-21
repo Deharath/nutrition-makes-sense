@@ -451,15 +451,15 @@ NMS_FoodValues = {
     ["Base.Pepperoni"] = { hunger = -20, kcal = 500.0, carbs = 4.0, fats = 44.0, proteins = 20.0 }, -- pepperoni stick
     ["Base.Perogies"] = { hunger = -7, kcal = 320.0, carbs = 46.0, fats = 10.0, proteins = 10.0 }, -- pierogies
     ["Base.Pickles"] = { hunger = -6, kcal = 15.0, carbs = 3.0, fats = 0.0, proteins = 0.5 }, -- pickles
-    ["Base.Pie"] = { hunger = -30, kcal = 1400.0, carbs = 120.0, fats = 80.0, proteins = 35.0 }, -- savory pie
-    ["Base.PieApple"] = { hunger = -30, kcal = 1900.0, carbs = 280.0, fats = 80.0, proteins = 16.0 }, -- apple pie
-    ["Base.PieBlueberry"] = { hunger = -30, kcal = 1800.0, carbs = 270.0, fats = 72.0, proteins = 16.0 }, -- blueberry pie
-    ["Base.PieKeyLime"] = { hunger = -30, kcal = 2000.0, carbs = 250.0, fats = 100.0, proteins = 20.0 }, -- key lime pie
-    ["Base.PieLemonMeringue"] = { hunger = -30, kcal = 1750.0, carbs = 280.0, fats = 60.0, proteins = 18.0 }, -- lemon meringue pie
-    ["Base.PiePrep"] = { hunger = -14, kcal = 1500.0, carbs = 180.0, fats = 70.0, proteins = 18.0 }, -- REVIEW assembled raw pie
-    ["Base.PiePumpkin"] = { hunger = -30, kcal = 1600.0, carbs = 220.0, fats = 68.0, proteins = 20.0 }, -- pumpkin pie
-    ["Base.PieWholeRaw"] = { hunger = -14, kcal = 1400.0, carbs = 120.0, fats = 80.0, proteins = 35.0 }, -- REVIEW raw savory pie
-    ["Base.PieWholeRawSweet"] = { hunger = -14, kcal = 1600.0, carbs = 220.0, fats = 70.0, proteins = 16.0 }, -- REVIEW raw sweet pie
+    ["Base.Pie"] = { hunger = -30, kcal = 350.0, carbs = 30.0, fats = 20.0, proteins = 9.0 }, -- savory pie slice
+    ["Base.PieApple"] = { hunger = -30, kcal = 400.0, carbs = 58.0, fats = 17.0, proteins = 3.0 }, -- apple pie slice
+    ["Base.PieBlueberry"] = { hunger = -30, kcal = 370.0, carbs = 54.0, fats = 15.0, proteins = 3.0 }, -- blueberry pie slice
+    ["Base.PieKeyLime"] = { hunger = -30, kcal = 380.0, carbs = 48.0, fats = 19.0, proteins = 4.0 }, -- key lime pie slice
+    ["Base.PieLemonMeringue"] = { hunger = -30, kcal = 360.0, carbs = 56.0, fats = 13.0, proteins = 4.0 }, -- lemon meringue pie slice
+    ["Base.PiePrep"] = { hunger = -14, kcal = 300.0, carbs = 36.0, fats = 14.0, proteins = 4.0 }, -- REVIEW assembled raw pie slice
+    ["Base.PiePumpkin"] = { hunger = -30, kcal = 320.0, carbs = 44.0, fats = 14.0, proteins = 4.0 }, -- pumpkin pie slice
+    ["Base.PieWholeRaw"] = { hunger = -14, kcal = 280.0, carbs = 24.0, fats = 16.0, proteins = 7.0 }, -- REVIEW raw savory pie slice
+    ["Base.PieWholeRawSweet"] = { hunger = -14, kcal = 320.0, carbs = 44.0, fats = 14.0, proteins = 3.0 }, -- REVIEW raw sweet pie slice
     ["Base.Pig_Boar_Head_Black"] = { hunger = -14, kcal = 300, carbs = 0, fats = 18, proteins = 35 }, -- head meat (cheeks, tongue, brain)
     ["Base.Pig_Boar_Head_Pink"] = { hunger = -14, kcal = 300, carbs = 0, fats = 18, proteins = 35 }, -- head meat (cheeks, tongue, brain)
     ["Base.Pig_Piglet_Head_Black"] = { hunger = -10, kcal = 120, carbs = 0, fats = 7, proteins = 15 }, -- small head meat
@@ -7144,7 +7144,7 @@ NMS_FoodValues.__stablePatchReport = {
             review_priority = "medium",
             implementation_note = "stable direct food",
             semantic_evidence = "media/scripts/generated/items/food.txt: standalone food item with no fluid-container, open-state, or runtime-composition override",
-            notes = "Assumed to be a whole pie because separate raw whole-pie entries exist.",
+            notes = "Fixed: was whole pie, PZ item is a slice.",
         },
         {
             item_id = "Base.PieApple",
@@ -7158,7 +7158,7 @@ NMS_FoodValues.__stablePatchReport = {
             review_priority = "medium",
             implementation_note = "stable direct food",
             semantic_evidence = "media/scripts/generated/items/food.txt: standalone food item with no fluid-container, open-state, or runtime-composition override",
-            notes = "Assumed to be a whole pie because separate raw whole-pie entries exist.",
+            notes = "Fixed: was whole pie, PZ item is a slice.",
         },
         {
             item_id = "Base.PieBlueberry",
@@ -7172,7 +7172,7 @@ NMS_FoodValues.__stablePatchReport = {
             review_priority = "medium",
             implementation_note = "stable direct food",
             semantic_evidence = "media/scripts/generated/items/food.txt: standalone food item with no fluid-container, open-state, or runtime-composition override",
-            notes = "Assumed to be a whole pie because separate raw whole-pie entries exist.",
+            notes = "Fixed: was whole pie, PZ item is a slice.",
         },
         {
             item_id = "Base.PieKeyLime",
@@ -7186,7 +7186,7 @@ NMS_FoodValues.__stablePatchReport = {
             review_priority = "medium",
             implementation_note = "stable direct food",
             semantic_evidence = "media/scripts/generated/items/food.txt: standalone food item with no fluid-container, open-state, or runtime-composition override",
-            notes = "Assumed to be a whole pie because separate raw whole-pie entries exist.",
+            notes = "Fixed: was whole pie, PZ item is a slice.",
         },
         {
             item_id = "Base.PieLemonMeringue",
@@ -7200,7 +7200,7 @@ NMS_FoodValues.__stablePatchReport = {
             review_priority = "medium",
             implementation_note = "stable direct food",
             semantic_evidence = "media/scripts/generated/items/food.txt: standalone food item with no fluid-container, open-state, or runtime-composition override",
-            notes = "Assumed to be a whole pie because separate raw whole-pie entries exist.",
+            notes = "Fixed: was whole pie, PZ item is a slice.",
         },
         {
             item_id = "Base.PiePrep",
@@ -7214,7 +7214,7 @@ NMS_FoodValues.__stablePatchReport = {
             review_priority = "critical",
             implementation_note = "carrier/base item; do not treat as final nutrition row",
             semantic_evidence = "media/scripts/generated/items/food.txt: prep-state or intermediate container item used before final cooked output",
-            notes = "Raw dough/batter/scaffold item; authored as the edible mixture, not the finished cooked meal.",
+            notes = "Fixed: was whole pie, PZ item is a slice.",
         },
         {
             item_id = "Base.PiePumpkin",
@@ -7228,7 +7228,7 @@ NMS_FoodValues.__stablePatchReport = {
             review_priority = "medium",
             implementation_note = "stable direct food",
             semantic_evidence = "media/scripts/generated/items/food.txt: standalone food item with no fluid-container, open-state, or runtime-composition override",
-            notes = "Assumed to be a whole pie because separate raw whole-pie entries exist.",
+            notes = "Fixed: was whole pie, PZ item is a slice.",
         },
         {
             item_id = "Base.PieWholeRaw",
@@ -7242,7 +7242,7 @@ NMS_FoodValues.__stablePatchReport = {
             review_priority = "critical",
             implementation_note = "carrier/base item; do not treat as final nutrition row",
             semantic_evidence = "media/scripts/generated/items/food.txt: prep-state or intermediate container item used before final cooked output",
-            notes = "Raw dough/batter/scaffold item; authored as the edible mixture, not the finished cooked meal.",
+            notes = "Fixed: was whole pie, PZ item is a slice.",
         },
         {
             item_id = "Base.PieWholeRawSweet",
@@ -7256,7 +7256,7 @@ NMS_FoodValues.__stablePatchReport = {
             review_priority = "critical",
             implementation_note = "carrier/base item; do not treat as final nutrition row",
             semantic_evidence = "media/scripts/generated/items/food.txt: prep-state or intermediate container item used before final cooked output",
-            notes = "Raw dough/batter/scaffold item; authored as the edible mixture, not the finished cooked meal.",
+            notes = "Fixed: was whole pie, PZ item is a slice.",
         },
         {
             item_id = "Base.Pig_Boar_Head_Black",
@@ -25174,7 +25174,7 @@ NMS_FoodValues.__stablePatchReport = {
             implementation_note = "stable direct food",
             action_note = "patched at boot from curated authored values",
             semantic_evidence = "media/scripts/generated/items/food.txt: standalone food item with no fluid-container, open-state, or runtime-composition override",
-            notes = "Assumed to be a whole pie because separate raw whole-pie entries exist.",
+            notes = "Fixed: was whole pie, PZ item is a slice.",
             base_category = "Food / base:food",
             validation_flags = {
                 is_cookable = true,
@@ -25207,7 +25207,7 @@ NMS_FoodValues.__stablePatchReport = {
             implementation_note = "stable direct food",
             action_note = "patched at boot from curated authored values",
             semantic_evidence = "media/scripts/generated/items/food.txt: standalone food item with no fluid-container, open-state, or runtime-composition override",
-            notes = "Assumed to be a whole pie because separate raw whole-pie entries exist.",
+            notes = "Fixed: was whole pie, PZ item is a slice.",
             base_category = "Food / base:food",
             validation_flags = {
                 is_cookable = false,
@@ -25240,7 +25240,7 @@ NMS_FoodValues.__stablePatchReport = {
             implementation_note = "stable direct food",
             action_note = "patched at boot from curated authored values",
             semantic_evidence = "media/scripts/generated/items/food.txt: standalone food item with no fluid-container, open-state, or runtime-composition override",
-            notes = "Assumed to be a whole pie because separate raw whole-pie entries exist.",
+            notes = "Fixed: was whole pie, PZ item is a slice.",
             base_category = "Food / base:food",
             validation_flags = {
                 is_cookable = false,
@@ -25273,7 +25273,7 @@ NMS_FoodValues.__stablePatchReport = {
             implementation_note = "stable direct food",
             action_note = "patched at boot from curated authored values",
             semantic_evidence = "media/scripts/generated/items/food.txt: standalone food item with no fluid-container, open-state, or runtime-composition override",
-            notes = "Assumed to be a whole pie because separate raw whole-pie entries exist.",
+            notes = "Fixed: was whole pie, PZ item is a slice.",
             base_category = "Food / base:food",
             validation_flags = {
                 is_cookable = false,
@@ -25306,7 +25306,7 @@ NMS_FoodValues.__stablePatchReport = {
             implementation_note = "stable direct food",
             action_note = "patched at boot from curated authored values",
             semantic_evidence = "media/scripts/generated/items/food.txt: standalone food item with no fluid-container, open-state, or runtime-composition override",
-            notes = "Assumed to be a whole pie because separate raw whole-pie entries exist.",
+            notes = "Fixed: was whole pie, PZ item is a slice.",
             base_category = "Food / base:food",
             validation_flags = {
                 is_cookable = false,
@@ -25337,7 +25337,7 @@ NMS_FoodValues.__stablePatchReport = {
             implementation_note = "carrier/base item; do not treat as final nutrition row",
             action_note = "carrier/base item; do not treat as final nutrition row",
             semantic_evidence = "media/scripts/generated/items/food.txt: prep-state or intermediate container item used before final cooked output",
-            notes = "Raw dough/batter/scaffold item; authored as the edible mixture, not the finished cooked meal.",
+            notes = "Fixed: was whole pie, PZ item is a slice.",
             base_category = "Food / base:food",
             validation_flags = {
                 is_cookable = false,
@@ -25367,7 +25367,7 @@ NMS_FoodValues.__stablePatchReport = {
             implementation_note = "stable direct food",
             action_note = "patched at boot from curated authored values",
             semantic_evidence = "media/scripts/generated/items/food.txt: standalone food item with no fluid-container, open-state, or runtime-composition override",
-            notes = "Assumed to be a whole pie because separate raw whole-pie entries exist.",
+            notes = "Fixed: was whole pie, PZ item is a slice.",
             base_category = "Food / base:food",
             validation_flags = {
                 is_cookable = false,
@@ -25398,7 +25398,7 @@ NMS_FoodValues.__stablePatchReport = {
             implementation_note = "carrier/base item; do not treat as final nutrition row",
             action_note = "carrier/base item; do not treat as final nutrition row",
             semantic_evidence = "media/scripts/generated/items/food.txt: prep-state or intermediate container item used before final cooked output",
-            notes = "Raw dough/batter/scaffold item; authored as the edible mixture, not the finished cooked meal.",
+            notes = "Fixed: was whole pie, PZ item is a slice.",
             base_category = "Food / base:food",
             validation_flags = {
                 is_cookable = true,
@@ -25426,7 +25426,7 @@ NMS_FoodValues.__stablePatchReport = {
             implementation_note = "carrier/base item; do not treat as final nutrition row",
             action_note = "carrier/base item; do not treat as final nutrition row",
             semantic_evidence = "media/scripts/generated/items/food.txt: prep-state or intermediate container item used before final cooked output",
-            notes = "Raw dough/batter/scaffold item; authored as the edible mixture, not the finished cooked meal.",
+            notes = "Fixed: was whole pie, PZ item is a slice.",
             base_category = "Food / base:food",
             validation_flags = {
                 is_cookable = true,
