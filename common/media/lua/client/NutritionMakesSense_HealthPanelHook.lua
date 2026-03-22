@@ -1,7 +1,11 @@
 NutritionMakesSense = NutritionMakesSense or {}
 
-local Runtime = NutritionMakesSense.MetabolismRuntime or {}
+require "ui/NutritionMakesSense_UIHelpers"
+
 local Metabolism = NutritionMakesSense.Metabolism or {}
+local UIHelpers = NutritionMakesSense.UIHelpers or {}
+local HealthPanelHook = NutritionMakesSense.HealthPanelHook or {}
+NutritionMakesSense.HealthPanelHook = HealthPanelHook
 
 local UI_BORDER_SPACING = 10
 local FONT = UIFont.Small
@@ -13,52 +17,30 @@ local C_WARN = { r = 0.90, g = 0.75, b = 0.30, a = 1.0 }
 local C_BAD = { r = 0.90, g = 0.35, b = 0.30, a = 1.0 }
 local C_DIM = { r = 0.55, g = 0.58, b = 0.62, a = 0.85 }
 
-local function tr(key, fallback)
-    local text = getText and getText(key) or nil
-    if not text or text == key then
-        return fallback or key
-    end
-    return text
-end
-
-local function clamp(value, minValue, maxValue)
-    if value < minValue then return minValue end
-    if value > maxValue then return maxValue end
-    return value
-end
-
-local function formatPercent(value)
-    local numeric = tonumber(value) or 0
-    return string.format("%d%%", math.floor(numeric + 0.5))
-end
-
 local function getState(player)
-    if not player or not Runtime.getStateCopy then
-        return nil
-    end
-    return Runtime.getStateCopy(player)
+    return UIHelpers.getStateCopy(player)
 end
 
 local function getDeprivationSeverity(progress)
-    local p = clamp(tonumber(progress) or 0, 0, 1)
+    local p = UIHelpers.clamp(tonumber(progress) or 0, 0, 1)
     if p >= (2 / 3) then
-        return tr("UI_NMS_Deprivation_Severity_Severe", "Severe"), C_BAD
+        return UIHelpers.tr("UI_NMS_Deprivation_Severity_Severe", "Severe"), C_BAD
     end
     if p >= (1 / 3) then
-        return tr("UI_NMS_Deprivation_Severity_Moderate", "Moderate"), C_WARN
+        return UIHelpers.tr("UI_NMS_Deprivation_Severity_Moderate", "Moderate"), C_WARN
     end
-    return tr("UI_NMS_Deprivation_Severity_Mild", "Mild"), C_DIM
+    return UIHelpers.tr("UI_NMS_Deprivation_Severity_Mild", "Mild"), C_DIM
 end
 
 local function getDeprivationDirection(fuel, deprivation)
     local target = Metabolism.getDeprivationTarget and Metabolism.getDeprivationTarget(fuel) or deprivation
     if target > deprivation + 0.01 then
-        return tr("UI_NMS_Deprivation_Direction_Worsening", "Worsening")
+        return UIHelpers.tr("UI_NMS_Deprivation_Direction_Worsening", "Worsening")
     end
     if target < deprivation - 0.01 then
-        return tr("UI_NMS_Deprivation_Direction_Recovering", "Recovering")
+        return UIHelpers.tr("UI_NMS_Deprivation_Direction_Recovering", "Recovering")
     end
-    return tr("UI_NMS_Deprivation_Direction_Stable", "Stable")
+    return UIHelpers.tr("UI_NMS_Deprivation_Direction_Stable", "Stable")
 end
 
 local function collectLines(state)
@@ -87,16 +69,16 @@ local function collectLines(state)
     local hasFuelSection = false
     if zone == "Penalty" or zone == "Low" or acuteRecoveryPenalty >= 1 then
         hasFuelSection = true
-        lines[#lines + 1] = { text = tr("UI_NMS_Section_Fuel", "Energy Reserves"), color = C_HEADER }
+        lines[#lines + 1] = { text = UIHelpers.tr("UI_NMS_Section_Fuel", "Energy Reserves"), color = C_HEADER }
         if zone == "Penalty" then
-            lines[#lines + 1] = { text = tr("UI_NMS_Fuel_State_Depleted", "Depleted"), color = C_BAD }
+            lines[#lines + 1] = { text = UIHelpers.tr("UI_NMS_Fuel_State_Depleted", "Depleted"), color = C_BAD }
         elseif zone == "Low" then
-            lines[#lines + 1] = { text = tr("UI_NMS_Fuel_State_Low", "Low"), color = C_WARN }
+            lines[#lines + 1] = { text = UIHelpers.tr("UI_NMS_Fuel_State_Low", "Low"), color = C_WARN }
         end
     end
     if acuteRecoveryPenalty >= 1 then
         lines[#lines + 1] = {
-            text = tr("UI_NMS_Fuel_RecoveryPenalty", "Stamina Recovery") .. " -" .. formatPercent(acuteRecoveryPenalty),
+            text = UIHelpers.tr("UI_NMS_Fuel_RecoveryPenalty", "Stamina Recovery") .. " -" .. UIHelpers.formatPercent(acuteRecoveryPenalty),
             color = C_DIM,
         }
     end
@@ -108,7 +90,7 @@ local function collectLines(state)
         local progress = Metabolism.getDeprivationPenaltyProgress and Metabolism.getDeprivationPenaltyProgress(deprivation) or 0
         local severityText, severityColor = getDeprivationSeverity(progress)
         local directionText = getDeprivationDirection(fuel, deprivation)
-        lines[#lines + 1] = { text = tr("UI_NMS_Deprivation_Header", "Malnourishment"), color = C_HEADER }
+        lines[#lines + 1] = { text = UIHelpers.tr("UI_NMS_Deprivation_Header", "Malnourishment"), color = C_HEADER }
         lines[#lines + 1] = {
             text = severityText .. " | " .. directionText,
             color = severityColor,
@@ -119,7 +101,7 @@ local function collectLines(state)
             local regenPenalty = math.max(0, (1.0 - regenScale) * 100)
             if regenPenalty >= 1 then
                 lines[#lines + 1] = {
-                    text = tr("UI_NMS_Deprivation_EndurancePenalty", "Stamina Recovery") .. " -" .. formatPercent(regenPenalty),
+                    text = UIHelpers.tr("UI_NMS_Deprivation_EndurancePenalty", "Stamina Recovery") .. " -" .. UIHelpers.formatPercent(regenPenalty),
                     color = C_DIM,
                 }
             end
@@ -129,7 +111,7 @@ local function collectLines(state)
         local fatiguePenalty = math.max(0, (fatigueFactor - 1.0) * 100)
         if fatiguePenalty >= 1 then
             lines[#lines + 1] = {
-                text = tr("UI_NMS_Deprivation_FatiguePenalty", "Fatigue Rate") .. " +" .. formatPercent(fatiguePenalty),
+                text = UIHelpers.tr("UI_NMS_Deprivation_FatiguePenalty", "Fatigue Rate") .. " +" .. UIHelpers.formatPercent(fatiguePenalty),
                 color = C_DIM,
             }
         end
@@ -138,7 +120,7 @@ local function collectLines(state)
         local meleePenalty = math.max(0, (1.0 - meleeMultiplier) * 100)
         if meleePenalty >= 1 then
             lines[#lines + 1] = {
-                text = tr("UI_NMS_Deprivation_MeleePenalty", "Melee Damage") .. " -" .. formatPercent(meleePenalty),
+                text = UIHelpers.tr("UI_NMS_Deprivation_MeleePenalty", "Melee Damage") .. " -" .. UIHelpers.formatPercent(meleePenalty),
                 color = C_DIM,
             }
         end
@@ -146,8 +128,8 @@ local function collectLines(state)
 
     if proteinDef > 0.3 then
         local proteinColor = proteinDef >= 0.7 and C_BAD or C_WARN
-        lines[#lines + 1] = { text = tr("UI_NMS_Section_Protein", "Protein"), color = C_HEADER }
-        lines[#lines + 1] = { text = tr("UI_NMS_Protein_Low", "Low"), color = proteinColor }
+        lines[#lines + 1] = { text = UIHelpers.tr("UI_NMS_Section_Protein", "Protein"), color = C_HEADER }
+        lines[#lines + 1] = { text = UIHelpers.tr("UI_NMS_Protein_Low", "Low"), color = proteinColor }
 
         local healingMultiplier = tonumber(state.lastProteinHealingMultiplier)
         if healingMultiplier == nil and Metabolism.getProteinHealingMultiplier then
@@ -157,7 +139,7 @@ local function collectLines(state)
         local healingPenalty = math.max(0, (1.0 - healingMultiplier) * 100)
         if healingPenalty >= 1 then
             lines[#lines + 1] = {
-                text = tr("UI_NMS_Protein_HealingPenalty", "Wound Healing") .. " -" .. formatPercent(healingPenalty),
+                text = UIHelpers.tr("UI_NMS_Protein_HealingPenalty", "Wound Healing") .. " -" .. UIHelpers.formatPercent(healingPenalty),
                 color = C_DIM,
             }
         end
@@ -221,8 +203,18 @@ local function install()
     ISHealthPanel.render = hookedRender
 end
 
-if Events and Events.OnGameStart and type(Events.OnGameStart.Add) == "function" then
-    Events.OnGameStart.Add(install)
-else
+function HealthPanelHook.install()
+    if HealthPanelHook._installed then
+        return HealthPanelHook
+    end
+    HealthPanelHook._installed = true
+
+    if Events and Events.OnGameStart and type(Events.OnGameStart.Add) == "function" then
+        Events.OnGameStart.Add(install)
+    end
     install()
+
+    return HealthPanelHook
 end
+
+return HealthPanelHook

@@ -2,12 +2,14 @@ NutritionMakesSense = NutritionMakesSense or {}
 NutritionMakesSense.TestPanel = NutritionMakesSense.TestPanel or {}
 
 require "ISUI/ISTextEntryBox"
-require "NutritionMakesSense_LiveScenarioRunner"
+require "dev/NutritionMakesSense_LiveScenarioRunner"
+require "ui/NutritionMakesSense_UIHelpers"
 
 local TestPanel = NutritionMakesSense.TestPanel
 local Runtime = NutritionMakesSense.MetabolismRuntime or {}
 local Metabolism = NutritionMakesSense.Metabolism or {}
 local LiveRunner = NutritionMakesSense.LiveScenarioRunner or {}
+local UIHelpers = NutritionMakesSense.UIHelpers or {}
 
 local panelInstance = nil
 
@@ -36,13 +38,13 @@ local COL_BAR   = 280
 local BAR_W     = W - COL_BAR - PAD - 4
 
 local function getLocalPlayer()
-    if type(getPlayer) ~= "function" then return nil end
-    local ok, p = pcall(getPlayer)
-    return ok and p or nil
+    return (NutritionMakesSense.CoreUtils and NutritionMakesSense.CoreUtils.getLocalPlayer)
+        and NutritionMakesSense.CoreUtils.getLocalPlayer()
+        or nil
 end
 
 local function getState(player)
-    return player and Runtime.getStateCopy and Runtime.getStateCopy(player) or nil
+    return player and UIHelpers.getStateCopy and UIHelpers.getStateCopy(player) or nil
 end
 
 local function fmt(value, f)

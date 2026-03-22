@@ -1,11 +1,16 @@
 NutritionMakesSense = NutritionMakesSense or {}
 NutritionMakesSense.DevPanel = NutritionMakesSense.DevPanel or {}
 
+require "NutritionMakesSense_DevSupport"
+require "dev/panels/NutritionMakesSense_DevPanelSink"
+require "ui/NutritionMakesSense_UIHelpers"
+
 local DevPanel = NutritionMakesSense.DevPanel
 local MPClient = NutritionMakesSense.MPClientRuntime or {}
 local Runtime = NutritionMakesSense.MetabolismRuntime or {}
 local Metabolism = NutritionMakesSense.Metabolism or {}
 local ItemAuthority = NutritionMakesSense.ItemAuthority or {}
+local UIHelpers = NutritionMakesSense.UIHelpers or {}
 
 local panelInstance = nil
 local recording = false
@@ -70,14 +75,7 @@ local BAND_LABELS = {
     starving    = "Starving",
 }
 
-local function safeCall(target, methodName, ...)
-    if not target then return nil end
-    local method = target[methodName]
-    if type(method) ~= "function" then return nil end
-    local ok, result = pcall(method, target, ...)
-    if not ok then return nil end
-    return result
-end
+local safeCall = UIHelpers.safeCall
 
 local function clamp(v, lo, hi)
     local n = tonumber(v) or lo
@@ -87,9 +85,9 @@ local function clamp(v, lo, hi)
 end
 
 local function getLocalPlayer()
-    if type(getPlayer) ~= "function" then return nil end
-    local ok, p = pcall(getPlayer)
-    return ok and p or nil
+    return (NutritionMakesSense.CoreUtils and NutritionMakesSense.CoreUtils.getLocalPlayer)
+        and NutritionMakesSense.CoreUtils.getLocalPlayer()
+        or nil
 end
 
 local function getWorldAgeMinutes()
@@ -362,6 +360,10 @@ function DevPanel.noteSeedEvent(event)
     if type(event) ~= "table" or not recording then return end
     lastSampleGameMinute = getWorldAgeMinutes()
     recordSample(computeSnapshot())
+end
+
+if NutritionMakesSense.DevPanelSink and type(NutritionMakesSense.DevPanelSink.attach) == "function" then
+    NutritionMakesSense.DevPanelSink.attach(DevPanel)
 end
 
 function DevPanel.sampleTick(force)

@@ -18,6 +18,16 @@ end
 
 NutritionMakesSense.log = NutritionMakesSense.log or log
 
+if NutritionMakesSense.StableItemRuntime and type(NutritionMakesSense.StableItemRuntime.install) == "function" then
+    NutritionMakesSense.StableItemRuntime.install()
+end
+if NutritionMakesSense.ItemAuthority and type(NutritionMakesSense.ItemAuthority.install) == "function" then
+    NutritionMakesSense.ItemAuthority.install()
+end
+if NutritionMakesSense.MetabolismRuntime and type(NutritionMakesSense.MetabolismRuntime.install) == "function" then
+    NutritionMakesSense.MetabolismRuntime.install()
+end
+
 local function onGameBoot()
     local report = NutritionMakesSense.StablePatcher.ensurePatched("game-boot")
     log(string.format(

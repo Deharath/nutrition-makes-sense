@@ -72,17 +72,28 @@ function ClientOptions.getShowDebugFoodTooltips()
 end
 
 local function install()
-    ClientOptions.ensureRegistered()
+    if ClientOptions._installed then
+        return ClientOptions
+    end
+    ClientOptions._installed = true
+
+    if Events and Events.OnMainMenuEnter and type(Events.OnMainMenuEnter.Add) == "function" then
+        Events.OnMainMenuEnter.Add(function()
+            ClientOptions.ensureRegistered()
+        end)
+    end
+
+    if Events and Events.OnGameStart and type(Events.OnGameStart.Add) == "function" then
+        Events.OnGameStart.Add(function()
+            ClientOptions.ensureRegistered()
+        end)
+    else
+        ClientOptions.ensureRegistered()
+    end
+
+    return ClientOptions
 end
 
-if Events and Events.OnMainMenuEnter and type(Events.OnMainMenuEnter.Add) == "function" then
-    Events.OnMainMenuEnter.Add(install)
-end
-
-if Events and Events.OnGameStart and type(Events.OnGameStart.Add) == "function" then
-    Events.OnGameStart.Add(install)
-else
-    install()
-end
+ClientOptions.install = install
 
 return ClientOptions

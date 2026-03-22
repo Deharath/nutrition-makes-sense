@@ -1,6 +1,10 @@
 NutritionMakesSense = NutritionMakesSense or {}
 
-local Runtime = NutritionMakesSense.MetabolismRuntime or {}
+require "ui/NutritionMakesSense_UIHelpers"
+
+local UIHelpers = NutritionMakesSense.UIHelpers or {}
+local WeightDisplayHook = NutritionMakesSense.WeightDisplayHook or {}
+NutritionMakesSense.WeightDisplayHook = WeightDisplayHook
 
 local UI_BORDER_SPACING = 10
 local FONT = UIFont.Small
@@ -10,8 +14,7 @@ local smoothedRate = nil
 local SMOOTH_ALPHA = 0.08
 
 local function getState(player)
-    if not player or not Runtime.getStateCopy then return nil end
-    return Runtime.getStateCopy(player)
+    return UIHelpers.getStateCopy(player)
 end
 
 local originalRender = nil
@@ -46,8 +49,6 @@ local function hookedRender(self)
     local r, g, b
     if math.abs(rate) < 0.05 then
         r, g, b = 0.55, 0.60, 0.65
-    elseif rate > 0 then
-        r, g, b = 0.85, 0.60, 0.25
     else
         r, g, b = 0.85, 0.60, 0.25
     end
@@ -63,8 +64,14 @@ local function install()
     ISCharacterScreen.render = hookedRender
 end
 
-if Events and Events.OnGameStart and type(Events.OnGameStart.Add) == "function" then
-    Events.OnGameStart.Add(install)
-else
+function WeightDisplayHook.install()
+    if WeightDisplayHook._installed then
+        return WeightDisplayHook
+    end
+    WeightDisplayHook._installed = true
     install()
+
+    return WeightDisplayHook
 end
+
+return WeightDisplayHook

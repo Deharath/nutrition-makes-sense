@@ -160,7 +160,6 @@ local LIVE_PROFILES = {
         },
         consumptionMode = "signal_sequence",
         signalThreshold = "peckish",
-        preserveSignalThresholdDuringWorkInterrupt = true,
         minGapHours = 0.5,
         phases = CANONICAL_DAY_PHASES,
         items = {

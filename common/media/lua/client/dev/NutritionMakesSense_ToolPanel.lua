@@ -2,12 +2,14 @@ NutritionMakesSense = NutritionMakesSense or {}
 NutritionMakesSense.ToolPanel = NutritionMakesSense.ToolPanel or {}
 
 require "ISUI/ISTextEntryBox"
-require "NutritionMakesSense_SimRunner"
+require "dev/NutritionMakesSense_SimRunner"
+require "ui/NutritionMakesSense_UIHelpers"
 
 local ToolPanel = NutritionMakesSense.ToolPanel
 local Runtime = NutritionMakesSense.MetabolismRuntime or {}
 local Metabolism = NutritionMakesSense.Metabolism or {}
 local SimRunner = NutritionMakesSense.SimRunner or {}
+local UIHelpers = NutritionMakesSense.UIHelpers or {}
 
 local panelInstance = nil
 
@@ -73,18 +75,12 @@ local VANILLA_FIELDS = {
     { key = "fatigue",   label = "Fatigue",   enum = "FATIGUE",   setter = "setFatigue",   fmt = "%.3f" },
 }
 
-local function safeCall(target, method, ...)
-    if not target then return nil end
-    local fn = target[method]
-    if type(fn) ~= "function" then return nil end
-    local ok, r = pcall(fn, target, ...)
-    return ok and r or nil
-end
+local safeCall = UIHelpers.safeCall
 
 local function getLocalPlayer()
-    if type(getPlayer) ~= "function" then return nil end
-    local ok, p = pcall(getPlayer)
-    return ok and p or nil
+    return (NutritionMakesSense.CoreUtils and NutritionMakesSense.CoreUtils.getLocalPlayer)
+        and NutritionMakesSense.CoreUtils.getLocalPlayer()
+        or nil
 end
 
 local function getStats(player)

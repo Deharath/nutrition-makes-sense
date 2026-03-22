@@ -9,10 +9,15 @@ require "NutritionMakesSense_Boot"
 require "NutritionMakesSense_MPCompat"
 require "NutritionMakesSense_ItemAuthority"
 require "NutritionMakesSense_MetabolismRuntime"
+require "NutritionMakesSense_CoreUtils"
+
+local MPServerRuntime = NutritionMakesSense.MPServerRuntime or {}
+NutritionMakesSense.MPServerRuntime = MPServerRuntime
 
 local MP = NutritionMakesSense.MP or {}
 local Runtime = NutritionMakesSense.MetabolismRuntime or {}
 local ItemAuthority = NutritionMakesSense.ItemAuthority or {}
+local CoreUtils = NutritionMakesSense.CoreUtils or {}
 local serverReadyLogged = false
 local recentEventsByPlayer = {}
 local MAX_RECENT_EVENTS = 32
@@ -26,61 +31,14 @@ local function log(msg)
     end
 end
 
-local function safeCall(target, methodName, ...)
-    if not target then
-        return nil
-    end
-
-    local method = target[methodName]
-    if type(method) ~= "function" then
-        return nil
-    end
-
-    local ok, result = pcall(method, target, ...)
-    if not ok then
-        return nil
-    end
-
-    return result
-end
-
-local function normalizeConsumeFraction(value)
-    local requested = tonumber(value)
-    if requested == nil or requested ~= requested then
-        return nil, nil, false
-    end
-
-    if requested <= 0 then
-        return requested, 0, false
-    end
-
-    local applied = requested
-    local clamped = false
-    if applied > 1 then
-        applied = 1
-        clamped = true
-    end
-
-    return requested, applied, clamped
-end
+local safeCall = CoreUtils.safeCall
+local getPlayerLabel = CoreUtils.getPlayerLabel
+local eachKnownPlayer = CoreUtils.eachKnownPlayer
+local normalizeConsumeFraction = CoreUtils.normalizeUnitFraction
+local resolveInventoryItem = CoreUtils.resolveInventoryItemById
 
 local function getPlayerKey(playerObj)
-    local username = safeCall(playerObj, "getUsername")
-    if username and username ~= "" then
-        return tostring(username)
-    end
-
-    local onlineId = safeCall(playerObj, "getOnlineID")
-    if onlineId ~= nil then
-        return tostring(onlineId)
-    end
-
-    local displayName = safeCall(playerObj, "getDisplayName")
-    if displayName and displayName ~= "" then
-        return tostring(displayName)
-    end
-
-    return tostring(playerObj)
+    return getPlayerLabel(playerObj)
 end
 
 local function loadPersistedRecentEvents(playerObj)
@@ -167,40 +125,6 @@ local function rememberRecentEvent(playerObj, playerKey, eventId)
     end
 
     persistRecentEvents(playerObj, bucket)
-end
-
-local function resolveInventoryItem(playerObj, itemId)
-    local inventory = playerObj and safeCall(playerObj, "getInventory") or nil
-    if not inventory or itemId == nil then
-        return nil
-    end
-
-    local item = safeCall(inventory, "getItemWithID", itemId)
-    if item then
-        return item
-    end
-
-    item = safeCall(inventory, "getItemById", itemId)
-    if item then
-        return item
-    end
-
-    return safeCall(inventory, "getItemWithIDRecursiv", itemId)
-end
-
-local function eachOnlinePlayer(callback)
-    if type(callback) ~= "function" or type(getOnlinePlayers) ~= "function" then
-        return
-    end
-
-    local players = getOnlinePlayers()
-    local count = tonumber(players and safeCall(players, "size")) or 0
-    for index = 0, count - 1 do
-        local playerObj = safeCall(players, "get", index)
-        if playerObj then
-            callback(playerObj, index)
-        end
-    end
 end
 
 local function buildConsumedSnapshot(values)
@@ -415,22 +339,38 @@ local function onServerStarted()
 end
 
 local function onEveryOneMinute()
-    eachOnlinePlayer(function(playerObj)
+    eachKnownPlayer(function(playerObj)
         sendStateSnapshot(playerObj, "minute-sync")
     end)
 end
 
-if Events then
-    if Events.OnClientCommand and type(Events.OnClientCommand.Add) == "function" then
-        Events.OnClientCommand.Add(onClientCommand)
+function MPServerRuntime.install()
+    local ServerRuntime = MPServerRuntime
+    if not runningOnServer or not ServerRuntime then
+        return ServerRuntime
     end
-    if Events.OnCreatePlayer and type(Events.OnCreatePlayer.Add) == "function" then
-        Events.OnCreatePlayer.Add(onCreatePlayer)
+
+    if ServerRuntime._installed then
+        return ServerRuntime
     end
-    if Events.OnServerStarted and type(Events.OnServerStarted.Add) == "function" then
-        Events.OnServerStarted.Add(onServerStarted)
+    ServerRuntime._installed = true
+
+    if Events then
+        if Events.OnClientCommand and type(Events.OnClientCommand.Add) == "function" then
+            Events.OnClientCommand.Add(onClientCommand)
+        end
+        if Events.OnCreatePlayer and type(Events.OnCreatePlayer.Add) == "function" then
+            Events.OnCreatePlayer.Add(onCreatePlayer)
+        end
+        if Events.OnServerStarted and type(Events.OnServerStarted.Add) == "function" then
+            Events.OnServerStarted.Add(onServerStarted)
+        end
+        if Events.EveryOneMinute and type(Events.EveryOneMinute.Add) == "function" then
+            Events.EveryOneMinute.Add(onEveryOneMinute)
+        end
     end
-    if Events.EveryOneMinute and type(Events.EveryOneMinute.Add) == "function" then
-        Events.EveryOneMinute.Add(onEveryOneMinute)
-    end
+
+    return ServerRuntime
 end
+
+return MPServerRuntime

@@ -1,17 +1,15 @@
 NutritionMakesSense = NutritionMakesSense or {}
 
+require "NutritionMakesSense_CoreUtils"
 require "NutritionMakesSense_TooltipLogic"
 
 local TooltipOverlay = NutritionMakesSense.TooltipOverlay or {}
 NutritionMakesSense.TooltipOverlay = TooltipOverlay
 
-if TooltipOverlay._installed then
-    return TooltipOverlay
-end
-TooltipOverlay._installed = true
-
-local TooltipLogic = NutritionMakesSense.TooltipLogic
+local CoreUtils = NutritionMakesSense.CoreUtils or {}
+local TooltipLogic = NutritionMakesSense.TooltipLogic or {}
 local loggedMessages = {}
+local safeCall = CoreUtils.safeCall
 
 local function logOnce(key, message)
     if loggedMessages[key] then
@@ -21,47 +19,6 @@ local function logOnce(key, message)
     if NutritionMakesSense.log then
         NutritionMakesSense.log(message)
     end
-end
-
-local function safeCall(target, methodName, ...)
-    if not target then
-        return nil
-    end
-
-    local method = target[methodName]
-    if type(method) ~= "function" then
-        return nil
-    end
-
-    local ok, result = pcall(method, target, ...)
-    if not ok then
-        return nil
-    end
-
-    return result
-end
-
-local function getTooltipPadding(tooltip)
-    local padLeft = tonumber(tooltip and tooltip.padLeft)
-    local padRight = tonumber(tooltip and tooltip.padRight)
-    local padTop = tonumber(tooltip and tooltip.padTop)
-    local padBottom = tonumber(tooltip and tooltip.padBottom)
-    if padLeft and padRight and padTop and padBottom then
-        return padLeft, padRight, padTop, padBottom
-    end
-
-    local font = tooltip and safeCall(tooltip, "getFont") or nil
-    local textManager = _G.TextManager and TextManager.instance or nil
-    local charWidth = tonumber(textManager and font and safeCall(textManager, "MeasureStringX", font, "1") or nil) or 5
-    if charWidth < 1 then
-        charWidth = 5
-    end
-    charWidth = charWidth + 2
-    local verticalPad = math.floor(charWidth / 2)
-    if verticalPad < 1 then
-        verticalPad = 2
-    end
-    return charWidth + 1, charWidth, verticalPad, verticalPad
 end
 
 local function addLayoutTextRow(layout, label, value)
@@ -174,7 +131,7 @@ local function renderTooltipLayoutForItem(item, tooltip, originalDoTooltip)
         safeCall(layout, "setMinLabelWidth", 80)
         safeCall(layout, "setMinValueWidth", 80)
 
-        local padLeft, _, padTop, padBottom = getTooltipPadding(tooltip)
+        local padLeft, _, padTop, padBottom = TooltipLogic.getTooltipPadding(tooltip)
         local lineSpacing = tonumber(safeCall(tooltip, "getLineSpacing")) or 14
         local top = padTop
         local font = safeCall(tooltip, "getFont")
@@ -218,15 +175,6 @@ local function renderTooltipLayoutForItem(item, tooltip, originalDoTooltip)
     end
 
     return true
-end
-
-function TooltipOverlay.renderItemTooltip(item, tooltip)
-    if item then
-        if not renderTooltipLayoutForItem(item, tooltip) then
-            item:DoTooltip(tooltip)
-            TooltipLogic.appendDescriptorsToTooltip(tooltip, item)
-        end
-    end
 end
 
 local function getItemIndexTable(item)
@@ -315,15 +263,23 @@ local function patchItemSlotTooltip()
     end
 end
 
-local function install()
+function TooltipOverlay.install()
+    if TooltipOverlay._installed then
+        return TooltipOverlay
+    end
+    TooltipOverlay._installed = true
+
     patchInventoryTooltip()
     patchItemSlotTooltip()
-end
 
-install()
+    if Events and Events.OnGameBoot and type(Events.OnGameBoot.Add) == "function" then
+        Events.OnGameBoot.Add(function()
+            patchInventoryTooltip()
+            patchItemSlotTooltip()
+        end)
+    end
 
-if Events and Events.OnGameBoot and type(Events.OnGameBoot.Add) == "function" then
-    Events.OnGameBoot.Add(install)
+    return TooltipOverlay
 end
 
 return TooltipOverlay

@@ -3,6 +3,9 @@ NutritionMakesSense = NutritionMakesSense or {}
 local DevSupport = NutritionMakesSense.DevSupport or {}
 NutritionMakesSense.DevSupport = DevSupport
 
+local eventSinks = DevSupport._eventSinks or {}
+DevSupport._eventSinks = eventSinks
+
 local function isDebugLaunch()
     if type(isDebugEnabled) == "function" and isDebugEnabled() then
         return true
@@ -38,26 +41,67 @@ function DevSupport.canUseDevTools()
     return false
 end
 
-local function resolveDevPanel()
-    local panel = NutritionMakesSense and NutritionMakesSense.DevPanel or nil
-    if not panel or type(panel) ~= "table" then
+local function normalizeSink(sink)
+    if type(sink) ~= "table" then
         return nil
     end
-    return panel
+
+    if type(sink.noteConsumeEvent) ~= "function" and type(sink.noteSeedEvent) ~= "function" then
+        return nil
+    end
+
+    return sink
+end
+
+function DevSupport.registerEventSink(name, sink)
+    local key = tostring(name or "")
+    if key == "" then
+        return false
+    end
+
+    local normalized = normalizeSink(sink)
+    if not normalized then
+        return false
+    end
+
+    eventSinks[key] = normalized
+    return true
+end
+
+function DevSupport.unregisterEventSink(name)
+    local key = tostring(name or "")
+    if key == "" then
+        return false
+    end
+
+    local existed = eventSinks[key] ~= nil
+    eventSinks[key] = nil
+    return existed
+end
+
+function DevSupport.getEventSinkCount()
+    local count = 0
+    for _, _ in pairs(eventSinks) do
+        count = count + 1
+    end
+    return count
+end
+
+local function dispatchEvent(methodName, event)
+    for _, sink in pairs(eventSinks) do
+        local handler = sink and sink[methodName] or nil
+        if type(handler) == "function" then
+            pcall(handler, sink, event)
+        end
+    end
 end
 
 function DevSupport.noteConsumeEvent(event)
-    local panel = resolveDevPanel()
-    if panel and type(panel.noteConsumeEvent) == "function" then
-        panel.noteConsumeEvent(event)
-    end
+    dispatchEvent("noteConsumeEvent", event)
 end
 
 function DevSupport.noteSeedEvent(event)
-    local panel = resolveDevPanel()
-    if panel and type(panel.noteSeedEvent) == "function" then
-        panel.noteSeedEvent(event)
-    end
+    dispatchEvent("noteSeedEvent", event)
 end
 
 return DevSupport

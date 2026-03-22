@@ -1,7 +1,9 @@
 NutritionMakesSense = NutritionMakesSense or {}
 
-local Runtime = NutritionMakesSense.MetabolismRuntime or {}
+require "ui/NutritionMakesSense_UIHelpers"
+
 local Metabolism = NutritionMakesSense.Metabolism or {}
+local UIHelpers = NutritionMakesSense.UIHelpers or {}
 
 local MoodleUI = {}
 NutritionMakesSense.MalnourishedMoodle = MoodleUI
@@ -60,10 +62,7 @@ local function clamp(value, minValue, maxValue)
 end
 
 local function getPlayerState(player)
-    if not player or not Runtime.getStateCopy then
-        return nil
-    end
-    return Runtime.getStateCopy(player)
+    return UIHelpers.getStateCopy(player)
 end
 
 local function getValueAndLevel(player)
@@ -421,15 +420,27 @@ local function install()
     end
 end
 
-if Events and Events.OnGameStart then
-    Events.OnGameStart.Add(install)
+function MoodleUI.install()
+    if MoodleUI._installed then
+        return MoodleUI
+    end
+    MoodleUI._installed = true
+
+    if Events and Events.OnGameStart then
+        Events.OnGameStart.Add(install)
+    end
+    if Events and Events.OnCreatePlayer then
+        Events.OnCreatePlayer.Add(onCreatePlayer)
+    end
+    if Events and Events.OnPlayerUpdate then
+        Events.OnPlayerUpdate.Add(onPlayerUpdate)
+    end
+    if Events and Events.OnGameExit then
+        Events.OnGameExit.Add(cleanup)
+    end
+
+    install()
+    return MoodleUI
 end
-if Events and Events.OnCreatePlayer then
-    Events.OnCreatePlayer.Add(onCreatePlayer)
-end
-if Events and Events.OnPlayerUpdate then
-    Events.OnPlayerUpdate.Add(onPlayerUpdate)
-end
-if Events and Events.OnGameExit then
-    Events.OnGameExit.Add(cleanup)
-end
+
+return MoodleUI

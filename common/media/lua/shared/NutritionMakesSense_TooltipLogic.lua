@@ -2,42 +2,17 @@ NutritionMakesSense = NutritionMakesSense or {}
 
 require "NutritionMakesSense_ItemAuthority"
 require "NutritionMakesSense_Metabolism"
+require "NutritionMakesSense_CoreUtils"
 
 local TooltipLogic = NutritionMakesSense.TooltipLogic or {}
 NutritionMakesSense.TooltipLogic = TooltipLogic
 local Metabolism = NutritionMakesSense.Metabolism
+local CoreUtils = NutritionMakesSense.CoreUtils or {}
 
 local TT_LABEL_DEFAULT = { 1.0, 1.0, 0.8, 1.0 }
 local TT_VALUE_DEFAULT = { 1.0, 1.0, 1.0, 1.0 }
 
-local function safeCall(target, methodName, ...)
-    if not target then
-        return nil
-    end
-
-    local method = target[methodName]
-    if type(method) ~= "function" then
-        return nil
-    end
-
-    local ok, result = pcall(method, target, ...)
-    if not ok then
-        return nil
-    end
-
-    return result
-end
-
-local function clamp(value, minValue, maxValue)
-    local numeric = tonumber(value) or minValue
-    if numeric < minValue then
-        return minValue
-    end
-    if numeric > maxValue then
-        return maxValue
-    end
-    return numeric
-end
+local safeCall = CoreUtils.safeCall
 
 local function getTooltipPadding(tooltip)
     local padLeft = tonumber(tooltip and tooltip.padLeft)
@@ -79,82 +54,6 @@ local function addLayoutRow(layout, payload)
     return layoutItem
 end
 
-local function getLayoutItems(layout)
-    if not layout then
-        return nil
-    end
-
-    local items = layout.items
-    if items ~= nil then
-        return items
-    end
-    if type(layout) == "table" then
-        return layout["items"]
-    end
-    return nil
-end
-
-local function getListSize(list)
-    if not list then
-        return 0
-    end
-
-    local size = safeCall(list, "size")
-    if size ~= nil then
-        return tonumber(size) or 0
-    end
-
-    return tonumber(#list) or 0
-end
-
-local function getListEntry(list, index)
-    if not list then
-        return nil
-    end
-
-    local entry = safeCall(list, "get", index)
-    if entry ~= nil then
-        return entry
-    end
-
-    return list[index + 1]
-end
-
-local function removeListEntry(list, index)
-    if not list then
-        return nil
-    end
-
-    local removed = safeCall(list, "remove", index)
-    if removed ~= nil then
-        return removed
-    end
-
-    if type(list) == "table" then
-        return table.remove(list, index + 1)
-    end
-
-    return nil
-end
-
-local function insertListEntry(list, index, entry)
-    if not list or entry == nil then
-        return false
-    end
-
-    local inserted = safeCall(list, "add", index, entry)
-    if inserted ~= nil then
-        return true
-    end
-
-    if type(list) == "table" then
-        table.insert(list, index + 1, entry)
-        return true
-    end
-
-    return false
-end
-
 local function rawLookup(tableLike, key)
     if not tableLike then
         return nil
@@ -176,92 +75,6 @@ local function getModData(item)
         return nil
     end
     return safeCall(item, "getModData") or item.modData
-end
-
-local function getLabelPrefix(textKey)
-    return tostring(getText(textKey) or "") .. ":"
-end
-
-local function labelStartsWith(layoutItem, prefix)
-    local label = tostring(layoutItem and layoutItem.label or "")
-    return prefix ~= "" and label:sub(1, #prefix) == prefix
-end
-
-local LAYOUT_ITEM_FIELDS = {
-    "label",
-    "r0",
-    "g0",
-    "b0",
-    "a0",
-    "hasValue",
-    "couldHaveValue",
-    "value",
-    "rightJustify",
-    "r1",
-    "g1",
-    "b1",
-    "a1",
-    "progressFraction",
-    "labelWidth",
-    "valueWidth",
-    "valueWidthRight",
-    "progressWidth",
-    "height",
-}
-
-local function snapshotLayoutItem(layoutItem)
-    if not layoutItem then
-        return nil
-    end
-
-    local snapshot = {}
-    for _, fieldName in ipairs(LAYOUT_ITEM_FIELDS) do
-        snapshot[fieldName] = layoutItem[fieldName]
-    end
-    return snapshot
-end
-
-local function applyLayoutItemSnapshot(layoutItem, snapshot)
-    if not layoutItem or not snapshot then
-        return false
-    end
-
-    for _, fieldName in ipairs(LAYOUT_ITEM_FIELDS) do
-        layoutItem[fieldName] = snapshot[fieldName]
-    end
-    return true
-end
-
-local function bubbleLayoutItemToIndex(items, sourceIndex, targetIndex)
-    if not items or sourceIndex == nil or targetIndex == nil or sourceIndex <= targetIndex then
-        return false
-    end
-
-    local movingItem = getListEntry(items, sourceIndex)
-    if not movingItem then
-        return false
-    end
-
-    local movingSnapshot = snapshotLayoutItem(movingItem)
-    if not movingSnapshot then
-        return false
-    end
-
-    for index = sourceIndex, targetIndex + 1, -1 do
-        local current = getListEntry(items, index)
-        local previous = getListEntry(items, index - 1)
-        if current and previous then
-            applyLayoutItemSnapshot(current, snapshotLayoutItem(previous))
-        end
-    end
-
-    local targetItem = getListEntry(items, targetIndex)
-    if not targetItem then
-        return false
-    end
-
-    applyLayoutItemSnapshot(targetItem, movingSnapshot)
-    return true
 end
 
 local function hasTrait(character, traitName, traitEnum)
@@ -606,93 +419,6 @@ function TooltipLogic.buildFixtureSnapshot(item, viewer)
     }
 end
 
-function TooltipLogic.injectDescriptorRowsIntoEmbeddedLayout(layout, item)
-    if not layout or not item or not TooltipLogic.isFoodItem(item) then
-        return false, "not_food"
-    end
-
-    local rows = TooltipLogic.buildDescriptorRows(item)
-    if #rows == 0 then
-        return false, "no_rows"
-    end
-
-    local items = getLayoutItems(layout)
-    if not items then
-        return false, "items_inaccessible"
-    end
-
-    local hungerLabel = getLabelPrefix("Tooltip_food_Hunger")
-    local firstFoodPrefixes = {
-        hungerLabel,
-        getLabelPrefix("Tooltip_food_Thirst"),
-        getLabelPrefix("Tooltip_food_Endurance"),
-        getLabelPrefix("Tooltip_food_Stress"),
-        getLabelPrefix("Tooltip_food_Boredom"),
-        getLabelPrefix("Tooltip_food_Unhappiness"),
-        getLabelPrefix("Tooltip_food_MinutesToCook"),
-        tostring(getText("IGUI_invpanel_Cooking") or "") .. ":",
-        tostring(getText("IGUI_invpanel_Burning") or "") .. ":",
-        tostring(getText("IGUI_invpanel_FreezingTime") or "") .. ":",
-        getLabelPrefix("Tooltip_food_Nutrition"),
-    }
-
-    local insertionIndex = nil
-    local hungerIndex = nil
-    local size = getListSize(items)
-
-    for index = 0, size - 1 do
-        local layoutItem = getListEntry(items, index)
-        if layoutItem then
-            if hungerIndex == nil and labelStartsWith(layoutItem, hungerLabel) then
-                hungerIndex = index
-            end
-            if insertionIndex == nil then
-                for _, prefix in ipairs(firstFoodPrefixes) do
-                    if labelStartsWith(layoutItem, prefix) then
-                        insertionIndex = index
-                        break
-                    end
-                end
-            end
-        end
-    end
-
-    if insertionIndex == nil then
-        insertionIndex = getListSize(items)
-    end
-
-    local rowInsertIndex = insertionIndex
-
-    if hungerIndex ~= nil then
-        rowInsertIndex = hungerIndex
-    end
-
-    for _, row in ipairs(rows) do
-        local layoutItem = addLayoutRow(layout, {
-            label = tostring(row.label) .. ":",
-            value = tostring(row.value),
-        })
-        if not layoutItem then
-            return false, "add_row_failed"
-        end
-
-        local sourceIndex = getListSize(items) - 1
-        if sourceIndex > rowInsertIndex then
-            if not bubbleLayoutItemToIndex(items, sourceIndex, rowInsertIndex) then
-                return false, "bubble_failed"
-            end
-        end
-        rowInsertIndex = rowInsertIndex + 1
-    end
-
-    if hungerIndex ~= nil then
-        local removalIndex = hungerIndex + #rows
-        removeListEntry(items, removalIndex)
-    end
-
-    return true, "embedded"
-end
-
 function TooltipLogic.appendDescriptorRowsToLayout(layout, item)
     return TooltipLogic.appendDescriptorRowsToLayoutForViewer(layout, item, nil)
 end
@@ -746,6 +472,10 @@ function TooltipLogic.appendDescriptorsToTooltip(tooltip, item)
     end
 
     return true
+end
+
+function TooltipLogic.getTooltipPadding(tooltip)
+    return getTooltipPadding(tooltip)
 end
 
 return TooltipLogic
