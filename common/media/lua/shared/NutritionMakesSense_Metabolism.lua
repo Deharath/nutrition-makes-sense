@@ -211,6 +211,9 @@ function Metabolism.normalizeWorkload(workload)
     local source = tostring(summary.source or (sleepObserved and "sleep" or "fallback"))
     local effectiveEnduranceMet = averageMet
     local pendingBurnKcal = tonumber(summary.pendingBurnKcal)
+    if pendingBurnKcal ~= nil and pendingBurnKcal <= 0 then
+        pendingBurnKcal = nil
+    end
     local appliedEnduranceDrain = tonumber(summary.appliedEnduranceDrain)
 
     if sleepObserved then
@@ -758,25 +761,8 @@ function Metabolism.ensureState(state)
     state.lastImmediateFillVanilla = math.max(0, tonumber(state.lastImmediateFillVanilla) or 0)
     state.lastImmediateFillCorrection = tonumber(state.lastImmediateFillCorrection) or 0
     state.baseHealthFromFood = tonumber(state.baseHealthFromFood) or nil
+    state.pendingNutritionSuppressions = type(state.pendingNutritionSuppressions) == "table" and state.pendingNutritionSuppressions or nil
     state.lastWeightTrait = tostring(state.lastWeightTrait or Metabolism.getWeightTrait(state.weightKg))
-
-    if type(state.recentMpEventIds) == "table" then
-        local normalizedRecentEvents = {}
-        local seenRecentEvents = {}
-        for _, eventId in ipairs(state.recentMpEventIds) do
-            local eventText = tostring(eventId or "")
-            if eventText ~= "" and not seenRecentEvents[eventText] then
-                normalizedRecentEvents[#normalizedRecentEvents + 1] = eventText
-                seenRecentEvents[eventText] = true
-            end
-        end
-        while #normalizedRecentEvents > 32 do
-            table.remove(normalizedRecentEvents, 1)
-        end
-        state.recentMpEventIds = normalizedRecentEvents
-    else
-        state.recentMpEventIds = {}
-    end
 
     return state
 end
@@ -939,7 +925,7 @@ function Metabolism.advanceState(state, elapsedHours, workload, options)
     local sliceHours = totalHours / slices
     local burnPerHour = Metabolism.getFuelBurnPerHourFromMet(normalizedWorkload, state.weightKg)
     local proteinBurnPerHour = Metabolism.getProteinBurnPerHour(normalizedWorkload)
-    local hasPendingBurn = normalizedWorkload.pendingBurnKcal ~= nil
+    local hasPendingBurn = normalizedWorkload.pendingBurnKcal ~= nil and normalizedWorkload.pendingBurnKcal > 0
     if hasPendingBurn and totalHours > 0 then
         burnPerHour = math.max(0, normalizedWorkload.pendingBurnKcal) / totalHours
     end

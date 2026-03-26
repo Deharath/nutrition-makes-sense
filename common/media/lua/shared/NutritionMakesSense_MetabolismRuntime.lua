@@ -15,6 +15,8 @@ local ANCHOR = Metabolism.VANILLA_NUTRITION_ANCHOR
 local DEPOSIT_EPSILON = 0.001
 local SYNC_EPSILON = 0.0001
 local DEFAULT_WORKLOAD_SOURCE = "fallback_rest"
+local REPORTED_ACTIVITY_TTL_HOURS = 0.08
+local REPORTED_WORKLOAD_WINDOW_HOURS = 4 / 3600
 local activityCacheByPlayerKey = {}
 local scriptedWorkloadOverrideByPlayerKey = {}
 
@@ -35,6 +37,10 @@ local roundToStep = CoreUtils.roundToStep
 
 local function isClientOnly()
     return type(isClient) == "function" and isClient() and not (type(isServer) == "function" and isServer())
+end
+
+local function isDedicatedServerRuntime()
+    return type(isServer) == "function" and isServer() == true
 end
 
 local function shouldRunAuthoritativeUpdates()
@@ -385,6 +391,41 @@ local function getTimedActionMet(playerObj)
     return nil
 end
 
+local function sampleVanillaMetabolicWorkload(playerObj)
+    local thermoregulator = getPlayerThermoregulator(playerObj)
+    if not thermoregulator then
+        return nil
+    end
+
+    local metabolicTarget = tonumber(safeCall(thermoregulator, "getMetabolicTarget") or nil)
+    local metabolicReal = tonumber(safeCall(thermoregulator, "getMetabolicRateReal") or nil)
+    local averageMet = metabolicTarget
+    if averageMet == nil or averageMet <= 0 then
+        averageMet = metabolicReal
+    end
+    if averageMet == nil or averageMet <= 0 then
+        return nil
+    end
+
+    local peakMet = math.max(
+        tonumber(metabolicTarget) or averageMet,
+        tonumber(metabolicReal) or averageMet,
+        averageMet
+    )
+    local source = "thermo_target"
+    if metabolicTarget == nil or metabolicTarget <= 0 then
+        source = "thermo_real"
+    elseif metabolicReal ~= nil and metabolicReal > (metabolicTarget + 0.1) then
+        source = "thermo_real"
+    end
+
+    return Metabolism.normalizeWorkload({
+        averageMet = averageMet,
+        peakMet = peakMet,
+        source = source,
+    })
+end
+
 local function normalizeScriptedWorkloadOverride(workload, reason)
     if type(workload) ~= "table" then
         return nil
@@ -404,6 +445,52 @@ local function normalizeScriptedWorkloadOverride(workload, reason)
     return normalized
 end
 
+local function normalizeReportedWorkloadSample(workload)
+    if type(workload) ~= "table" then
+        return nil
+    end
+
+    local averageMet = tonumber(workload.averageMet) or tonumber(workload.met) or nil
+    if averageMet == nil then
+        return nil
+    end
+
+    local peakMet = tonumber(workload.peakMet) or averageMet
+    averageMet = clamp(averageMet, Metabolism.MET_SLEEP, 12)
+    peakMet = clamp(peakMet, averageMet, 12)
+
+    return Metabolism.normalizeWorkload({
+        averageMet = averageMet,
+        peakMet = peakMet,
+        source = tostring(workload.source or "mp_reported"),
+        sleepObserved = workload.sleepObserved == true,
+    })
+end
+
+local function getFreshReportedWorkload(playerObj)
+    if not isDedicatedServerRuntime() then
+        return nil
+    end
+
+    local key = getPlayerCacheKey(playerObj)
+    if not key then
+        return nil
+    end
+
+    local cache = activityCacheByPlayerKey[key]
+    if not cache or type(cache.reportedWorkload) ~= "table" then
+        return nil
+    end
+
+    local nowHours = getWorldHours()
+    local lastSeenHours = tonumber(cache.reportedWorkloadLastSeenHours) or nil
+    if nowHours ~= nil and lastSeenHours ~= nil and (nowHours - lastSeenHours) > REPORTED_ACTIVITY_TTL_HOURS then
+        return nil
+    end
+
+    return cache.reportedWorkload
+end
+
 local function sampleLiveWorkload(playerObj)
     if not playerObj then
         return nil
@@ -412,6 +499,11 @@ local function sampleLiveWorkload(playerObj)
     local scriptedOverride = Runtime.getScriptedWorkloadOverride(playerObj)
     if scriptedOverride then
         return normalizeScriptedWorkloadOverride(scriptedOverride, scriptedOverride.reason)
+    end
+
+    local reportedWorkload = getFreshReportedWorkload(playerObj)
+    if reportedWorkload then
+        return reportedWorkload
     end
 
     if safeCall(playerObj, "isAsleep") == true then
@@ -426,26 +518,23 @@ local function sampleLiveWorkload(playerObj)
         })
     end
 
-    local thermoregulator = getPlayerThermoregulator(playerObj)
-    local metabolicRateReal = tonumber(thermoregulator and safeCall(thermoregulator, "getMetabolicRateReal") or nil)
-    if metabolicRateReal and metabolicRateReal > 0 then
-        return Metabolism.normalizeWorkload({
-            averageMet = metabolicRateReal,
-            peakMet = metabolicRateReal,
-            source = "thermo_real",
-        })
-    end
-
-    local metabolicTarget = tonumber(thermoregulator and safeCall(thermoregulator, "getMetabolicTarget") or nil)
-    if metabolicTarget and metabolicTarget > 0 then
-        return Metabolism.normalizeWorkload({
-            averageMet = metabolicTarget,
-            peakMet = metabolicTarget,
-            source = "thermo_target",
-        })
-    end
-
+    local vanillaMetabolic = sampleVanillaMetabolicWorkload(playerObj)
     local timedActionMet = getTimedActionMet(playerObj)
+    if timedActionMet and timedActionMet > 0 then
+        local vanillaAverage = tonumber(vanillaMetabolic and vanillaMetabolic.averageMet) or 0
+        if vanillaAverage <= 0 or timedActionMet > (vanillaAverage + 0.1) then
+            return Metabolism.normalizeWorkload({
+                averageMet = timedActionMet,
+                peakMet = math.max(timedActionMet, tonumber(vanillaMetabolic and vanillaMetabolic.peakMet) or timedActionMet),
+                source = "timed_action",
+            })
+        end
+    end
+
+    if vanillaMetabolic then
+        return vanillaMetabolic
+    end
+
     if timedActionMet and timedActionMet > 0 then
         return Metabolism.normalizeWorkload({
             averageMet = timedActionMet,
@@ -498,6 +587,20 @@ local function sampleLiveWorkload(playerObj)
     })
 end
 
+local function sampleReportedWorkload(playerObj)
+    local live = sampleLiveWorkload(playerObj)
+    if type(live) ~= "table" then
+        return nil
+    end
+
+    return Metabolism.normalizeWorkload({
+        averageMet = tonumber(live.averageMet) or Metabolism.MET_REST,
+        peakMet = tonumber(live.peakMet) or tonumber(live.averageMet) or Metabolism.MET_REST,
+        source = tostring(live.source or DEFAULT_WORKLOAD_SOURCE),
+        sleepObserved = live.sleepObserved == true,
+    })
+end
+
 local function getActivityCache(playerObj)
     local key = getPlayerCacheKey(playerObj)
     if not key then
@@ -520,6 +623,11 @@ local function getActivityCache(playerObj)
         sleepObserved = false,
         lastSampleWorldHours = getWorldHours(),
         lastLive = nil,
+        reportedWorkload = nil,
+        reportedWorkloadSamples = {},
+        reportedWorkloadSeq = nil,
+        reportedWorkloadClientWorldHours = nil,
+        reportedWorkloadLastSeenHours = nil,
     }
     activityCacheByPlayerKey[key] = cache
     return cache
@@ -664,14 +772,6 @@ local function syncVisibleHunger(playerObj, state, reason)
         state.lastHungerBand = Metabolism.getVisibleHungerBand(state.visibleHunger)
         state.lastSyncedHunger = current
         state.lastTraceReason = tostring(reason or state.lastTraceReason or "visible-hunger-adopt")
-        log(string.format(
-            "[VISIBLE_HUNGER_ADOPT] player=%s reason=%s live=%.4f lastSynced=%.4f nmsDesired=%.4f",
-            tostring(getPlayerLabel(playerObj)),
-            tostring(reason or "sync-visible-hunger"),
-            current,
-            lastSynced,
-            desired
-        ))
         return true
     end
 
@@ -682,13 +782,6 @@ local function syncVisibleHunger(playerObj, state, reason)
     local changed = setVisibleHunger(stats, desired)
     if changed then
         state.lastSyncedHunger = desired
-        log(string.format(
-            "[VISIBLE_HUNGER_SYNC] player=%s reason=%s hunger=%.4f->%.4f",
-            tostring(getPlayerLabel(playerObj)),
-            tostring(reason or "sync-visible-hunger"),
-            current,
-            desired
-        ))
     end
     return changed
 end
@@ -717,6 +810,9 @@ local function setStatValue(stats, enumKey, setterName, value)
 end
 
 local function consumeWorkloadSummary(playerObj)
+    if Runtime.observePlayerWorkload then
+        Runtime.observePlayerWorkload(playerObj, "consume-workload-summary")
+    end
     local cache = getActivityCache(playerObj)
     local summary = buildWorkloadSummaryFromCache(cache)
     if cache then
@@ -757,10 +853,15 @@ Runtime.setNutritionAnchor = setNutritionAnchor
 Runtime.samplePositiveNutritionDelta = samplePositiveNutritionDelta
 Runtime.hasMeaningfulDeposit = hasMeaningfulDeposit
 Runtime.shouldRunAuthoritativeUpdates = shouldRunAuthoritativeUpdates
+Runtime.isDedicatedServerRuntime = isDedicatedServerRuntime
 Runtime.getPlayerCacheKey = getPlayerCacheKey
 Runtime.normalizeScriptedWorkloadOverride = normalizeScriptedWorkloadOverride
+Runtime.normalizeReportedWorkloadSample = normalizeReportedWorkloadSample
+Runtime.getFreshReportedWorkload = getFreshReportedWorkload
 Runtime.sampleLiveWorkload = sampleLiveWorkload
+Runtime.sampleReportedWorkload = sampleReportedWorkload
 Runtime.getActivityCache = getActivityCache
+Runtime.REPORTED_WORKLOAD_WINDOW_HOURS = REPORTED_WORKLOAD_WINDOW_HOURS
 Runtime.setVisibleHunger = setVisibleHunger
 Runtime.syncVisibleHunger = syncVisibleHunger
 Runtime.syncVisibleWeight = syncVisibleWeight

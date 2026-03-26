@@ -1,6 +1,7 @@
 NutritionMakesSense = NutritionMakesSense or {}
 
 local ItemAuthority = NutritionMakesSense.ItemAuthority or {}
+NutritionMakesSense.ItemAuthority = ItemAuthority
 
 local log = ItemAuthority.log
 local EPSILON = ItemAuthority.EPSILON
@@ -16,6 +17,38 @@ local applySnapshot = ItemAuthority.applySnapshot
 local buildAppliedSnapshot = ItemAuthority.buildAppliedSnapshot
 local addPayloadSnapshots = ItemAuthority.addPayloadSnapshots
 local visitList = ItemAuthority.visitList
+
+local function refreshBindings()
+    ItemAuthority = NutritionMakesSense.ItemAuthority or ItemAuthority
+    NutritionMakesSense.ItemAuthority = ItemAuthority
+    log = ItemAuthority.log
+    EPSILON = ItemAuthority.EPSILON
+    clamp01 = ItemAuthority.clamp01
+    getFoodEntry = ItemAuthority.getFoodEntry
+    resolveEntrySource = ItemAuthority.resolveEntrySource
+    readCurrentValues = ItemAuthority.readCurrentValuesPrivate
+    readStoredSnapshot = ItemAuthority.readStoredSnapshotPrivate
+    normalizeSnapshot = ItemAuthority.normalizeSnapshot
+    writeStoredSnapshot = ItemAuthority.writeStoredSnapshot
+    resolveRemainingFraction = ItemAuthority.resolveRemainingFraction
+    applySnapshot = ItemAuthority.applySnapshot
+    buildAppliedSnapshot = ItemAuthority.buildAppliedSnapshot
+    addPayloadSnapshots = ItemAuthority.addPayloadSnapshots
+    visitList = ItemAuthority.visitList
+end
+
+local function isDynamicPayloadEntry(entry)
+    if type(entry) ~= "table" then
+        return false
+    end
+
+    if resolveEntrySource(entry) == "computed" then
+        return true
+    end
+
+    local semanticClass = tostring(entry.semantic_class or entry.semanticClass or "")
+    return semanticClass == "runtime_composed_output"
+end
 
 local function notifySeedEvent(reason, item, values)
     local DevSupport = NutritionMakesSense.DevSupport
@@ -36,13 +69,14 @@ local function getComputedEntry(item)
     if not entry or not fullType then
         return nil, nil
     end
-    if resolveEntrySource(entry) ~= "computed" then
+    if not isDynamicPayloadEntry(entry) then
         return nil, nil
     end
     return fullType, entry
 end
 
 local function seedComputedPayload(item, values, reason)
+    refreshBindings()
     local fullType, entry = getComputedEntry(item)
     if not fullType or not entry or type(values) ~= "table" then
         return nil
@@ -51,6 +85,7 @@ local function seedComputedPayload(item, values, reason)
     local total = normalizeSnapshot(fullType, entry, {
         fullType = fullType,
         nutritionSource = "computed",
+        snapshotMode = "composed",
         sourceFullType = values.sourceFullType or fullType,
         authorityTarget = values.authorityTarget or entry.authority_target or fullType,
         provenance = values.provenance or "computed",
@@ -92,6 +127,7 @@ local function seedComputedPayload(item, values, reason)
 end
 
 local function accumulateComputedPayload(item, addedValues, reason)
+    refreshBindings()
     local fullType, entry = getComputedEntry(item)
     if not fullType or not entry or type(addedValues) ~= "table" then
         return nil
@@ -101,6 +137,7 @@ local function accumulateComputedPayload(item, addedValues, reason)
     local base = stored or normalizeSnapshot(fullType, entry, {
         fullType = fullType,
         nutritionSource = "computed",
+        snapshotMode = "composed",
         sourceFullType = fullType,
         provenance = "computed",
         seedReason = reason or "computed-accumulate",
@@ -151,6 +188,7 @@ local function accumulateComputedPayload(item, addedValues, reason)
 end
 
 local function seedComputedOutputs(createdItems, payloadValues, reason)
+    refreshBindings()
     if not createdItems or type(payloadValues) ~= "table" then
         return 0
     end
@@ -218,6 +256,7 @@ local function seedComputedOutputs(createdItems, payloadValues, reason)
         local scaled = normalizeSnapshot(target.fullType, target.entry, {
             fullType = target.fullType,
             nutritionSource = "computed",
+            snapshotMode = "composed",
             sourceFullType = target.fullType,
             provenance = "computed",
             seedReason = reason or "computed-create",

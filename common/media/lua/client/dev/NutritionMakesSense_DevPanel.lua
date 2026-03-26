@@ -123,7 +123,9 @@ local function computeSnapshot()
     local stats = safeCall(player, "getStats")
     local nutr = safeCall(player, "getNutrition")
     local bd = safeCall(player, "getBodyDamage")
-    local state = Runtime.getStateCopy and Runtime.getStateCopy(player) or nil
+    local projectedState = UIHelpers.getStateCopy and UIHelpers.getStateCopy(player) or nil
+    local authoritativeState = UIHelpers.getAuthoritativeStateCopy and UIHelpers.getAuthoritativeStateCopy(player) or projectedState
+    local projectionMeta = UIHelpers.getProjectionMeta and UIHelpers.getProjectionMeta(player) or nil
     local workload = Runtime.getCurrentWorkloadSnapshot and Runtime.getCurrentWorkloadSnapshot(player) or nil
 
     return {
@@ -134,7 +136,9 @@ local function computeSnapshot()
         vanillaWeight = tonumber(safeCall(nutr, "getWeight")),
         healthFromFood = tonumber(safeCall(bd, "getHealthFromFood")),
         fedTimer = tonumber(safeCall(bd, "getHealthFromFoodTimer")),
-        state = state,
+        state = authoritativeState,
+        projectedState = projectedState,
+        projectionMeta = projectionMeta,
         workload = workload,
     }
 end
@@ -193,7 +197,8 @@ end
 
 local CSV_HEADER = table.concat({
     "elapsed_min", "game_min", "game_speed",
-    "work_tier", "met_avg", "met_peak", "met_source",
+    "auth_work_tier", "auth_met_avg", "auth_met_peak", "auth_met_source",
+    "live_work_tier", "live_met_avg", "live_met_peak", "live_met_source",
     "visible_hunger", "visible_endurance", "visible_fatigue",
     "nms_fuel", "nms_zone", "nms_fuel_recovery",
     "nms_proteins", "nms_weight_kg", "nms_weight_trait",
@@ -230,10 +235,14 @@ local function recordSample(snap)
         string.format("%.1f", elapsed),
         string.format("%.1f", now),
         string.format("%.2f", getGameSpeed()),
-        tostring(s.lastWorkTier or w.workTier or ""),
-        tostring(s.lastMetAverage or w.averageMet or ""),
-        tostring(s.lastMetPeak or w.peakMet or ""),
-        tostring(s.lastMetSource or w.source or ""),
+        tostring(s.lastWorkTier or ""),
+        tostring(s.lastMetAverage or ""),
+        tostring(s.lastMetPeak or ""),
+        tostring(s.lastMetSource or ""),
+        tostring(w.workTier or ""),
+        tostring(w.averageMet or ""),
+        tostring(w.peakMet or ""),
+        tostring(w.source or ""),
         tostring(snap.hunger or ""),
         tostring(snap.endurance or ""),
         tostring(snap.fatigue or ""),
@@ -479,6 +488,20 @@ function NMS_DevOverlay:render()
     end
 
     local s = snap.state or {}
+    local projected = snap.projectedState or s
+    local projectionMeta = snap.projectionMeta or {}
+
+    ---------------------------------------------------------------- Sync
+    y = drawSection(self, y, "Sync")
+    local seqText = projectionMeta.lastSeq and tostring(projectionMeta.lastSeq) or "--"
+    local ageSeconds = tonumber(projectionMeta.ageSeconds)
+    local ageText = ageSeconds and string.format("%.1fs", ageSeconds) or "--"
+    local stale = projectionMeta.isStale == true
+    local reasonText = tostring(projectionMeta.lastReason or "--")
+    y = drawRow(self, y, "Status", stale and "STALE" or "Live", stale and C.warn or C.good)
+    y = drawRow(self, y, "Seq", seqText)
+    y = drawRow(self, y, "Age", ageText, stale and C.warn or C.dim)
+    y = drawRow(self, y, "Reason", reasonText, C.dim)
 
     ---------------------------------------------------------------- Hunger
     y = drawSection(self, y, "Hunger")
@@ -518,6 +541,12 @@ function NMS_DevOverlay:render()
     local deposit = tonumber(s.lastDepositKcal) or 0
     y = drawRow(self, y, "Flow",
         string.format("burn:%s kcal  dep:%s kcal", fmt(burn, 0), fmt(deposit, 0)))
+    local projectedFuel = tonumber(projected.fuel)
+    if projectedFuel ~= nil and math.abs(projectedFuel - fuel) >= 0.1 then
+        y = drawRow(self, y, "Projected",
+            string.format("%s / %s", fmt(projectedFuel, 0), fmt(fuelMax, 0)),
+            C.dim)
+    end
     y = drawRow(self, y, "Recovery",
         string.format("endurance x%s", fmt(fuelRecovery, 2)), recColor)
 
@@ -550,12 +579,24 @@ function NMS_DevOverlay:render()
 
     ---------------------------------------------------------------- Activity
     y = drawSection(self, y, "Activity")
-    local tier = s.lastWorkTier or (snap.workload and snap.workload.workTier) or "rest"
-    local metAvg = tonumber(s.lastMetAverage or (snap.workload and snap.workload.averageMet)) or 1
-    local metPeak = tonumber(s.lastMetPeak or (snap.workload and snap.workload.peakMet)) or metAvg
+    local liveWorkload = snap.workload
+    local tier = s.lastWorkTier or "rest"
+    local authoritativeMetAvg = tonumber(s.lastMetAverage)
+    local authoritativeMetPeak = tonumber(s.lastMetPeak)
+    local metAvg = authoritativeMetAvg or tonumber(liveWorkload and liveWorkload.averageMet) or 1
+    local metPeak = authoritativeMetPeak or tonumber(liveWorkload and liveWorkload.peakMet) or metAvg
     local exertion = tonumber(s.lastExertionMultiplier) or 1
-    y = drawRow(self, y, "Work",
+    y = drawRow(self, y, "Auth",
         string.format("%s   MET %s / %s", tier, fmt(metAvg, 1), fmt(metPeak, 1)))
+    if liveWorkload then
+        local liveAvg = tonumber(liveWorkload.averageMet)
+        local livePeak = tonumber(liveWorkload.peakMet) or liveAvg
+        if liveAvg ~= nil then
+            y = drawRow(self, y, "Live",
+                string.format("%s   MET %s / %s", tostring(liveWorkload.workTier or "--"), fmt(liveAvg, 1), fmt(livePeak or liveAvg, 1)),
+                C.dim)
+        end
+    end
 
     local endurance = snap.endurance
     local fatigue = snap.fatigue

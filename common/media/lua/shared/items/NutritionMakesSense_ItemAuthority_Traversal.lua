@@ -3,19 +3,36 @@ NutritionMakesSense = NutritionMakesSense or {}
 require "NutritionMakesSense_CoreUtils"
 
 local ItemAuthority = NutritionMakesSense.ItemAuthority or {}
+NutritionMakesSense.ItemAuthority = ItemAuthority
 local CoreUtils = NutritionMakesSense.CoreUtils or {}
 
 local safeCall = ItemAuthority.safeCall or CoreUtils.safeCall
 local log = ItemAuthority.log
 local getFoodEntry = ItemAuthority.getFoodEntry
 local resolveEntrySource = ItemAuthority.resolveEntrySource
-local hasVanillaDynamicValues = ItemAuthority.hasVanillaDynamicValues
-local clearStoredSnapshot = ItemAuthority.clearStoredSnapshot
+local resolveSnapshotMode = ItemAuthority.resolveSnapshotMode
 local resolveAppliedSnapshot = ItemAuthority.resolveAppliedSnapshot
 local snapshotsMatch = ItemAuthority.snapshotsMatch
 local applySnapshot = ItemAuthority.applySnapshot
 local warnAuthorityOnce = ItemAuthority.warnAuthorityOnce
 local visitList = CoreUtils.visitList
+
+local function refreshBindings()
+    ItemAuthority = NutritionMakesSense.ItemAuthority or ItemAuthority
+    NutritionMakesSense.ItemAuthority = ItemAuthority
+    CoreUtils = NutritionMakesSense.CoreUtils or CoreUtils
+    safeCall = ItemAuthority.safeCall or CoreUtils.safeCall
+    log = ItemAuthority.log
+    getFoodEntry = ItemAuthority.getFoodEntry
+    resolveEntrySource = ItemAuthority.resolveEntrySource
+    resolveSnapshotMode = ItemAuthority.resolveSnapshotMode
+    resolveAppliedSnapshot = ItemAuthority.resolveAppliedSnapshot
+    snapshotsMatch = ItemAuthority.snapshotsMatch
+    applySnapshot = ItemAuthority.applySnapshot
+    warnAuthorityOnce = ItemAuthority.warnAuthorityOnce
+    visitList = CoreUtils.visitList
+    eachKnownPlayer = CoreUtils.eachKnownPlayer
+end
 
 local function summarizeResult(summary, action)
     summary[action] = (summary[action] or 0) + 1
@@ -272,6 +289,7 @@ end
 local eachKnownPlayer = CoreUtils.eachKnownPlayer
 
 local function syncTraversedSurfaces(reason, mode, includeLoadedWorld)
+    refreshBindings()
     pcall(function()
         if NutritionMakesSense.StablePatcher and NutritionMakesSense.StablePatcher.ensurePatched then
             NutritionMakesSense.StablePatcher.ensurePatched(tostring(reason or "item-authority"))
@@ -320,7 +338,13 @@ local function syncTraversedSurfaces(reason, mode, includeLoadedWorld)
 end
 
 syncItem = function(item, mode, reason)
+    refreshBindings()
     if not item then
+        return "ignored"
+    end
+    if type(isClient) == "function" and isClient() == true
+        and not (type(isServer) == "function" and isServer() == true)
+    then
         return "ignored"
     end
 
@@ -337,9 +361,10 @@ syncItem = function(item, mode, reason)
         return "ignored"
     end
 
-    if resolveEntrySource(entry) == "authored" and hasVanillaDynamicValues(item) then
-        clearStoredSnapshot(item)
-        return "ignored"
+    if type(resolveEntrySource) == "function" and type(resolveSnapshotMode) == "function" then
+        if resolveEntrySource(entry) == "authored" and resolveSnapshotMode(item, fullType, entry) == "static" then
+            return "ignored"
+        end
     end
 
     local applied, current, stored, defaults, resolvedSource = resolveAppliedSnapshot(item, fullType, entry)
@@ -348,29 +373,19 @@ syncItem = function(item, mode, reason)
         return "ignored"
     end
 
-    local changed = false
-    if resolveEntrySource(entry) == "authored" then
-        changed = clearStoredSnapshot(item) or changed
-    end
-
     if not current or not snapshotsMatch(current, applied) then
         applySnapshot(item, applied)
         log(string.format(
-            "[ITEM_AUTHORITY] mode=%s reason=%s item=%s source=%s resolved=%s action=normalize",
+            "[ITEM_AUTHORITY] mode=%s reason=%s item=%s resolved=%s action=normalize",
             tostring(mode or "capture"),
             tostring(reason),
             tostring(fullType),
-            tostring(resolveEntrySource(entry)),
             tostring(resolvedSource or "authored")
         ))
-        return changed and "updated" or "restored"
+        return stored and "restored" or "captured"
     end
 
-    if changed then
-        return "updated"
-    end
-
-    if resolvedSource == "computed" and stored and not defaults then
+    if stored and not defaults then
         return "captured"
     end
 

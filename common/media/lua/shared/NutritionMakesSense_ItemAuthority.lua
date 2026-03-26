@@ -12,14 +12,21 @@ local CoreUtils = NutritionMakesSense.CoreUtils or {}
 
 local SNAPSHOT_KEY = "NutritionMakesSenseItemAuthority"
 local SNAPSHOT_VERSION_KEY = "NutritionMakesSenseItemAuthorityVersion"
-local SNAPSHOT_VERSION = 6
+local SNAPSHOT_VERSION = 8
 local EPSILON = 0.001
 local HUNGER_TO_RUNTIME_SCALE = 0.01
+local SNAPSHOT_MODE_STATIC = "static"
+local SNAPSHOT_MODE_FLUID = "fluid"
+local SNAPSHOT_MODE_COMPOSED = "composed"
 local TRACKED_SOURCES = {
     authored = true,
     computed = true,
 }
 local authorityWarnings = {}
+local runtimeDataWarnings = {}
+local embeddedModuleWarnings = {}
+local embeddedFoodValuesCache = nil
+local embeddedFoodSemanticsCache = nil
 
 local function log(msg)
     if NutritionMakesSense.log then
@@ -45,6 +52,23 @@ local function resolveEntrySource(entry)
         return entry.nutrition_source
     end
     return nil
+end
+
+local function getEntrySemanticClass(entry)
+    if type(entry) ~= "table" then
+        return nil
+    end
+
+    local semanticClass = entry.semantic_class or entry.semanticClass
+    if type(semanticClass) == "string" and semanticClass ~= "" then
+        return semanticClass
+    end
+    return nil
+end
+
+local function isRuntimeComposedEntry(entry)
+    local semanticClass = getEntrySemanticClass(entry)
+    return semanticClass == "runtime_composed_output" or semanticClass == "carrier_scaffold"
 end
 
 local function hasVanillaDynamicValues(item)
@@ -73,10 +97,68 @@ local function getRuntimeData()
         return NutritionMakesSense.runtimeData
     end
 
-    local ok, data = pcall(NutritionMakesSense.Data.loadRuntimeData, false)
+    local ok, dataOrErr = pcall(NutritionMakesSense.Data.loadRuntimeData, false)
     if ok then
-        return data
+        return dataOrErr
     end
+
+    local warnKey = tostring(dataOrErr or "unknown-load-error")
+    if not runtimeDataWarnings[warnKey] then
+        runtimeDataWarnings[warnKey] = true
+        log(string.format("[ITEM_AUTHORITY_WARN] item=runtime-data detail=load-failed:%s", warnKey))
+    end
+    return NutritionMakesSense.Data and NutritionMakesSense.Data._cache or nil
+end
+
+local function warnEmbeddedModuleOnce(moduleName, detail)
+    local key = tostring(moduleName or "module") .. ":" .. tostring(detail or "warning")
+    if embeddedModuleWarnings[key] then
+        return
+    end
+    embeddedModuleWarnings[key] = true
+    log(string.format(
+        "[ITEM_AUTHORITY_WARN] item=%s detail=%s",
+        tostring(moduleName or "module"),
+        tostring(detail or "warning")
+    ))
+end
+
+local function loadEmbeddedFoodValues()
+    if embeddedFoodValuesCache ~= nil then
+        return embeddedFoodValuesCache or nil
+    end
+
+    local ok, values = pcall(require, "generated/NutritionMakesSense_FoodValues")
+    if ok and type(values) == "table" then
+        embeddedFoodValuesCache = values
+        return values
+    end
+    if type(NMS_FoodValues) == "table" then
+        embeddedFoodValuesCache = NMS_FoodValues
+        return embeddedFoodValuesCache
+    end
+
+    warnEmbeddedModuleOnce("embedded-values", "load-failed:" .. tostring(values))
+    embeddedFoodValuesCache = false
+    return nil
+end
+
+local function loadEmbeddedFoodSemantics()
+    if embeddedFoodSemanticsCache ~= nil then
+        return embeddedFoodSemanticsCache or nil
+    end
+
+    local ok, semantics = pcall(require, "generated/NutritionMakesSense_FoodSemantics")
+    if ok and type(semantics) == "table" then
+        embeddedFoodSemanticsCache = semantics
+        return semantics
+    end
+    if type(NMS_FoodSemantics) == "table" then
+        embeddedFoodSemanticsCache = NMS_FoodSemantics
+        return embeddedFoodSemanticsCache
+    end
+
+    embeddedFoodSemanticsCache = false
     return nil
 end
 
@@ -113,7 +195,27 @@ local function normalizeSnapshot(fullType, entry, snapshot)
         return nil
     end
 
+    local inferredMode = tostring(snapshot.snapshotMode or snapshot.snapshot_mode or "")
+    if inferredMode == "" then
+        if snapshot.fluidPayloadId ~= nil or getEntrySemanticClass(entry) == "fluid_container" then
+            inferredMode = SNAPSHOT_MODE_FLUID
+        elseif isRuntimeComposedEntry(entry) then
+            inferredMode = SNAPSHOT_MODE_COMPOSED
+        else
+            inferredMode = SNAPSHOT_MODE_STATIC
+        end
+    end
+    if inferredMode ~= SNAPSHOT_MODE_STATIC
+        and inferredMode ~= SNAPSHOT_MODE_FLUID
+        and inferredMode ~= SNAPSHOT_MODE_COMPOSED
+    then
+        return nil
+    end
+
     local nutritionSource = tostring(snapshot.nutritionSource or snapshot.nutrition_source or resolveEntrySource(entry) or "")
+    if nutritionSource == "" then
+        nutritionSource = inferredMode == SNAPSHOT_MODE_STATIC and "authored" or "computed"
+    end
     if not isTrackedSource(nutritionSource) then
         return nil
     end
@@ -130,6 +232,8 @@ local function normalizeSnapshot(fullType, entry, snapshot)
         sourceFullType = tostring(snapshot.sourceFullType or resolvedFullType),
         nutritionSource = nutritionSource,
         nutrition_source = nutritionSource,
+        snapshotMode = inferredMode,
+        snapshot_mode = inferredMode,
         authorityTarget = tostring(snapshot.authorityTarget or (entry and entry.authority_target) or resolvedFullType),
         provenance = tostring(snapshot.provenance or ""),
         seedReason = tostring(snapshot.seedReason or ""),
@@ -168,7 +272,9 @@ local function snapshotsMatch(a, b)
         return false
     end
 
-    return numbersClose(a.hunger, b.hunger)
+    return tostring(a.snapshotMode or "") == tostring(b.snapshotMode or "")
+        and tostring(a.fluidPayloadId or "") == tostring(b.fluidPayloadId or "")
+        and numbersClose(a.hunger, b.hunger)
         and numbersClose(a.baseHunger, b.baseHunger)
         and numbersClose(a.kcal, b.kcal)
         and numbersClose(a.carbs, b.carbs)
@@ -186,8 +292,27 @@ local function getFoodEntry(itemOrFullType)
 
     local data = getRuntimeData()
     local entry = data and data.runtimeEntriesByItemId and data.runtimeEntriesByItemId[fullType] or nil
-    if entry and isTrackedSource(resolveEntrySource(entry)) then
+    if type(entry) ~= "table" then
+        local embeddedSemantics = loadEmbeddedFoodSemantics()
+        entry = embeddedSemantics and embeddedSemantics[fullType] or nil
+    end
+    if entry and (isTrackedSource(resolveEntrySource(entry)) or isRuntimeComposedEntry(entry)) then
         return entry, fullType
+    end
+
+    local authoredValues = data and data.valuesByItemId and data.valuesByItemId[fullType] or nil
+    if type(authoredValues) ~= "table" then
+        local embeddedValues = loadEmbeddedFoodValues()
+        authoredValues = embeddedValues and embeddedValues[fullType] or nil
+    end
+    if type(authoredValues) == "table" then
+        return {
+            item_id = fullType,
+            semantic_class = "direct_food",
+            nutrition_source = "authored",
+            authority_target = fullType,
+            patch_source = fullType,
+        }, fullType
     end
 
     return nil, fullType
@@ -271,7 +396,8 @@ local function readFluidCurrentValues(item, fullType, entry)
 
     return normalizeSnapshot(fullType, entry, {
         fullType = fullType,
-        nutritionSource = resolveEntrySource(entry),
+        nutritionSource = resolveEntrySource(entry) or "computed",
+        snapshotMode = SNAPSHOT_MODE_FLUID,
         sourceFullType = fullType,
         provenance = "live",
         seedReason = "current-fluid",
@@ -305,7 +431,7 @@ local function readCurrentValues(item, fullType, entry)
 
     return normalizeSnapshot(fullType, entry, {
         fullType = fullType,
-        nutritionSource = resolveEntrySource(entry),
+        nutritionSource = resolveEntrySource(entry) or (isRuntimeComposedEntry(entry) and "computed" or "authored"),
         sourceFullType = fullType,
         provenance = "live",
         seedReason = "current-values",
@@ -320,16 +446,29 @@ end
 
 local function getDefaultValues(fullType, entry)
     local data = getRuntimeData()
-    local patchSource = (entry and entry.patch_source) or fullType
+    local resolvedFullType = type(fullType) == "string" and fullType or tostring(fullType or "")
+    if resolvedFullType == "" then
+        return nil
+    end
+
+    local patchSource = (entry and entry.patch_source) or resolvedFullType
+    if patchSource ~= nil then
+        patchSource = tostring(patchSource)
+    end
     local values = data and data.valuesByItemId and data.valuesByItemId[patchSource] or nil
+    if not values then
+        local embeddedValues = loadEmbeddedFoodValues()
+        values = embeddedValues and embeddedValues[patchSource] or nil
+    end
     if not values then
         return nil
     end
 
     local runtimeHunger = (tonumber(values.hunger) or 0) * HUNGER_TO_RUNTIME_SCALE
-    return normalizeSnapshot(fullType, entry, {
-        fullType = fullType,
+    return normalizeSnapshot(resolvedFullType, entry, {
+        fullType = resolvedFullType,
         nutritionSource = "authored",
+        snapshotMode = SNAPSHOT_MODE_STATIC,
         sourceFullType = patchSource,
         provenance = "authored",
         seedReason = "defaults",
@@ -342,8 +481,91 @@ local function getDefaultValues(fullType, entry)
     })
 end
 
+local function getExpectedSnapshotMode(item, fullType, entry)
+    if item and snapshotHasNutrition(readFluidCurrentValues(item, fullType, entry)) then
+        return SNAPSHOT_MODE_FLUID
+    end
+    if isRuntimeComposedEntry(entry) then
+        return SNAPSHOT_MODE_COMPOSED
+    end
+    return SNAPSHOT_MODE_STATIC
+end
+
+local function buildEmptyComposedSnapshot(fullType, entry, reason)
+    return normalizeSnapshot(fullType, entry, {
+        fullType = fullType,
+        nutritionSource = "computed",
+        snapshotMode = SNAPSHOT_MODE_COMPOSED,
+        sourceFullType = fullType,
+        authorityTarget = entry and entry.authority_target or fullType,
+        provenance = "composed",
+        seedReason = reason or "composed-empty-seed",
+        hunger = 0,
+        baseHunger = 0,
+        kcal = 0,
+        carbs = 0,
+        fats = 0,
+        proteins = 0,
+        remainingFraction = 1,
+    })
+end
+
+local function buildCurrentComposedSnapshot(fullType, entry, current, reason)
+    if type(current) ~= "table" or not snapshotHasNutrition(current) then
+        return nil
+    end
+
+    return normalizeSnapshot(fullType, entry, {
+        fullType = fullType,
+        nutritionSource = "computed",
+        snapshotMode = SNAPSHOT_MODE_COMPOSED,
+        sourceFullType = fullType,
+        authorityTarget = entry and entry.authority_target or fullType,
+        provenance = "live",
+        seedReason = reason or "composed-current-seed",
+        hunger = tonumber(current.hunger) or 0,
+        baseHunger = tonumber(current.baseHunger) or tonumber(current.hunger) or 0,
+        kcal = tonumber(current.kcal) or 0,
+        carbs = tonumber(current.carbs) or 0,
+        fats = tonumber(current.fats) or 0,
+        proteins = tonumber(current.proteins) or 0,
+        remainingFraction = 1,
+        fluidPayloadId = current.fluidPayloadId,
+        fluidCapacity = current.fluidCapacity,
+        fluidAmount = current.fluidAmount,
+    })
+end
+
+local function buildFluidSeedSnapshot(item, fullType, entry, reason)
+    local current = readFluidCurrentValues(item, fullType, entry)
+    if type(current) ~= "table" then
+        return nil
+    end
+
+    local currentAmount = tonumber(current.fluidAmount)
+    return normalizeSnapshot(fullType, entry, {
+        fullType = fullType,
+        nutritionSource = "computed",
+        snapshotMode = SNAPSHOT_MODE_FLUID,
+        sourceFullType = current.sourceFullType or fullType,
+        authorityTarget = current.authorityTarget or (entry and entry.authority_target) or fullType,
+        provenance = "fluid",
+        seedReason = reason or "fluid-seed",
+        hunger = tonumber(current.hunger) or 0,
+        baseHunger = tonumber(current.hunger) or 0,
+        kcal = tonumber(current.kcal) or 0,
+        carbs = tonumber(current.carbs) or 0,
+        fats = tonumber(current.fats) or 0,
+        proteins = tonumber(current.proteins) or 0,
+        remainingFraction = 1,
+        fluidPayloadId = current.fluidPayloadId,
+        fluidCapacity = currentAmount,
+        fluidAmount = currentAmount,
+    })
+end
+
 local function readStoredSnapshot(item, fullType, entry)
-    if not item or not entry or resolveEntrySource(entry) ~= "computed" then
+    if not item or not fullType then
         return nil
     end
 
@@ -359,11 +581,15 @@ local function readStoredSnapshot(item, fullType, entry)
 
     local versionTag = tostring(rawLookup(modData, SNAPSHOT_VERSION_KEY) or "")
     if versionTag ~= tostring(SNAPSHOT_VERSION) then
+        modData[SNAPSHOT_KEY] = nil
+        modData[SNAPSHOT_VERSION_KEY] = nil
         return nil
     end
 
     local normalized = normalizeSnapshot(fullType, entry, stored)
     if not normalized then
+        modData[SNAPSHOT_KEY] = nil
+        modData[SNAPSHOT_VERSION_KEY] = nil
         return nil
     end
     if tonumber(normalized.version) ~= SNAPSHOT_VERSION then
@@ -372,90 +598,26 @@ local function readStoredSnapshot(item, fullType, entry)
     if tostring(normalized.fullType) ~= tostring(fullType) then
         return nil
     end
-    if tostring(normalized.nutritionSource) ~= "computed" then
-        return nil
-    end
-
     return normalized
 end
 
 local writeStoredSnapshot
 
-local function bootstrapComputedSnapshot(item, fullType, entry, reason)
-    if not item or not entry or resolveEntrySource(entry) ~= "computed" then
-        return nil
-    end
-
-    local current = readCurrentValues(item, fullType, entry)
-    if not snapshotHasNutrition(current) then
-        return nil
-    end
-
-    local total = normalizeSnapshot(fullType, entry, {
-        fullType = fullType,
-        nutritionSource = "computed",
-        sourceFullType = fullType,
-        authorityTarget = entry.authority_target or fullType,
-        provenance = "live-bootstrap",
-        seedReason = reason or "computed-bootstrap-current",
-        hunger = current.hunger,
-        baseHunger = current.baseHunger,
-        kcal = current.kcal,
-        carbs = current.carbs,
-        fats = current.fats,
-        proteins = current.proteins,
-        fluidPayloadId = current.fluidPayloadId,
-        fluidCapacity = current.fluidCapacity,
-        fluidAmount = current.fluidAmount,
-    })
-    if not total then
-        return nil
-    end
-
-    if not writeStoredSnapshot(item, total) then
-        return nil
-    end
-
-    log(string.format(
-        "[ITEM_AUTHORITY_COMPUTED_BOOTSTRAP] reason=%s item=%s kcal=%.1f carbs=%.1f fats=%.1f proteins=%.1f",
-        tostring(reason or "computed-bootstrap-current"),
-        tostring(fullType),
-        tonumber(total.kcal or 0),
-        tonumber(total.carbs or 0),
-        tonumber(total.fats or 0),
-        tonumber(total.proteins or 0)
-    ))
-    return total
-end
-
 local resolveRemainingFraction
 local buildAppliedSnapshot
 
-local function resolveComputedDisplaySnapshot(item, fullType, entry, allowCurrentFallback)
-    local current = readCurrentValues(item, fullType, entry)
-    local stored = readStoredSnapshot(item, fullType, entry)
-    if not stored then
-        stored = bootstrapComputedSnapshot(item, fullType, entry, "computed-display-bootstrap")
-    end
-    if not stored then
-        warnAuthorityOnce(fullType, "computed-payload-missing")
-        if allowCurrentFallback then
-            return current
-        end
-        return nil
-    end
-
-    local remainingFraction = resolveRemainingFraction(item, current, stored)
-    return buildAppliedSnapshot(stored, remainingFraction)
-end
-
-writeStoredSnapshot = function(item, snapshot)
+writeStoredSnapshot = function(item, snapshot, fullType, entry)
     local modData = getModData(item)
     if not modData or not snapshot then
         return false
     end
 
-    modData[SNAPSHOT_KEY] = snapshot
+    local normalized = normalizeSnapshot(fullType or snapshot.fullType, entry, snapshot)
+    if not normalized then
+        return false
+    end
+
+    modData[SNAPSHOT_KEY] = normalized
     modData[SNAPSHOT_VERSION_KEY] = tostring(SNAPSHOT_VERSION)
     return true
 end
@@ -470,6 +632,120 @@ local function clearStoredSnapshot(item)
     modData[SNAPSHOT_KEY] = nil
     modData[SNAPSHOT_VERSION_KEY] = nil
     return hadSnapshot
+end
+
+local function shouldReseedFluidSnapshot(current, stored)
+    if type(current) ~= "table" or type(stored) ~= "table" then
+        return false
+    end
+    if tostring(current.fluidPayloadId or "") ~= tostring(stored.fluidPayloadId or "") then
+        return true
+    end
+    if (tonumber(current.fluidAmount) or 0) > ((tonumber(stored.fluidAmount) or 0) + EPSILON) then
+        return true
+    end
+    if (tonumber(current.kcal) or 0) > ((tonumber(stored.kcal) or 0) + EPSILON) then
+        return true
+    end
+    return false
+end
+
+local function shouldReseedComposedSnapshot(current, stored)
+    if type(current) ~= "table" or type(stored) ~= "table" then
+        return false
+    end
+
+    local currentKcal = tonumber(current.kcal) or 0
+    local storedKcal = tonumber(stored.kcal) or 0
+    local currentCarbs = tonumber(current.carbs) or 0
+    local storedCarbs = tonumber(stored.carbs) or 0
+    local currentFats = tonumber(current.fats) or 0
+    local storedFats = tonumber(stored.fats) or 0
+    local currentProteins = tonumber(current.proteins) or 0
+    local storedProteins = tonumber(stored.proteins) or 0
+    local currentHunger = math.abs(tonumber(current.hunger) or 0)
+    local storedHunger = math.abs(tonumber(stored.hunger) or 0)
+
+    return currentKcal > (storedKcal + EPSILON)
+        or currentCarbs > (storedCarbs + EPSILON)
+        or currentFats > (storedFats + EPSILON)
+        or currentProteins > (storedProteins + EPSILON)
+        or currentHunger > (storedHunger + EPSILON)
+end
+
+local function ensureSnapshot(item, reason, hintedFullType)
+    if not item then
+        return nil, nil, nil, nil, nil
+    end
+
+    local entry, fullType = getFoodEntry(hintedFullType or item)
+    if not entry or not fullType then
+        return nil, nil, nil, nil, nil
+    end
+
+    local current = readCurrentValues(item, fullType, entry)
+    local expectedMode = getExpectedSnapshotMode(item, fullType, entry)
+    local stored = readStoredSnapshot(item, fullType, entry)
+    if stored and tostring(stored.snapshotMode or "") ~= tostring(expectedMode) then
+        clearStoredSnapshot(item)
+        stored = nil
+    end
+
+    if stored and expectedMode == SNAPSHOT_MODE_FLUID and shouldReseedFluidSnapshot(current, stored) then
+        clearStoredSnapshot(item)
+        stored = nil
+    end
+
+    if stored and expectedMode == SNAPSHOT_MODE_COMPOSED and (not snapshotHasNutrition(stored)) and snapshotHasNutrition(current) then
+        clearStoredSnapshot(item)
+        stored = nil
+    end
+    if stored and expectedMode == SNAPSHOT_MODE_COMPOSED and shouldReseedComposedSnapshot(current, stored) then
+        log(string.format(
+            "[ITEM_AUTHORITY_COMPOSED_RESEED] reason=%s item=%s stored_kcal=%.1f current_kcal=%.1f stored_hunger=%.3f current_hunger=%.3f",
+            tostring(reason or "composed-reseed"),
+            tostring(fullType),
+            tonumber(stored.kcal or 0),
+            tonumber(current and current.kcal or 0),
+            tonumber(stored.hunger or 0),
+            tonumber(current and current.hunger or 0)
+        ))
+        clearStoredSnapshot(item)
+        stored = nil
+    end
+
+    if not stored then
+        if expectedMode == SNAPSHOT_MODE_STATIC then
+            stored = getDefaultValues(fullType, entry)
+        elseif expectedMode == SNAPSHOT_MODE_FLUID then
+            stored = buildFluidSeedSnapshot(item, fullType, entry, reason or "fluid-seed")
+        elseif snapshotHasNutrition(current) then
+            stored = buildCurrentComposedSnapshot(fullType, entry, current, reason or "composed-current-seed")
+        else
+            stored = buildEmptyComposedSnapshot(fullType, entry, reason or "composed-empty-seed")
+        end
+
+        if type(stored) ~= "table" or not writeStoredSnapshot(item, stored, fullType, entry) then
+            warnAuthorityOnce(fullType, "snapshot-seed-failed")
+            return nil, entry, fullType, expectedMode, current
+        end
+        stored = readStoredSnapshot(item, fullType, entry) or stored
+    end
+
+    return stored, entry, fullType, expectedMode, current
+end
+
+local function resolveComputedDisplaySnapshot(item, fullType, entry, allowCurrentFallback)
+    local stored, _, _, _, current = ensureSnapshot(item, "computed-display", fullType)
+    if not stored then
+        if allowCurrentFallback then
+            return current
+        end
+        return nil
+    end
+
+    local remainingFraction = resolveRemainingFraction(item, current, stored)
+    return buildAppliedSnapshot(stored, remainingFraction)
 end
 
 resolveRemainingFraction = function(item, current, total)
@@ -524,10 +800,12 @@ buildAppliedSnapshot = function(totalSnapshot, fraction)
 
     return normalizeSnapshot(totalSnapshot.fullType, {
         nutrition_source = totalSnapshot.nutritionSource,
+        snapshot_mode = totalSnapshot.snapshotMode,
         authority_target = totalSnapshot.authorityTarget,
     }, {
         fullType = totalSnapshot.fullType,
         nutritionSource = totalSnapshot.nutritionSource,
+        snapshotMode = totalSnapshot.snapshotMode,
         sourceFullType = totalSnapshot.sourceFullType or totalSnapshot.fullType,
         authorityTarget = totalSnapshot.authorityTarget,
         provenance = totalSnapshot.provenance,
@@ -554,10 +832,12 @@ local function scaleConsumedSnapshot(snapshot, fraction, nutritionMultiplier)
     local multiplier = tonumber(nutritionMultiplier) or 1
     return normalizeSnapshot(snapshot.fullType, {
         nutrition_source = snapshot.nutritionSource,
+        snapshot_mode = snapshot.snapshotMode,
         authority_target = snapshot.authorityTarget,
     }, {
         fullType = snapshot.fullType,
         nutritionSource = snapshot.nutritionSource,
+        snapshotMode = snapshot.snapshotMode,
         sourceFullType = snapshot.sourceFullType or snapshot.fullType,
         authorityTarget = snapshot.authorityTarget,
         provenance = snapshot.provenance,
@@ -581,6 +861,7 @@ local function addPayloadSnapshots(fullType, entry, baseSnapshot, addedValues)
     return normalizeSnapshot(fullType, entry, {
         fullType = fullType,
         nutritionSource = "computed",
+        snapshotMode = SNAPSHOT_MODE_COMPOSED,
         sourceFullType = fullType,
         provenance = added.provenance or base.provenance or "computed",
         seedReason = added.seedReason or base.seedReason or "",
@@ -596,6 +877,37 @@ local function addPayloadSnapshots(fullType, entry, baseSnapshot, addedValues)
     })
 end
 
+local function measureAccumulatedPayload(fullType, entry, beforeValues, afterValues)
+    if type(fullType) ~= "string" or fullType == "" then
+        return nil
+    end
+    if type(beforeValues) ~= "table" or type(afterValues) ~= "table" then
+        return nil
+    end
+
+    local hungerDelta = (tonumber(afterValues.hunger) or 0) - (tonumber(beforeValues.hunger) or 0)
+    local baseHungerDelta = (tonumber(afterValues.baseHunger) or tonumber(afterValues.hunger) or 0)
+        - (tonumber(beforeValues.baseHunger) or tonumber(beforeValues.hunger) or 0)
+    local measured = normalizeSnapshot(fullType, entry, {
+        fullType = fullType,
+        nutritionSource = "computed",
+        snapshotMode = SNAPSHOT_MODE_COMPOSED,
+        sourceFullType = fullType,
+        provenance = "vanilla-add",
+        seedReason = "evolved-add-measured",
+        hunger = math.min(0, hungerDelta),
+        baseHunger = math.min(0, baseHungerDelta),
+        kcal = math.max(0, (tonumber(afterValues.kcal) or 0) - (tonumber(beforeValues.kcal) or 0)),
+        carbs = math.max(0, (tonumber(afterValues.carbs) or 0) - (tonumber(beforeValues.carbs) or 0)),
+        fats = math.max(0, (tonumber(afterValues.fats) or 0) - (tonumber(beforeValues.fats) or 0)),
+        proteins = math.max(0, (tonumber(afterValues.proteins) or 0) - (tonumber(beforeValues.proteins) or 0)),
+    })
+    if not snapshotHasNutrition(measured) then
+        return nil
+    end
+    return measured
+end
+
 local function getBurntNutritionMultiplier(item)
     if safeCall(item, "isBurnt") == true then
         return 0.2
@@ -604,28 +916,13 @@ local function getBurntNutritionMultiplier(item)
 end
 
 local function resolveAppliedSnapshot(item, fullType, entry)
-    local current = readCurrentValues(item, fullType, entry)
-    local source = resolveEntrySource(entry)
-    if source == "authored" then
-        local defaults = getDefaultValues(fullType, entry)
-        if not defaults then
-            return nil, current, nil, nil, nil
-        end
-        local remainingFraction = resolveRemainingFraction(item, current, defaults)
-        return buildAppliedSnapshot(defaults, remainingFraction), current, nil, defaults, "authored"
-    end
-
-    local stored = readStoredSnapshot(item, fullType, entry)
+    local stored, _, _, mode, current = ensureSnapshot(item, "resolve-applied", fullType)
     if not stored then
-        stored = bootstrapComputedSnapshot(item, fullType, entry, reason or "computed-restore-bootstrap")
-    end
-    if not stored then
-        warnAuthorityOnce(fullType, "computed-payload-missing")
         return nil, current, nil, nil, nil
     end
 
     local remainingFraction = resolveRemainingFraction(item, current, stored)
-    return buildAppliedSnapshot(stored, remainingFraction), current, stored, nil, "computed"
+    return buildAppliedSnapshot(stored, remainingFraction), current, stored, nil, mode
 end
 
 local function applyFluidSnapshot(item, snapshot)
@@ -663,8 +960,7 @@ local function applyFluidSnapshot(item, snapshot)
 
     if desiredAmount ~= nil then
         tryMethod(fluidContainer, "setAmount", desiredAmount)
-    end
-    if snapshot.remainingFraction ~= nil then
+    elseif snapshot.remainingFraction ~= nil then
         tryMethod(fluidContainer, "setFilledRatio", snapshot.remainingFraction)
     end
 
@@ -683,7 +979,11 @@ local function applySnapshot(item, snapshot)
     safeCall(item, "setCarbohydrates", tonumber(snapshot.carbs) or 0)
     safeCall(item, "setLipids", tonumber(snapshot.fats) or 0)
     safeCall(item, "setProteins", tonumber(snapshot.proteins) or 0)
-    safeCall(item, "syncItemFields")
+    local isClientRuntime = type(isClient) == "function" and isClient() == true
+    local isServerRuntime = type(isServer) == "function" and isServer() == true
+    if isServerRuntime and not isClientRuntime then
+        safeCall(item, "syncItemFields")
+    end
     return true
 end
 
@@ -699,6 +999,8 @@ ItemAuthority.resolveEntrySource = resolveEntrySource
 ItemAuthority.hasVanillaDynamicValues = hasVanillaDynamicValues
 ItemAuthority.readCurrentValuesPrivate = readCurrentValues
 ItemAuthority.readStoredSnapshotPrivate = readStoredSnapshot
+ItemAuthority.resolveSnapshotMode = getExpectedSnapshotMode
+ItemAuthority.ensureSnapshot = ensureSnapshot
 ItemAuthority.resolveComputedDisplaySnapshot = resolveComputedDisplaySnapshot
 ItemAuthority.getDefaultValues = getDefaultValues
 ItemAuthority.scaleConsumedSnapshot = scaleConsumedSnapshot
@@ -709,15 +1011,57 @@ ItemAuthority.resolveRemainingFraction = resolveRemainingFraction
 ItemAuthority.applySnapshot = applySnapshot
 ItemAuthority.buildAppliedSnapshot = buildAppliedSnapshot
 ItemAuthority.addPayloadSnapshots = addPayloadSnapshots
+ItemAuthority.measureAccumulatedPayload = measureAccumulatedPayload
 ItemAuthority.clearStoredSnapshot = clearStoredSnapshot
 ItemAuthority.snapshotsMatch = snapshotsMatch
 ItemAuthority.warnAuthorityOnce = warnAuthorityOnce
 ItemAuthority.resolveAppliedSnapshot = resolveAppliedSnapshot
+ItemAuthority.getEntrySemanticClass = getEntrySemanticClass
 ItemAuthority.visitList = CoreUtils.visitList
 
-require "items/NutritionMakesSense_ItemAuthority_Query"
-require "items/NutritionMakesSense_ItemAuthority_Computed"
-require "items/NutritionMakesSense_ItemAuthority_Traversal"
-require "items/NutritionMakesSense_ItemAuthority_Lifecycle"
+local function loadItemAuthorityModule(moduleName, shortName)
+    local ok, result = pcall(require, moduleName)
+    if not ok then
+        log(string.format(
+            "[ITEM_AUTHORITY_LOAD_FAIL] module=%s detail=%s",
+            tostring(shortName or moduleName),
+            tostring(result)
+        ))
+        return false
+    end
+    log(string.format(
+        "[ITEM_AUTHORITY_LOAD] module=%s ok=true",
+        tostring(shortName or moduleName)
+    ))
+    return true
+end
+
+loadItemAuthorityModule("items/NutritionMakesSense_ItemAuthority_Query", "query")
+loadItemAuthorityModule("items/NutritionMakesSense_ItemAuthority_Consume", "consume")
+loadItemAuthorityModule("items/NutritionMakesSense_ItemAuthority_Computed", "computed")
+loadItemAuthorityModule("items/NutritionMakesSense_ItemAuthority_Traversal", "traversal")
+loadItemAuthorityModule("items/NutritionMakesSense_ItemAuthority_Lifecycle", "lifecycle")
+
+log(string.format(
+    "[ITEM_AUTHORITY_APIS] gameplay=%s legacy=%s computed=%s lifecycle=%s",
+    tostring(type(ItemAuthority.resolveGameplayConsumeContext) == "function"),
+    tostring(type(ItemAuthority.resolveConsumedPayload) == "function"),
+    tostring(type(ItemAuthority.accumulateDynamicPayload) == "function"),
+    tostring(type(ItemAuthority.install) == "function")
+))
+
+if type(ItemAuthority.resolveGameplayConsumeContext) ~= "function"
+    or type(ItemAuthority.resolveConsumedPayload) ~= "function"
+    or type(ItemAuthority.accumulateDynamicPayload) ~= "function"
+    or type(ItemAuthority.install) ~= "function"
+then
+    error(string.format(
+        "[NMS_BOOT_HARD_FAIL] ItemAuthority gameplay=%s legacy=%s computed=%s lifecycle=%s",
+        tostring(type(ItemAuthority.resolveGameplayConsumeContext) == "function"),
+        tostring(type(ItemAuthority.resolveConsumedPayload) == "function"),
+        tostring(type(ItemAuthority.accumulateDynamicPayload) == "function"),
+        tostring(type(ItemAuthority.install) == "function")
+    ))
+end
 
 return ItemAuthority

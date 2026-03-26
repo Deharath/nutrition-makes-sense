@@ -64,13 +64,7 @@ function Runtime.syncVisibleIndicators(playerObj, reason)
     syncVisibleHunger(playerObj, state, reason or "sync-visible-indicators")
     syncVisibleWeight(nutrition, state)
     syncProteinHealing(bodyDamage, state)
-    if suppressFoodEatenTimer(bodyDamage) then
-        log(string.format(
-            "[FOOD_EATEN_SUPPRESS] player=%s reason=%s",
-            tostring(getPlayerLabel(playerObj)),
-            tostring(reason or "sync-visible-indicators")
-        ))
-    end
+    suppressFoodEatenTimer(bodyDamage)
     state.lastTraceReason = tostring(reason or state.lastTraceReason or "sync-visible-indicators")
     return state
 end
@@ -112,17 +106,7 @@ function Runtime.applyVisibleHungerTarget(playerObj, targetHunger, reason)
     state.visibleHunger = desired
     state.hunger = desired
     state.lastSyncedHunger = desired
-    local changed = setVisibleHunger(stats, desired)
-    if changed and math.abs(before - desired) > 0.000001 then
-        log(string.format(
-            "[VISIBLE_HUNGER_TARGET] player=%s reason=%s hunger=%.4f->%.4f",
-            tostring(getPlayerLabel(playerObj)),
-            tostring(reason or "visible-hunger-target"),
-            before,
-            desired
-        ))
-    end
-    return changed
+    return setVisibleHunger(stats, desired)
 end
 
 function Runtime.applyImmediateFullnessCorrection(playerObj, correction, reason)

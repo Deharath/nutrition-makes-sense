@@ -229,9 +229,32 @@ local function resolveItemFullType(itemOrFullType)
         return itemOrFullType
     end
     if itemOrFullType ~= nil then
-        return safeCall(itemOrFullType, "getFullType")
-            or safeCall(itemOrFullType, "getType")
-            or (type(itemOrFullType) == "table" and (itemOrFullType.fullType or itemOrFullType.id))
+        local fullType = safeCall(itemOrFullType, "getFullType")
+        if fullType and tostring(fullType) ~= "" then
+            return tostring(fullType)
+        end
+
+        local itemType = safeCall(itemOrFullType, "getType")
+        local itemModule = safeCall(itemOrFullType, "getModule")
+        if itemModule and itemModule ~= "" and itemType and itemType ~= "" then
+            return tostring(itemModule) .. "." .. tostring(itemType)
+        end
+
+        if itemType and tostring(itemType) ~= "" then
+            return tostring(itemType)
+        end
+
+        if type(itemOrFullType) == "table" then
+            local tableFullType = itemOrFullType.fullType or itemOrFullType.id
+            if tableFullType and tostring(tableFullType) ~= "" then
+                return tostring(tableFullType)
+            end
+        end
+
+        local rawString = tostring(itemOrFullType)
+        if rawString ~= "" and rawString ~= "nil" and string.find(rawString, "%.") then
+            return rawString
+        end
     end
     return nil
 end

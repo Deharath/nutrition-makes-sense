@@ -42,10 +42,7 @@ end
 
 if Events and Events.OnGameBoot and type(Events.OnGameBoot.Add) == "function" then
     Events.OnGameBoot.Add(function()
-        local ok, err = pcall(onGameBoot)
-        if not ok then
-            log("[ERROR] boot hook failed: " .. tostring(err))
-        end
+        onGameBoot()
     end)
 else
     log("Events.OnGameBoot.Add unavailable; boot hook not registered")

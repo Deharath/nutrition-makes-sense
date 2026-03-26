@@ -18,64 +18,56 @@ local getPlayerStats = Runtime.getPlayerStats
 local getCharacterStatValue = Runtime.getCharacterStatValue
 local setStatValue = Runtime.setStatValue
 local safeCall = Runtime.safeCall
+local normalizeReportedWorkloadSample = Runtime.normalizeReportedWorkloadSample
+local REPORTED_WORKLOAD_WINDOW_HOURS = Runtime.REPORTED_WORKLOAD_WINDOW_HOURS or (4 / 3600)
 
-function Runtime.setScriptedWorkloadOverride(playerObj, workload, reason)
-    local key = getPlayerCacheKey(playerObj)
-    local normalized = normalizeScriptedWorkloadOverride(workload, reason)
-    if not key or not normalized then
-        return nil
+local function pruneReportedWorkloadSamples(samples, nowHours)
+    if type(samples) ~= "table" then
+        return {}
     end
 
-    scriptedWorkloadOverrideByPlayerKey[key] = normalized
-    return normalized
+    local kept = {}
+    for _, sample in ipairs(samples) do
+        local sampleHours = tonumber(sample.serverWorldHours) or nowHours
+        if nowHours == nil or (nowHours - sampleHours) <= REPORTED_WORKLOAD_WINDOW_HOURS then
+            kept[#kept + 1] = sample
+        end
+    end
+    return kept
 end
 
-function Runtime.getScriptedWorkloadOverride(playerObj)
-    local key = getPlayerCacheKey(playerObj)
-    if not key then
+local function smoothReportedWorkload(samples)
+    if type(samples) ~= "table" or #samples == 0 then
         return nil
     end
-    return scriptedWorkloadOverrideByPlayerKey[key]
+
+    local sumAverage = 0
+    local peakMet = 0
+    local sleepObserved = false
+    local latestSource = "mp_reported"
+
+    for _, sample in ipairs(samples) do
+        sumAverage = sumAverage + (tonumber(sample.averageMet) or 0)
+        peakMet = math.max(peakMet, tonumber(sample.peakMet) or tonumber(sample.averageMet) or 0)
+        sleepObserved = sleepObserved or sample.sleepObserved == true
+        latestSource = tostring(sample.source or latestSource)
+    end
+
+    return Metabolism.normalizeWorkload({
+        averageMet = sumAverage / #samples,
+        peakMet = peakMet,
+        sleepObserved = sleepObserved,
+        source = "mp_smoothed_" .. latestSource,
+    })
 end
 
-function Runtime.clearScriptedWorkloadOverride(playerObj, reason)
-    local key = getPlayerCacheKey(playerObj)
-    if not key then
-        return false
+local function accumulateWorkloadSample(playerObj, state, cache, live, nowHours)
+    if not cache or not live then
+        return live
     end
 
-    local existing = scriptedWorkloadOverrideByPlayerKey[key]
-    scriptedWorkloadOverrideByPlayerKey[key] = nil
-    if existing then
-        log(string.format(
-            "[SCRIPTED_WORKLOAD_CLEAR] player=%s source=%s reason=%s",
-            tostring(getPlayerLabel(playerObj)),
-            tostring(existing.source or "scripted_override"),
-            tostring(reason or "clear-scripted-override")
-        ))
-    end
-    return existing ~= nil
-end
-
-function Runtime.observePlayerWorkload(playerObj, reason)
-    if not shouldRunAuthoritativeUpdates() or not playerObj then
-        return nil
-    end
-
-    local state = Runtime.ensureStateForPlayer(playerObj)
-    if state then
-        syncVisibleHunger(playerObj, state, reason or "observe-workload")
-    end
-
-    local cache = getActivityCache(playerObj)
-    if not cache then
-        return nil
-    end
-
-    local live = sampleLiveWorkload(playerObj)
     cache.lastLive = live
 
-    local nowHours = getWorldHours()
     local previousHours = cache.lastSampleWorldHours
     cache.lastSampleWorldHours = nowHours or previousHours
 
@@ -88,8 +80,6 @@ function Runtime.observePlayerWorkload(playerObj, reason)
     if deltaHours <= 0 then
         return live
     end
-
-    state = Runtime.ensureStateForPlayer(playerObj)
 
     cache.weightedMetHours = cache.weightedMetHours + (live.averageMet * deltaHours)
     cache.observedHours = cache.observedHours + deltaHours
@@ -156,6 +146,146 @@ function Runtime.observePlayerWorkload(playerObj, reason)
     end
 
     return live
+end
+
+function Runtime.setScriptedWorkloadOverride(playerObj, workload, reason)
+    local key = getPlayerCacheKey(playerObj)
+    local normalized = normalizeScriptedWorkloadOverride(workload, reason)
+    if not key or not normalized then
+        return nil
+    end
+
+    scriptedWorkloadOverrideByPlayerKey[key] = normalized
+    return normalized
+end
+
+function Runtime.getScriptedWorkloadOverride(playerObj)
+    local key = getPlayerCacheKey(playerObj)
+    if not key then
+        return nil
+    end
+    return scriptedWorkloadOverrideByPlayerKey[key]
+end
+
+function Runtime.clearScriptedWorkloadOverride(playerObj, reason)
+    local key = getPlayerCacheKey(playerObj)
+    if not key then
+        return false
+    end
+
+    local existing = scriptedWorkloadOverrideByPlayerKey[key]
+    scriptedWorkloadOverrideByPlayerKey[key] = nil
+    if existing then
+        log(string.format(
+            "[SCRIPTED_WORKLOAD_CLEAR] player=%s source=%s reason=%s",
+            tostring(getPlayerLabel(playerObj)),
+            tostring(existing.source or "scripted_override"),
+            tostring(reason or "clear-scripted-override")
+        ))
+    end
+    return existing ~= nil
+end
+
+function Runtime.reportPlayerWorkload(playerObj, workload, clientWorldHours, reason, seq)
+    if not shouldRunAuthoritativeUpdates() or not playerObj or type(normalizeReportedWorkloadSample) ~= "function" then
+        return nil
+    end
+
+    local cache = getActivityCache(playerObj)
+    if not cache then
+        return nil
+    end
+
+    local normalizedWorkload = normalizeReportedWorkloadSample(workload)
+    if not normalizedWorkload then
+        return nil
+    end
+
+    local reportedSeq = tonumber(seq) or nil
+    local previousSeq = tonumber(cache.reportedWorkloadSeq) or nil
+    if reportedSeq ~= nil and previousSeq ~= nil and reportedSeq <= previousSeq then
+        log(string.format(
+            "[MP_WORKLOAD_DROP] player=%s source=%s seq=%d previous=%d reason=%s",
+            tostring(getPlayerLabel(playerObj)),
+            tostring(normalizedWorkload.source or "mp_reported"),
+            tonumber(reportedSeq),
+            tonumber(previousSeq),
+            tostring(reason or "client-report")
+        ))
+        return nil
+    end
+
+    local reportedClientWorldHours = tonumber(clientWorldHours) or nil
+    local nowHours = getWorldHours()
+    local previousWorkload = type(cache.reportedWorkload) == "table" and cache.reportedWorkload or nil
+    if previousWorkload then
+        local state = Runtime.ensureStateForPlayer(playerObj)
+        accumulateWorkloadSample(playerObj, state, cache, previousWorkload, nowHours)
+    end
+
+    local samples = pruneReportedWorkloadSamples(cache.reportedWorkloadSamples, nowHours)
+    samples[#samples + 1] = {
+        seq = reportedSeq,
+        serverWorldHours = nowHours,
+        clientWorldHours = reportedClientWorldHours,
+        averageMet = normalizedWorkload.averageMet,
+        peakMet = normalizedWorkload.peakMet,
+        sleepObserved = normalizedWorkload.sleepObserved == true,
+        source = normalizedWorkload.source,
+    }
+    cache.reportedWorkloadSamples = pruneReportedWorkloadSamples(samples, nowHours)
+
+    local smoothedWorkload = smoothReportedWorkload(cache.reportedWorkloadSamples) or normalizedWorkload
+    cache.reportedWorkload = smoothedWorkload
+    cache.reportedWorkloadSeq = reportedSeq or previousSeq
+    cache.reportedWorkloadClientWorldHours = reportedClientWorldHours
+    cache.reportedWorkloadLastSeenHours = nowHours or cache.reportedWorkloadLastSeenHours
+    cache.lastLive = smoothedWorkload
+
+    local previousAverage = tonumber(previousWorkload and previousWorkload.averageMet) or nil
+    local previousPeak = tonumber(previousWorkload and previousWorkload.peakMet) or nil
+    local previousSource = tostring(previousWorkload and previousWorkload.source or "")
+    if previousAverage == nil
+        or math.abs(previousAverage - smoothedWorkload.averageMet) > 0.10
+        or math.abs((previousPeak or previousAverage or 0) - smoothedWorkload.peakMet) > 0.10
+        or previousSource ~= tostring(smoothedWorkload.source or "") then
+        log(string.format(
+            "[MP_WORKLOAD] player=%s raw=%.2f/%.2f smooth=%.2f/%.2f source=%s previous=%.2f/%.2f source=%s reason=%s",
+            tostring(getPlayerLabel(playerObj)),
+            tonumber(normalizedWorkload.averageMet or 0),
+            tonumber(normalizedWorkload.peakMet or 0),
+            tonumber(smoothedWorkload.averageMet or 0),
+            tonumber(smoothedWorkload.peakMet or 0),
+            tostring(smoothedWorkload.source or "mp_reported"),
+            tonumber(previousAverage or 0),
+            tonumber(previousPeak or previousAverage or 0),
+            tostring(previousSource ~= "" and previousSource or "none"),
+            tostring(reason or "client-report")
+        ))
+    end
+
+    return smoothedWorkload
+end
+
+function Runtime.observePlayerWorkload(playerObj, reason)
+    if not shouldRunAuthoritativeUpdates() or not playerObj then
+        return nil
+    end
+
+    local state = Runtime.ensureStateForPlayer(playerObj)
+    if state then
+        syncVisibleHunger(playerObj, state, reason or "observe-workload")
+    end
+
+    local cache = getActivityCache(playerObj)
+    if not cache then
+        return nil
+    end
+
+    local live = sampleLiveWorkload(playerObj)
+    local nowHours = getWorldHours()
+    state = Runtime.ensureStateForPlayer(playerObj)
+    return accumulateWorkloadSample(playerObj, state, cache, live, nowHours)
 end
 
 function Runtime.getCurrentWorkloadSnapshot(playerObj)

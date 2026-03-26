@@ -4,16 +4,29 @@ local MPClient = NutritionMakesSense.MPClientRuntime or {}
 local state = MPClient._state or {}
 
 local MP = MPClient.MP or {}
-local ItemAuthority = MPClient.ItemAuthority or {}
-local CONSUME_EPSILON = MPClient.CONSUME_EPSILON or 0.0001
-local log = MPClient.log
-local safeCall = MPClient.safeCall
-local clamp01 = MPClient.clamp01
 local isClientRuntime = MPClient.isClientRuntime
 local getWorldAgeMinutes = MPClient.getWorldAgeMinutes
 local getWallClockSeconds = MPClient.getWallClockSeconds
 local getPlayerLabel = MPClient.getPlayerLabel
 local normalizeIdComponent = MPClient.normalizeIdComponent
+local Runtime = MPClient.Runtime or {}
+
+local function workloadChanged(live)
+    local previousAverage = tonumber(state.lastReportedWorkloadAverageMet) or nil
+    local previousPeak = tonumber(state.lastReportedWorkloadPeakMet) or nil
+    local previousSource = tostring(state.lastReportedWorkloadSource or "")
+    local averageMet = tonumber(live and live.averageMet) or 0
+    local peakMet = tonumber(live and live.peakMet) or averageMet
+    local source = tostring(live and live.source or "")
+
+    if previousAverage == nil or math.abs(previousAverage - averageMet) > 0.15 then
+        return true
+    end
+    if previousPeak == nil or math.abs(previousPeak - peakMet) > 0.15 then
+        return true
+    end
+    return previousSource ~= source
+end
 
 local function getRuntimeEventSessionId()
     if state.runtimeEventSessionId then
@@ -84,64 +97,61 @@ function MPClient.requestSnapshot(reason, force)
     return pcall(sendClientCommand, tostring(MP.NET_MODULE), tostring(MP.REQUEST_SNAPSHOT_COMMAND), args)
 end
 
-function MPClient.queueConsume(playerObj, item, fraction, reason, consumedValues, immediateHunger)
-    if not isClientRuntime() or type(sendClientCommand) ~= "function" then
+function MPClient.reportWorkload(playerObj, force, reason)
+    if not isClientRuntime() or type(sendClientCommand) ~= "function" or not playerObj then
         return false
     end
 
-    local consumedFraction = clamp01(fraction or 0)
-    if consumedFraction <= CONSUME_EPSILON then
+    local live = Runtime.sampleReportedWorkload and Runtime.sampleReportedWorkload(playerObj) or nil
+    if type(live) ~= "table" then
         return false
     end
 
-    local itemId = ItemAuthority.getItemId and ItemAuthority.getItemId(item) or tonumber(safeCall(item, "getID") or item and item.id or nil)
-    local fullType = safeCall(item, "getFullType") or item and (item.fullType or item.id) or nil
-    if itemId == nil or not fullType then
+    local averageMet = tonumber(live.averageMet) or 0
+    local peakMet = tonumber(live.peakMet) or averageMet
+    local source = tostring(live.source or "unknown")
+    local nowSecond = getWallClockSeconds()
+    local changed = workloadChanged(live)
+    local lastSent = tonumber(state.lastWorkloadReportWallSecond) or 0
+    local keepaliveSent = tonumber(state.lastWorkloadKeepaliveWallSecond) or 0
+    local keepaliveDue = (nowSecond - keepaliveSent) >= 1
+
+    if not force and not changed and not keepaliveDue then
+        return false
+    end
+    if not force and changed == false and (nowSecond - lastSent) < 1 then
         return false
     end
 
-    if not state.latestSnapshot then
-        MPClient.requestSnapshot("pre-consume-bootstrap", true)
+    state.lastReportedWorkloadAverageMet = averageMet
+    state.lastReportedWorkloadPeakMet = peakMet
+    state.lastReportedWorkloadSource = source
+    state.lastWorkloadReportWallSecond = nowSecond
+    state.nextWorkloadSequence = (tonumber(state.nextWorkloadSequence) or 0) + 1
+    if keepaliveDue or changed or force then
+        state.lastWorkloadKeepaliveWallSecond = nowSecond
     end
 
-    local eventId = makeEventId(playerObj, itemId, reason)
     local args = {
-        eventId = eventId,
-        itemId = itemId,
-        fullType = tostring(fullType),
-        fraction = consumedFraction,
-        reason = tostring(reason or "consume"),
-        worldMinute = getWorldAgeMinutes(),
+        seq = tonumber(state.nextWorkloadSequence),
+        averageMet = averageMet,
+        peakMet = peakMet,
+        source = source,
+        sleepObserved = live.sleepObserved == true,
+        worldHours = MPClient.getWorldHours and MPClient.getWorldHours() or nil,
+        reason = tostring(reason or (changed and "workload-change" or "workload-keepalive")),
     }
-    if type(consumedValues) == "table" then
-        args.consumed = {
-            hunger = tonumber(consumedValues.hunger) or 0,
-            baseHunger = tonumber(consumedValues.baseHunger or consumedValues.hunger) or 0,
-            kcal = tonumber(consumedValues.kcal) or 0,
-            carbs = tonumber(consumedValues.carbs) or 0,
-            fats = tonumber(consumedValues.fats) or 0,
-            proteins = tonumber(consumedValues.proteins) or 0,
-        }
-    end
-    if type(immediateHunger) == "table" then
-        args.immediateHungerDrop = tonumber(immediateHunger.drop) or 0
-        args.preVisibleHunger = tonumber(immediateHunger.preVisibleHunger) or 0
-    elseif immediateHunger ~= nil then
-        args.immediateHungerDrop = tonumber(immediateHunger) or 0
-    end
-
-    local ok = pcall(sendClientCommand, tostring(MP.NET_MODULE), tostring(MP.CONSUME_COMMAND), args)
-    if ok then
-        log(string.format(
-            "[CLIENT_CONSUME_REQUEST] event=%s item=%s fraction=%.3f reason=%s payload=%s",
-            tostring(eventId),
-            tostring(fullType),
-            consumedFraction,
-            tostring(reason or "consume"),
-            tostring(args.consumed ~= nil)
+    local ok = pcall(sendClientCommand, tostring(MP.NET_MODULE), tostring(MP.REPORT_WORKLOAD_COMMAND), args)
+    if ok and changed then
+        print(string.format(
+            "[NutritionMakesSense] [CLIENT_WORKLOAD] met=%.2f/%.2f source=%s reason=%s",
+            averageMet,
+            peakMet,
+            source,
+            tostring(args.reason)
         ))
     end
-    return ok, eventId, args
+    return ok
 end
 
 return MPClient

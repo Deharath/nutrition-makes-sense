@@ -57,6 +57,54 @@ local function formatValues(values)
     )
 end
 
+local function formatSnapshotMeta(snapshot)
+    if type(snapshot) ~= "table" then
+        return "nil"
+    end
+    return string.format(
+        "mode=%s source=%s provenance=%s seed=%s fullType=%s sourceFullType=%s authorityTarget=%s rem=%s",
+        tostring(snapshot.snapshotMode or snapshot.snapshot_mode or "nil"),
+        tostring(snapshot.nutritionSource or snapshot.nutrition_source or "nil"),
+        tostring(snapshot.provenance or "nil"),
+        tostring(snapshot.seedReason or "nil"),
+        tostring(snapshot.fullType or "nil"),
+        tostring(snapshot.sourceFullType or "nil"),
+        tostring(snapshot.authorityTarget or "nil"),
+        formatNumber(snapshot.remainingFraction, 3)
+    )
+end
+
+local function formatDeltaLine(lhs, rhs)
+    local function delta(key)
+        return (tonumber(lhs and lhs[key]) or 0) - (tonumber(rhs and rhs[key]) or 0)
+    end
+    return string.format(
+        "dhunger=%s dkcal=%s dcarbs=%s dfats=%s dproteins=%s",
+        formatNumber(delta("hunger"), 3),
+        formatNumber(delta("kcal"), 3),
+        formatNumber(delta("carbs"), 3),
+        formatNumber(delta("fats"), 3),
+        formatNumber(delta("proteins"), 3)
+    )
+end
+
+local function formatPercent(value)
+    local numeric = tonumber(value)
+    if numeric == nil then
+        return "nil"
+    end
+    return string.format("%.1f%%", numeric * 100.0)
+end
+
+local function resolveMoodDynamicDelta(runtimeValue, unmodifiedValue)
+    local runtime = tonumber(runtimeValue)
+    local unmodified = tonumber(unmodifiedValue)
+    if runtime == nil or unmodified == nil then
+        return nil
+    end
+    return runtime - unmodified
+end
+
 local function resolveActualItems(items)
     if ISInventoryPane and type(ISInventoryPane.getActualItems) == "function" then
         local ok, actual = pcall(ISInventoryPane.getActualItems, items)
@@ -82,6 +130,20 @@ local function isFoodItem(item)
     return safeCall(item, "isFood") == true or safeCall(item, "IsFood") == true
 end
 
+local function makeFoodProbe(fullType)
+    if not fullType or not InventoryItemFactory or type(InventoryItemFactory.CreateItem) ~= "function" then
+        return nil
+    end
+    local ok, probe = pcall(InventoryItemFactory.CreateItem, fullType)
+    if not ok or not probe then
+        return nil
+    end
+    if safeCall(probe, "isFood") == false and safeCall(probe, "IsFood") == false then
+        return nil
+    end
+    return probe
+end
+
 local function logFoodItemDebug(item)
     local ItemAuthority = NutritionMakesSense.ItemAuthority or {}
     local fullType = safeCall(item, "getFullType") or tostring(item)
@@ -89,8 +151,53 @@ local function logFoodItemDebug(item)
     local displayName = safeCall(item, "getDisplayName") or fullType
     local display = ItemAuthority.getDisplayValues and ItemAuthority.getDisplayValues(item) or nil
     local debugSnapshot = ItemAuthority.getDebugSnapshot and ItemAuthority.getDebugSnapshot(item) or nil
+    local applied = debugSnapshot and debugSnapshot.applied or nil
     local current = debugSnapshot and debugSnapshot.current or nil
     local stored = debugSnapshot and debugSnapshot.stored or nil
+    local resolvedMode = debugSnapshot and debugSnapshot.resolvedMode or nil
+    local expectedMode = debugSnapshot and debugSnapshot.expectedMode or nil
+    local semanticClass = debugSnapshot and debugSnapshot.semanticClass or nil
+    local authorityTarget = debugSnapshot and debugSnapshot.authorityTarget or nil
+    local patchSource = debugSnapshot and debugSnapshot.patchSource or nil
+    local source = debugSnapshot and debugSnapshot.source or nil
+    local resolvedSource = ItemAuthority.getResolvedNutritionSource and ItemAuthority.getResolvedNutritionSource(item) or nil
+    local moodBoredom = safeCall(item, "getBoredomChange")
+    local moodBoredomUnmodified = safeCall(item, "getBoredomChangeUnmodified")
+    local moodUnhappy = safeCall(item, "getUnhappyChange")
+    local moodUnhappyUnmodified = safeCall(item, "getUnhappyChangeUnmodified")
+    local moodBoredomDelta = resolveMoodDynamicDelta(moodBoredom, moodBoredomUnmodified)
+    local moodUnhappyDelta = resolveMoodDynamicDelta(moodUnhappy, moodUnhappyUnmodified)
+    local frozen = safeCall(item, "isFrozen") == true
+    local burnt = safeCall(item, "isBurnt") == true
+    local cooked = safeCall(item, "isCooked") == true
+    local cookable = safeCall(item, "isCookable") == true
+    local badCold = safeCall(item, "isBadCold") == true
+    local goodHot = safeCall(item, "isGoodHot") == true
+    local canBeFrozen = safeCall(item, "canBeFrozen")
+    local freezingTime = safeCall(item, "getFreezingTime")
+    local heat = safeCall(item, "getHeat")
+    local age = tonumber(safeCall(item, "getAge")) or 0
+    local offAge = tonumber(safeCall(item, "getOffAge")) or 0
+    local offAgeMax = tonumber(safeCall(item, "getOffAgeMax")) or 0
+    local ageBand = "fresh"
+    if offAgeMax > 0 and age >= offAgeMax then
+        ageBand = "rotten"
+    elseif offAge > 0 and age >= offAge then
+        ageBand = "stale"
+    end
+    local scriptItem = safeCall(item, "getScriptItem")
+    local scriptMoodBoredom = safeCall(scriptItem, "getBoredomChange")
+    local scriptMoodUnhappy = safeCall(scriptItem, "getUnhappyChange")
+    local probe = makeFoodProbe(fullType)
+    local probeMoodBoredom = safeCall(probe, "getBoredomChange")
+    local probeMoodBoredomUnmodified = safeCall(probe, "getBoredomChangeUnmodified")
+    local probeMoodUnhappy = safeCall(probe, "getUnhappyChange")
+    local probeMoodUnhappyUnmodified = safeCall(probe, "getUnhappyChangeUnmodified")
+    local thirst = safeCall(item, "getThirstChange")
+    local thirstUnmodified = safeCall(item, "getThirstChangeUnmodified")
+    local scriptThirst = safeCall(scriptItem, "getThirstChange")
+    local probeThirst = safeCall(probe, "getThirstChange")
+    local probeThirstUnmodified = safeCall(probe, "getThirstChangeUnmodified")
 
     log(string.format(
         "[FOOD_DEBUG] item=%s name=%s id=%s cooked=%s burnt=%s frozen=%s rotten=%s age=%s offAge=%s offAgeMax=%s",
@@ -106,8 +213,78 @@ local function logFoodItemDebug(item)
         formatNumber(safeCall(item, "getOffAgeMax"), 3)
     ))
     log("[FOOD_DEBUG] display " .. formatValues(display))
+    log("[FOOD_DEBUG] applied " .. formatValues(applied))
     log("[FOOD_DEBUG] current " .. formatValues(current))
     log("[FOOD_DEBUG] stored  " .. formatValues(stored))
+    log(string.format(
+        "[FOOD_DEBUG] semantics source=%s class=%s expectedMode=%s resolvedMode=%s patchSource=%s authorityTarget=%s",
+        tostring(source or "nil"),
+        tostring(semanticClass or "nil"),
+        tostring(expectedMode or "nil"),
+        tostring(resolvedMode or "nil"),
+        tostring(patchSource or "nil"),
+        tostring(authorityTarget or "nil")
+    ))
+    log("[FOOD_DEBUG] meta display " .. formatSnapshotMeta(display))
+    log("[FOOD_DEBUG] meta applied " .. formatSnapshotMeta(applied))
+    log("[FOOD_DEBUG] meta current " .. formatSnapshotMeta(current))
+    log("[FOOD_DEBUG] meta stored  " .. formatSnapshotMeta(stored))
+    log(string.format(
+        "[FOOD_DEBUG] raw baseHunger=%s hunger=%s thirst=%s thirstUnmod=%s calories=%s carbs=%s fats=%s proteins=%s currentUses=%s maxUses=%s resolvedSource=%s",
+        formatNumber(safeCall(item, "getBaseHunger"), 3),
+        formatNumber(safeCall(item, "getHungChange") or safeCall(item, "getHungerChange"), 3),
+        formatNumber(thirst, 3),
+        formatNumber(thirstUnmodified, 3),
+        formatNumber(safeCall(item, "getCalories"), 1),
+        formatNumber(safeCall(item, "getCarbohydrates"), 3),
+        formatNumber(safeCall(item, "getLipids"), 3),
+        formatNumber(safeCall(item, "getProteins"), 3),
+        formatNumber(safeCall(item, "getCurrentUses"), 3),
+        formatNumber(safeCall(item, "getMaxUses"), 3),
+        tostring(resolvedSource or "nil")
+    ))
+    log(string.format(
+        "[FOOD_DEBUG] mood boredom=%s unmod=%s dynamicDelta=%s bar=%s unhappy=%s unmod=%s dynamicDelta=%s bar=%s",
+        formatNumber(moodBoredom, 3),
+        formatNumber(moodBoredomUnmodified, 3),
+        formatNumber(moodBoredomDelta, 3),
+        formatPercent(math.abs((tonumber(moodBoredom) or 0) * 0.02)),
+        formatNumber(moodUnhappy, 3),
+        formatNumber(moodUnhappyUnmodified, 3),
+        formatNumber(moodUnhappyDelta, 3),
+        formatPercent(math.abs((tonumber(moodUnhappy) or 0) * 0.02))
+    ))
+    log(string.format(
+        "[FOOD_DEBUG] mood context ageBand=%s frozen=%s canBeFrozen=%s freezingTime=%s burnt=%s cooked=%s cookable=%s badCold=%s goodHot=%s heat=%s",
+        tostring(ageBand),
+        formatBool(frozen),
+        tostring(canBeFrozen),
+        formatNumber(freezingTime, 3),
+        formatBool(burnt),
+        formatBool(cooked),
+        formatBool(cookable),
+        formatBool(badCold),
+        formatBool(goodHot),
+        formatNumber(heat, 3)
+    ))
+    log(string.format(
+        "[FOOD_DEBUG] mood baseline scriptBoredom=%s scriptUnhappy=%s probeBoredom=%s probeBoredomUnmod=%s probeUnhappy=%s probeUnhappyUnmod=%s",
+        formatNumber(scriptMoodBoredom, 3),
+        formatNumber(scriptMoodUnhappy, 3),
+        formatNumber(probeMoodBoredom, 3),
+        formatNumber(probeMoodBoredomUnmodified, 3),
+        formatNumber(probeMoodUnhappy, 3),
+        formatNumber(probeMoodUnhappyUnmodified, 3)
+    ))
+    log(string.format(
+        "[FOOD_DEBUG] thirst baseline script=%s probe=%s probeUnmod=%s",
+        formatNumber(scriptThirst, 3),
+        formatNumber(probeThirst, 3),
+        formatNumber(probeThirstUnmodified, 3)
+    ))
+    log("[FOOD_DEBUG] delta current-stored " .. formatDeltaLine(current, stored))
+    log("[FOOD_DEBUG] delta current-applied " .. formatDeltaLine(current, applied))
+    log("[FOOD_DEBUG] delta applied-stored " .. formatDeltaLine(applied, stored))
 end
 
 local function tryLoadDevModule(globalKey, requirePath, label)

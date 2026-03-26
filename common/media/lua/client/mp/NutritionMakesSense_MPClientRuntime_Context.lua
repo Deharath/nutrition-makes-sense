@@ -10,10 +10,13 @@ NutritionMakesSense.MPClientRuntime = MPClient
 
 local MP = NutritionMakesSense.MP or {}
 local Runtime = NutritionMakesSense.MetabolismRuntime or {}
+local Metabolism = Runtime.Metabolism or {}
 local ItemAuthority = NutritionMakesSense.ItemAuthority or {}
 local CoreUtils = NutritionMakesSense.CoreUtils or {}
 
 local CONSUME_EPSILON = 0.0001
+local SNAPSHOT_STALE_SECONDS = 5
+local PROJECTION_SMOOTH_ALPHA = 0.35
 local safeCall = CoreUtils.safeCall
 
 local function log(msg)
@@ -35,6 +38,10 @@ end
 local function getWorldAgeMinutes()
     local worldHours = CoreUtils.getWorldHours and CoreUtils.getWorldHours() or nil
     return math.floor((tonumber(worldHours) or 0) * 60)
+end
+
+local function getWorldHours()
+    return tonumber(CoreUtils.getWorldHours and CoreUtils.getWorldHours() or nil)
 end
 
 local function getWallClockSeconds()
@@ -92,19 +99,38 @@ local state = MPClient._state or {}
 MPClient._state = state
 state.bootLogged = state.bootLogged == true
 state.latestSnapshot = state.latestSnapshot
+state.authoritativeState = type(state.authoritativeState) == "table" and state.authoritativeState or nil
+state.projectedState = type(state.projectedState) == "table" and state.projectedState or nil
+state.lastAcceptedSnapshotSeq = tonumber(state.lastAcceptedSnapshotSeq) or nil
+state.lastSnapshotReceiveWallSecond = tonumber(state.lastSnapshotReceiveWallSecond) or 0
+state.lastSnapshotServerWorldHours = tonumber(state.lastSnapshotServerWorldHours) or nil
+state.lastSnapshotServerWallSeconds = tonumber(state.lastSnapshotServerWallSeconds) or nil
+state.lastSnapshotReason = tostring(state.lastSnapshotReason or "")
+state.snapshotAgeSeconds = tonumber(state.snapshotAgeSeconds) or 0
+state.snapshotIsStale = state.snapshotIsStale == true
 state.lastRequestWallSecond = tonumber(state.lastRequestWallSecond) or 0
 state.nextEventSequence = tonumber(state.nextEventSequence) or 0
 state.runtimeEventSessionId = state.runtimeEventSessionId
+state.lastWorkloadReportWallSecond = tonumber(state.lastWorkloadReportWallSecond) or 0
+state.lastWorkloadKeepaliveWallSecond = tonumber(state.lastWorkloadKeepaliveWallSecond) or 0
+state.lastReportedWorkloadAverageMet = tonumber(state.lastReportedWorkloadAverageMet) or nil
+state.lastReportedWorkloadPeakMet = tonumber(state.lastReportedWorkloadPeakMet) or nil
+state.lastReportedWorkloadSource = tostring(state.lastReportedWorkloadSource or "")
+state.nextWorkloadSequence = tonumber(state.nextWorkloadSequence) or 0
 
 MPClient.MP = MP
 MPClient.Runtime = Runtime
+MPClient.Metabolism = Metabolism
 MPClient.ItemAuthority = ItemAuthority
 MPClient.CONSUME_EPSILON = CONSUME_EPSILON
+MPClient.SNAPSHOT_STALE_SECONDS = SNAPSHOT_STALE_SECONDS
+MPClient.PROJECTION_SMOOTH_ALPHA = PROJECTION_SMOOTH_ALPHA
 MPClient.safeCall = safeCall
 MPClient.log = log
 MPClient.isClientRuntime = isClientRuntime
 MPClient.isLocalAuthorityRuntime = isLocalAuthorityRuntime
 MPClient.getWorldAgeMinutes = getWorldAgeMinutes
+MPClient.getWorldHours = getWorldHours
 MPClient.getWallClockSeconds = getWallClockSeconds
 MPClient.getPlayerLabel = CoreUtils.getPlayerLabel
 MPClient.getLocalPlayer = CoreUtils.getLocalPlayer

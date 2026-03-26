@@ -28,6 +28,140 @@ local getWorldHours = Runtime.getWorldHours
 local consumeWorkloadSummary = Runtime.consumeWorkloadSummary
 local removeEndurance = Runtime.removeEndurance
 local eachKnownPlayer = Runtime.eachKnownPlayer
+local runningOnServer = (type(isServer) == "function") and (isServer() == true)
+local SUPPRESSION_EPSILON = 0.01
+local SUPPRESSION_TTL_HOURS = 0.20
+
+local function copySuppressionValues(values)
+    local normalized = normalizeDeposit(values)
+    return {
+        kcal = math.max(0, tonumber(normalized.kcal) or 0),
+        carbs = math.max(0, tonumber(normalized.carbs) or 0),
+        fats = math.max(0, tonumber(normalized.fats) or 0),
+        proteins = math.max(0, tonumber(normalized.proteins) or 0),
+    }
+end
+
+local function queueHasMeaningfulDelta(values)
+    return math.abs(tonumber(values and values.kcal) or 0) > SUPPRESSION_EPSILON
+        or math.abs(tonumber(values and values.carbs) or 0) > SUPPRESSION_EPSILON
+        or math.abs(tonumber(values and values.fats) or 0) > SUPPRESSION_EPSILON
+        or math.abs(tonumber(values and values.proteins) or 0) > SUPPRESSION_EPSILON
+end
+
+local function formatMacroValues(values)
+    return string.format(
+        "kcal=%.1f carbs=%.1f fats=%.1f proteins=%.1f",
+        tonumber(values and values.kcal) or 0,
+        tonumber(values and values.carbs) or 0,
+        tonumber(values and values.fats) or 0,
+        tonumber(values and values.proteins) or 0
+    )
+end
+
+function Runtime.enqueuePendingNutritionSuppression(playerObj, values, reason)
+    if not playerObj then
+        return nil
+    end
+
+    local state = Runtime.ensureStateForPlayer(playerObj)
+    if not state then
+        return nil
+    end
+
+    local queued = copySuppressionValues(values)
+    if not queueHasMeaningfulDelta(queued) then
+        return nil
+    end
+
+    local suppressions = type(state.pendingNutritionSuppressions) == "table" and state.pendingNutritionSuppressions or {}
+    suppressions[#suppressions + 1] = {
+        kcal = queued.kcal,
+        carbs = queued.carbs,
+        fats = queued.fats,
+        proteins = queued.proteins,
+        reason = tostring(reason or "server-explicit-consume"),
+        worldHours = tonumber(getWorldHours()) or nil,
+    }
+    state.pendingNutritionSuppressions = suppressions
+    return suppressions[#suppressions]
+end
+
+function Runtime.consumePendingNutritionSuppressions(playerObj, observedDelta, reason)
+    local remaining = copySuppressionValues(observedDelta)
+    if not playerObj then
+        return remaining, nil
+    end
+
+    local state = Runtime.ensureStateForPlayer(playerObj)
+    if not state then
+        return remaining, nil
+    end
+
+    local suppressions = state.pendingNutritionSuppressions
+    if type(suppressions) ~= "table" or #suppressions == 0 then
+        return remaining, nil
+    end
+
+    local nowHours = tonumber(getWorldHours()) or nil
+    local absorbed = {
+        kcal = 0,
+        carbs = 0,
+        fats = 0,
+        proteins = 0,
+    }
+    local remainingQueue = {}
+
+    for _, entry in ipairs(suppressions) do
+        local entryWorldHours = tonumber(entry and entry.worldHours) or nil
+        local isStale = nowHours ~= nil
+            and entryWorldHours ~= nil
+            and (nowHours - entryWorldHours) > SUPPRESSION_TTL_HOURS
+        if not isStale and type(entry) == "table" then
+            local leftover = {
+                kcal = math.max(0, tonumber(entry.kcal) or 0),
+                carbs = math.max(0, tonumber(entry.carbs) or 0),
+                fats = math.max(0, tonumber(entry.fats) or 0),
+                proteins = math.max(0, tonumber(entry.proteins) or 0),
+                reason = tostring(entry.reason or "server-explicit-consume"),
+                worldHours = entryWorldHours,
+            }
+
+            for _, field in ipairs({ "kcal", "carbs", "fats", "proteins" }) do
+                local matched = math.min(tonumber(remaining[field]) or 0, tonumber(leftover[field]) or 0)
+                if matched > SUPPRESSION_EPSILON then
+                    remaining[field] = math.max(0, (tonumber(remaining[field]) or 0) - matched)
+                    leftover[field] = math.max(0, (tonumber(leftover[field]) or 0) - matched)
+                    absorbed[field] = (tonumber(absorbed[field]) or 0) + matched
+                end
+            end
+
+            if queueHasMeaningfulDelta(leftover) then
+                remainingQueue[#remainingQueue + 1] = {
+                    kcal = tonumber(leftover.kcal) or 0,
+                    carbs = tonumber(leftover.carbs) or 0,
+                    fats = tonumber(leftover.fats) or 0,
+                    proteins = tonumber(leftover.proteins) or 0,
+                    reason = tostring(entry.reason or "server-explicit-consume"),
+                    worldHours = entryWorldHours,
+                }
+            end
+        end
+    end
+
+    state.pendingNutritionSuppressions = (#remainingQueue > 0) and remainingQueue or nil
+
+    if queueHasMeaningfulDelta(absorbed) then
+        log(string.format(
+            "[MP_SERVER_DRIFT_SUPPRESS] player=%s reason=%s %s",
+            tostring(getPlayerLabel(playerObj)),
+            tostring(reason or "server-drift-suppress"),
+            formatMacroValues(absorbed)
+        ))
+    end
+
+    return remaining, absorbed
+end
 
 function Runtime.debugSetStateFields(playerObj, updates, reason)
     if not playerObj or type(updates) ~= "table" then
@@ -136,7 +270,6 @@ function Runtime.debugResetState(playerObj, reason)
         lastTraceReason = tostring(reason or "debug-reset"),
         baseHealthFromFood = tonumber(previous and previous.baseHealthFromFood) or seedHealthFromFood(bodyDamage),
         pendingNutritionSuppressions = nil,
-        recentMpEventIds = {},
     })
     state = refreshDerivedState(state, reason or "debug-reset")
     modData[STATE_KEY] = state
@@ -272,19 +405,6 @@ function Runtime.applyAuthoritativeDeposit(playerObj, values, reason, options)
 
     Runtime.syncVisibleShell(playerObj, reason or "mp-authority")
 
-    log(string.format(
-        "[MP_AUTHORITY] player=%s reason=%s kcal=%.1f carbs=%.1f fats=%.1f proteins=%.1f fuel=%.1f zone=%s hunger_drop=%.4f",
-        tostring(getPlayerLabel(playerObj)),
-        tostring(reason or "mp-authority"),
-        tonumber(report.kcal or 0),
-        tonumber(report.carbs or 0),
-        tonumber(report.fats or 0),
-        tonumber(report.proteins or 0),
-        tonumber(report.fuelAfter or state.fuel),
-        tostring(report.zoneAfter or state.lastZone),
-        tonumber(report.immediateHungerDrop or report.immediateFillTarget or 0)
-    ))
-
     return report, state
 end
 
@@ -301,18 +421,16 @@ function Runtime.updatePlayer(playerObj, reason)
     local playerLabel = getPlayerLabel(playerObj)
     local nutrition = getPlayerNutrition(playerObj)
     local observedDelta = samplePositiveNutritionDelta(nutrition)
-    if hasMeaningfulDeposit(observedDelta) then
-        log(string.format(
-            "[NUTRITION_DRIFT] player=%s kcal=%.1f carbs=%.1f fats=%.1f proteins=%.1f",
-            tostring(playerLabel),
-            tonumber(observedDelta.kcal or 0),
-            tonumber(observedDelta.carbs or 0),
-            tonumber(observedDelta.fats or 0),
-            tonumber(observedDelta.proteins or 0)
-        ))
+    local remainingDrift = observedDelta
+    if runningOnServer and hasMeaningfulDeposit(observedDelta) then
+        remainingDrift = Runtime.consumePendingNutritionSuppressions(playerObj, observedDelta, reason)
+    end
+    if runningOnServer and hasMeaningfulDeposit(remainingDrift) then
+        Runtime.applyAuthoritativeDeposit(playerObj, remainingDrift, "food-drift-consume", {
+            item = "vanilla-drift",
+        })
     end
     local zoneBefore = Metabolism.getFuelZone(state.fuel)
-    state.lastDepositKcal = 0
 
     local nowHours = getWorldHours()
     local elapsedHours = 0
@@ -358,17 +476,6 @@ function Runtime.updatePlayer(playerObj, reason)
         ))
     end
 
-    if tonumber(state.lastProteinDeficiency or 0) > 0
-        or tonumber(state.lastAcuteFuelRecoveryScale or 1.0) < 0.999 then
-        log(string.format(
-            "[NUTRITION_STATE] player=%s proteinDef=%.3f proteinHealing=%.3f fuelRecovery=%.3f deprivation=%.3f",
-            tostring(playerLabel),
-            tonumber(state.lastProteinDeficiency or 0),
-            tonumber(state.lastProteinHealingMultiplier or 1.0),
-            tonumber(state.lastAcuteFuelRecoveryScale or 1.0),
-            tonumber(state.deprivation or 0)
-        ))
-    end
 end
 
 function Runtime.bootstrapPlayer(playerObj, reason)

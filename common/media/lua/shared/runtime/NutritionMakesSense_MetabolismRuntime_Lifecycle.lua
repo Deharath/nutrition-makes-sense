@@ -1,6 +1,9 @@
 NutritionMakesSense = NutritionMakesSense or {}
 
 local Runtime = NutritionMakesSense.MetabolismRuntime or {}
+local isDedicatedServerRuntime = Runtime.isDedicatedServerRuntime or function()
+    return type(isServer) == "function" and isServer() == true
+end
 
 function Runtime.install()
     if Runtime._installed then
@@ -29,13 +32,17 @@ function Runtime.install()
 
         if Events.OnPlayerUpdate and type(Events.OnPlayerUpdate.Add) == "function" then
             Events.OnPlayerUpdate.Add(function(playerObj)
-                Runtime.observePlayerWorkload(playerObj, "player-update")
+                if not isDedicatedServerRuntime() then
+                    Runtime.observePlayerWorkload(playerObj, "player-update")
+                end
             end)
         end
 
         if Events.EveryOneMinute and type(Events.EveryOneMinute.Add) == "function" then
             Events.EveryOneMinute.Add(function()
-                Runtime.refreshKnownPlayers("every-one-minute")
+                if not isDedicatedServerRuntime() then
+                    Runtime.refreshKnownPlayers("every-one-minute")
+                end
             end)
         end
     end

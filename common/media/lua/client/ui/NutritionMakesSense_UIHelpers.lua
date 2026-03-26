@@ -13,11 +13,30 @@ function UIHelpers.safeCall(target, methodName, ...)
 end
 
 function UIHelpers.getStateCopy(playerObj)
+    local MPClient = NutritionMakesSense.MPClientRuntime or {}
+    if type(MPClient.getProjectedStateCopy) == "function" then
+        local projected = MPClient.getProjectedStateCopy(playerObj)
+        if projected then
+            return projected
+        end
+    end
+    return UIHelpers.getAuthoritativeStateCopy(playerObj)
+end
+
+function UIHelpers.getAuthoritativeStateCopy(playerObj)
     local Runtime = NutritionMakesSense.MetabolismRuntime or {}
     if type(Runtime.getStateCopy) ~= "function" then
         return nil
     end
     return Runtime.getStateCopy(playerObj)
+end
+
+function UIHelpers.getProjectionMeta(playerObj)
+    local MPClient = NutritionMakesSense.MPClientRuntime or {}
+    if type(MPClient.getProjectionMeta) == "function" then
+        return MPClient.getProjectionMeta(playerObj)
+    end
+    return nil
 end
 
 function UIHelpers.clamp(value, minValue, maxValue)

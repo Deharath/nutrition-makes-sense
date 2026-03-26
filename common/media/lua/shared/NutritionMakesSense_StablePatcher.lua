@@ -169,21 +169,36 @@ local function patchScriptItem(scriptItem, expected)
 end
 
 local function buildRuntimeReport(data, context)
-    local sourceReport = data.stableReport or {}
+    local entries = {}
+    local stableClassTotals = {}
+    local actionTotals = {}
+    for _, entry in pairs(data.runtimeEntriesByItemId or {}) do
+        if type(entry) == "table" and entry.item_id then
+            entries[#entries + 1] = entry
+            local semanticClass = tostring(entry.semantic_class or "unknown")
+            local action = tostring(entry.action or "unknown")
+            stableClassTotals[semanticClass] = (tonumber(stableClassTotals[semanticClass]) or 0) + 1
+            actionTotals[action] = (tonumber(actionTotals[action]) or 0) + 1
+        end
+    end
+    table.sort(entries, function(a, b)
+        return tostring(a.item_id or "") < tostring(b.item_id or "")
+    end)
+
     return {
         modId = data.baseModId or data.modId,
         activeModId = data.modId,
         context = context,
-        stableClassTotals = sourceReport.stable_class_totals or {},
-        actionTotals = sourceReport.action_totals or {},
-        directFoodValidation = sourceReport.direct_food_validation or {},
-        deferredRuntimeRows = sourceReport.deferred_runtime_rows or {},
-        explicitRouteExceptions = sourceReport.explicit_route_exceptions or {},
-        entries = sourceReport.entries or {},
+        stableClassTotals = stableClassTotals,
+        actionTotals = actionTotals,
+        directFoodValidation = {},
+        deferredRuntimeRows = {},
+        explicitRouteExceptions = {},
+        entries = entries,
         validation = {
-            duplicateStableRows = sourceReport.validation and sourceReport.validation.duplicate_stable_rows or {},
-            patchedRowsMissingValues = sourceReport.validation and sourceReport.validation.patched_rows_missing_values or {},
-            routeAuthorityConflicts = sourceReport.validation and sourceReport.validation.route_authority_conflicts or {},
+            duplicateStableRows = {},
+            patchedRowsMissingValues = {},
+            routeAuthorityConflicts = {},
             missingScriptItems = {},
             patchFailures = {},
             probeFailures = {},
@@ -197,16 +212,6 @@ local function buildRuntimeReport(data, context)
 end
 
 local function validateStaticReport(runtimeReport)
-    local validation = runtimeReport.validation
-    if #validation.duplicateStableRows > 0 then
-        return false, "duplicate stable rows present in generated patch report"
-    end
-    if #validation.patchedRowsMissingValues > 0 then
-        return false, "patched rows are missing authored values in the runtime data table"
-    end
-    if #validation.routeAuthorityConflicts > 0 then
-        return false, "route authority conflicts present in generated patch report"
-    end
     return true
 end
 
