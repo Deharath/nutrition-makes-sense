@@ -9,6 +9,26 @@ local MOD_OPTIONS_ID = "NutritionMakesSense"
 local registered = false
 local DevSupport = NutritionMakesSense.DevSupport or {}
 
+local function getOptionsObject()
+    if not (PZAPI and PZAPI.ModOptions and type(PZAPI.ModOptions.getOptions) == "function") then
+        return nil
+    end
+    return PZAPI.ModOptions:getOptions(MOD_OPTIONS_ID)
+end
+
+local function ensureTickBox(options, optionId, label, defaultValue, tooltip)
+    if not options or type(options.addTickBox) ~= "function" then
+        return nil
+    end
+
+    local existing = type(options.getOption) == "function" and options:getOption(optionId) or nil
+    if existing then
+        return existing
+    end
+
+    return options:addTickBox(optionId, label, defaultValue, tooltip)
+end
+
 local function ensureModOptionsLoaded()
     if PZAPI and PZAPI.ModOptions and type(PZAPI.ModOptions.create) == "function" then
         return true
@@ -22,27 +42,44 @@ function ClientOptions.ensureRegistered()
     if registered then
         return true
     end
-    if not (DevSupport.isDebugLaunch and DevSupport.isDebugLaunch()) then
-        return false
-    end
     if not ensureModOptionsLoaded() then
         return false
     end
 
-    local existing = PZAPI.ModOptions:getOptions(MOD_OPTIONS_ID)
-    if existing then
-        registered = true
-        return true
+    local options = getOptionsObject()
+    if not options and PZAPI and PZAPI.ModOptions and type(PZAPI.ModOptions.create) == "function" then
+        options = PZAPI.ModOptions:create(MOD_OPTIONS_ID, getText("UI_NMS_ModOptions_Title"))
+    end
+    if not options then
+        return false
     end
 
-    local options = PZAPI.ModOptions:create(MOD_OPTIONS_ID, getText("UI_NMS_ModOptions_Title"))
-    options:addTitle(getText("UI_NMS_ModOptions_Debug_Title"))
-    options:addTickBox(
+    options:addTitle(getText("UI_NMS_ModOptions_Awareness_Title"))
+    ensureTickBox(
+        options,
+        "lowEnergySoundCue",
+        getText("UI_NMS_ModOptions_LowEnergySoundCue"),
+        true,
+        getText("UI_NMS_ModOptions_LowEnergySoundCue_Tooltip")
+    )
+    ensureTickBox(
+        options,
+        "lowEnergyHaloCue",
+        getText("UI_NMS_ModOptions_LowEnergyHaloCue"),
+        true,
+        getText("UI_NMS_ModOptions_LowEnergyHaloCue_Tooltip")
+    )
+
+    if DevSupport.isDebugLaunch and DevSupport.isDebugLaunch() then
+        options:addTitle(getText("UI_NMS_ModOptions_Debug_Title"))
+        ensureTickBox(
+            options,
         "showDebugFoodTooltips",
         getText("UI_NMS_ModOptions_DebugTooltips"),
         true,
         getText("UI_NMS_ModOptions_DebugTooltips_Tooltip")
-    )
+        )
+    end
 
     registered = true
     return true
@@ -58,12 +95,44 @@ function ClientOptions.getShowDebugFoodTooltips()
     end
 
     ClientOptions.ensureRegistered()
-    if not (PZAPI and PZAPI.ModOptions and type(PZAPI.ModOptions.getOptions) == "function") then
+    local options = getOptionsObject()
+    if not options then
         return true
     end
 
-    local options = PZAPI.ModOptions:getOptions(MOD_OPTIONS_ID)
     local option = options and options:getOption("showDebugFoodTooltips") or nil
+    if option and type(option.getValue) == "function" then
+        return option:getValue() == true
+    end
+
+    return true
+end
+
+function ClientOptions.getLowEnergySoundCueEnabled()
+    ClientOptions.ensureRegistered()
+
+    local options = getOptionsObject()
+    if not options then
+        return true
+    end
+
+    local option = type(options.getOption) == "function" and options:getOption("lowEnergySoundCue") or nil
+    if option and type(option.getValue) == "function" then
+        return option:getValue() == true
+    end
+
+    return true
+end
+
+function ClientOptions.getLowEnergyHaloCueEnabled()
+    ClientOptions.ensureRegistered()
+
+    local options = getOptionsObject()
+    if not options then
+        return true
+    end
+
+    local option = type(options.getOption) == "function" and options:getOption("lowEnergyHaloCue") or nil
     if option and type(option.getValue) == "function" then
         return option:getValue() == true
     end

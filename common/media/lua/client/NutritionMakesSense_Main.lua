@@ -4,6 +4,7 @@ require "NutritionMakesSense_Boot"
 require "NutritionMakesSense_DevSupport"
 require "NutritionMakesSense_MPClientRuntime"
 require "NutritionMakesSense_ClientOptions"
+require "NutritionMakesSense_AwarenessCues"
 require "NutritionMakesSense_TooltipOverlay"
 require "NutritionMakesSense_ItemAuthority"
 require "NutritionMakesSense_HealthPanelHook"
@@ -20,6 +21,9 @@ if NutritionMakesSense.MPClientRuntime and type(NutritionMakesSense.MPClientRunt
 end
 if NutritionMakesSense.ClientOptions and type(NutritionMakesSense.ClientOptions.install) == "function" then
     NutritionMakesSense.ClientOptions.install()
+end
+if NutritionMakesSense.AwarenessCues and type(NutritionMakesSense.AwarenessCues.install) == "function" then
+    NutritionMakesSense.AwarenessCues.install()
 end
 if NutritionMakesSense.TooltipOverlay and type(NutritionMakesSense.TooltipOverlay.install) == "function" then
     NutritionMakesSense.TooltipOverlay.install()

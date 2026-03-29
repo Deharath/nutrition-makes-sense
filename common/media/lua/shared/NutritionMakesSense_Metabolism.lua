@@ -410,17 +410,20 @@ end
 
 function Metabolism.getSatietyDescriptorFromValues(values)
     local contribution = Metabolism.getSatietyContribution(values, 1)
-    if contribution >= 0.80 then
-        return "Hearty"
+    if contribution >= 0.24 then
+        return "Very high"
     end
-    if contribution >= 0.45 then
-        return "Filling"
+    if contribution >= 0.18 then
+        return "High"
     end
-    if contribution >= 0.15 then
+    if contribution >= 0.10 then
+        return "Moderate"
+    end
+    if contribution >= 0.045 then
         return "Light"
     end
     if contribution > 0 then
-        return "Meager"
+        return "Minimal"
     end
     return nil
 end

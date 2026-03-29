@@ -176,8 +176,34 @@ local function normalizeTooltipText(value)
     return text
 end
 
+local function withHiddenVanillaHunger(item, callback)
+    if not item or type(callback) ~= "function" then
+        return false, nil
+    end
+
+    local hideTag = ItemTag and ItemTag.HIDE_HUNGER_CHANGE or nil
+    local tags = hideTag and safeCall(item, "getTags") or nil
+    local addedTag = false
+
+    if hideTag and tags then
+        local alreadyHidden = safeCall(item, "hasTag", hideTag) == true
+        if not alreadyHidden then
+            safeCall(tags, "add", hideTag)
+            addedTag = safeCall(item, "hasTag", hideTag) == true
+        end
+    end
+
+    local ok, result = pcall(callback)
+
+    if addedTag and tags and hideTag then
+        safeCall(tags, "remove", hideTag)
+    end
+
+    return ok, result
+end
+
 local function removeVanillaHungerRow(layout, item)
-    if not layout or not item then
+    if not layout or not layout.items or not item then
         return
     end
 
@@ -185,14 +211,12 @@ local function removeVanillaHungerRow(layout, item)
         normalizeTooltipText(getText and getText("Tooltip_food_Hunger") or "Hunger"),
         "hunger",
     }
-    local hungerValue = tonumber(safeCall(item, "getHungerChange") or safeCall(item, "getHungChange") or 0) or 0
-    local expectedValue = tostring(math.floor(hungerValue * 100))
-    local snapshot = getLayoutItemsSnapshot(layout)
     local removedAny = false
-    for _, layoutItem in ipairs(snapshot) do
+    local size = tonumber(safeCall(layout.items, "size")) or 0
+    for index = size - 1, 0, -1 do
+        local layoutItem = safeCall(layout.items, "get", index)
         if layoutItem then
             local label = normalizeTooltipText(layoutItem.label)
-            local value = tostring(layoutItem.value or "")
             local matchesLabel = false
             for _, token in ipairs(hungerTokens) do
                 if token ~= "" and string.find(label, token, 1, true) then
@@ -202,14 +226,12 @@ local function removeVanillaHungerRow(layout, item)
             end
 
             if matchesLabel then
-                local hasNumericValue = value ~= ""
-                local matchesValue = (not hasNumericValue) or value == expectedValue or value == ("+" .. expectedValue)
-                if matchesValue then
-                    local removed = removeLayoutItem(layout, layoutItem)
-                    if removed then
-                        removedAny = true
-                        break
-                    end
+                local before = tonumber(safeCall(layout.items, "size")) or 0
+                safeCall(layout.items, "remove", index)
+                local after = tonumber(safeCall(layout.items, "size")) or before
+                if after < before then
+                    removedAny = true
+                    break
                 end
             end
         end
@@ -584,7 +606,9 @@ local function renderTooltipLayoutForItem(item, tooltip, originalDoTooltip)
 
         appendBaseFoodRows(layout, item, tooltip)
 
-        local tooltipOk, tooltipErr = pcall(originalDoTooltip, item, tooltip, layout)
+        local tooltipOk, tooltipErr = withHiddenVanillaHunger(item, function()
+            return originalDoTooltip(item, tooltip, layout)
+        end)
         if not tooltipOk then
             error(tooltipErr)
         end
@@ -647,7 +671,13 @@ local function patchInventoryTooltip()
 
         itemIndex.DoTooltip = function(overriddenItem, tooltip)
             if not renderTooltipLayoutForItem(overriddenItem, tooltip, originalDoTooltip) then
-                return originalDoTooltip(overriddenItem, tooltip)
+                local ok, result = withHiddenVanillaHunger(overriddenItem, function()
+                    return originalDoTooltip(overriddenItem, tooltip)
+                end)
+                if not ok then
+                    error(result)
+                end
+                return result
             end
         end
 
@@ -689,7 +719,13 @@ local function patchItemSlotTooltip()
 
         itemIndex.DoTooltip = function(overriddenItem, tooltipUi)
             if not renderTooltipLayoutForItem(overriddenItem, tooltipUi, originalDoTooltip) then
-                return originalDoTooltip(overriddenItem, tooltipUi)
+                local ok, result = withHiddenVanillaHunger(overriddenItem, function()
+                    return originalDoTooltip(overriddenItem, tooltipUi)
+                end)
+                if not ok then
+                    error(result)
+                end
+                return result
             end
         end
 

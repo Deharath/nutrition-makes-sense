@@ -149,6 +149,35 @@ local function collectLines(state)
 end
 
 local originalRender = nil
+local originalUpdate = nil
+
+local function hookedUpdate(self)
+    if not FONT_HGT then
+        FONT_HGT = getTextManager():getFontHeight(FONT)
+    end
+
+    local patient = self.getPatient and self:getPatient() or nil
+    if not patient or (self.otherPlayer and self.otherPlayer ~= patient) then
+        originalUpdate(self)
+        return
+    end
+
+    local lines = collectLines(getState(patient))
+    if #lines == 0 then
+        originalUpdate(self)
+        return
+    end
+
+    local blockHeight = (#lines + 1) * FONT_HGT + 4
+    local previousAllTextHeight = self.allTextHeight
+    if previousAllTextHeight ~= nil then
+        self.allTextHeight = previousAllTextHeight + blockHeight
+    end
+
+    originalUpdate(self)
+
+    self.allTextHeight = previousAllTextHeight
+end
 
 local function hookedRender(self)
     if not FONT_HGT then
@@ -162,22 +191,16 @@ local function hookedRender(self)
         return
     end
 
-    local state = getState(patient)
-    local lines = collectLines(state)
+    local lines = collectLines(getState(patient))
     if #lines == 0 then
         return
     end
 
     local x = self.healthPanel:getRight() + UI_BORDER_SPACING
-    if self.nmsBaseListboxY == nil then
-        self.nmsBaseListboxY = self.listbox:getY()
-        self.nmsBaseListboxHeight = self.listbox:getHeight()
-    end
-    local listY = self.nmsBaseListboxY
+    local listY = self.listbox:getY()
     local blockHeight = (#lines + 1) * FONT_HGT + 4
 
     self.listbox:setY(listY + blockHeight)
-    self.listbox:setHeight(math.max(0, self.nmsBaseListboxHeight - blockHeight))
     self.listbox.vscroll:setHeight(self.listbox:getHeight())
 
     local y = listY
@@ -192,14 +215,16 @@ local function hookedRender(self)
 end
 
 local function install()
-    if not ISHealthPanel or type(ISHealthPanel.render) ~= "function" then
+    if not ISHealthPanel or type(ISHealthPanel.render) ~= "function" or type(ISHealthPanel.update) ~= "function" then
         return
     end
-    if originalRender then
+    if originalRender or originalUpdate then
         return
     end
 
+    originalUpdate = ISHealthPanel.update
     originalRender = ISHealthPanel.render
+    ISHealthPanel.update = hookedUpdate
     ISHealthPanel.render = hookedRender
 end
 

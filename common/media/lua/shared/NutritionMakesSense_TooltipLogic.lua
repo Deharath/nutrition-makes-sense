@@ -294,13 +294,16 @@ function TooltipLogic.getSatietyDescriptor(values)
         hungerDrop = normalizeHungerValue(values and values.hunger) * 0.01
     end
 
+    if hungerDrop >= 0.24 then
+        return "Very high"
+    end
     if hungerDrop >= 0.18 then
-        return "Hearty"
+        return "High"
     end
-    if hungerDrop >= 0.11 then
-        return "Filling"
+    if hungerDrop >= 0.10 then
+        return "Moderate"
     end
-    if hungerDrop >= 0.05 then
+    if hungerDrop >= 0.045 then
         return "Light"
     end
     if hungerDrop > 0 then
@@ -311,17 +314,20 @@ end
 
 function TooltipLogic.getEnergyDescriptor(values)
     local kcal = math.max(0, tonumber(values and values.kcal) or 0)
-    if kcal >= 450 then
+    if kcal >= 700 then
         return "Very high"
     end
-    if kcal >= 200 then
+    if kcal >= 350 then
+        return "High"
+    end
+    if kcal >= 150 then
         return "Moderate"
     end
     if kcal >= 60 then
-        return "Low"
+        return "Light"
     end
     if kcal > 0 then
-        return "Trace"
+        return "Minimal"
     end
     return nil
 end
