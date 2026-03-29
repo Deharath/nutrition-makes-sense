@@ -500,7 +500,7 @@ local function onServerStarted()
 
     log(string.format(
         "[SERVER_READY] version=%s module=%s patched=%d routed=%d explicit=%d",
-        tostring(MP.SCRIPT_VERSION or "0.1.0"),
+        tostring(MP.SCRIPT_VERSION or "1.0.0"),
         tostring(MP.NET_MODULE or "NutritionMakesSenseRuntime"),
         tonumber(report and report.patchedRows or 0),
         tonumber(report and report.routedRows or 0),

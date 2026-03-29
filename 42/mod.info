@@ -3,4 +3,4 @@ id=NutritionMakesSense
 author=Deharath
 modversion=1.0.0
 versionMin=42.14.0
-description=Build 42 scaffold for Nutrition Makes Sense with shared runtime boot, MP compat wiring, and dev sync deployment.
+description=Build 42 nutrition and weight overhaul with coherent metabolism, trustworthy food values, and readable player cues.

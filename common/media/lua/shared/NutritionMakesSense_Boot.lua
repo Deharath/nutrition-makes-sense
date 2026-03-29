@@ -32,7 +32,7 @@ local function onGameBoot()
     local report = NutritionMakesSense.StablePatcher.ensurePatched("game-boot")
     log(string.format(
         "[BOOT] version=%s module=%s patched=%d routed=%d explicit=%d",
-        tostring(NutritionMakesSense.MP and NutritionMakesSense.MP.SCRIPT_VERSION or "0.1.0"),
+        tostring(NutritionMakesSense.MP and NutritionMakesSense.MP.SCRIPT_VERSION or "1.0.0"),
         tostring(NutritionMakesSense.MP and NutritionMakesSense.MP.NET_MODULE or "NutritionMakesSenseRuntime"),
         tonumber(report and report.patchedRows or 0),
         tonumber(report and report.routedRows or 0),

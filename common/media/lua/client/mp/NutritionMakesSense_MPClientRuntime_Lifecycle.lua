@@ -200,7 +200,7 @@ local function onCreatePlayer(playerIndex, playerObj)
     log(string.format(
         "[CLIENT_READY] player=%s version=%s module=%s",
         tostring(getPlayerLabel(playerObj, playerIndex)),
-        tostring(MP.SCRIPT_VERSION or "0.1.0"),
+        tostring(MP.SCRIPT_VERSION or "1.0.0"),
         tostring(MP.NET_MODULE or "NutritionMakesSenseRuntime")
     ))
     log(string.format(

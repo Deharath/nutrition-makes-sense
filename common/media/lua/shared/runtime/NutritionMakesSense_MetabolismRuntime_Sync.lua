@@ -41,7 +41,7 @@ function Runtime.buildStateSnapshot(playerObj, reason)
     end
 
     return {
-        version = tostring(MP.SCRIPT_VERSION or "0.1.0"),
+        version = tostring(MP.SCRIPT_VERSION or "1.0.0"),
         reason = tostring(reason or "snapshot"),
         worldHours = getWorldHours(),
         player = tostring(getPlayerLabel(playerObj)),
