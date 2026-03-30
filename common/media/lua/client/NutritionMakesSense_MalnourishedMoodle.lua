@@ -68,7 +68,11 @@ end
 local function getValueAndLevel(player)
     local state = getPlayerState(player)
     local deprivation = tonumber(state and state.deprivation) or 0
-    local target = Metabolism.getDeprivationTarget and Metabolism.getDeprivationTarget(tonumber(state and state.fuel) or 0) or deprivation
+    local target = tonumber(state and state.lastDeprivationTarget)
+    if target == nil and Metabolism.getDeprivationTarget then
+        target = Metabolism.getDeprivationTarget(state)
+    end
+    target = tonumber(target) or deprivation
     local direction = "stable"
     if target > deprivation + 0.01 then
         direction = "worsening"

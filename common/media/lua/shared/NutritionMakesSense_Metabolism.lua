@@ -3,7 +3,7 @@ NutritionMakesSense = NutritionMakesSense or {}
 local Metabolism = NutritionMakesSense.Metabolism or {}
 NutritionMakesSense.Metabolism = Metabolism
 
-Metabolism.STATE_VERSION = 9
+Metabolism.STATE_VERSION = 10
 
 Metabolism.WORK_TIER_SLEEP = "sleep"
 Metabolism.WORK_TIER_REST = "rest"
@@ -34,6 +34,10 @@ Metabolism.DEFAULT_FUEL = 1000
 Metabolism.DEPRIVATION_MIN = 0
 Metabolism.DEPRIVATION_MAX = 1.0
 Metabolism.DEPRIVATION_FUEL_THRESHOLD = 200
+Metabolism.DEPRIVATION_DEBT_RESPONSE_HOURS = 18
+Metabolism.DEPRIVATION_DEBT_MAX_KCAL = 700
+Metabolism.DEPRIVATION_DEBT_DEADZONE_KCAL = 60
+Metabolism.DEPRIVATION_DEBT_RECOVERY_PER_KCAL = 1.0
 Metabolism.DEPRIVATION_RISE_HOURS = 12
 Metabolism.DEPRIVATION_RECOVERY_HOURS = 10
 Metabolism.DEPRIVATION_PENALTY_ONSET = 0.10
@@ -714,16 +718,65 @@ function Metabolism.advanceWeightBalanceKcal(currentBalanceKcal, deltaKcal, delt
     return clampWeightBalance(approach(balance, 0, hours / Metabolism.WEIGHT_BALANCE_RESPONSE_HOURS))
 end
 
-function Metabolism.getDeprivationTarget(fuel)
-    local value = clamp(fuel, Metabolism.FUEL_MIN, Metabolism.FUEL_MAX)
-    if value >= Metabolism.DEPRIVATION_FUEL_THRESHOLD then
-        return 0
-    end
-    return (Metabolism.DEPRIVATION_FUEL_THRESHOLD - value) / Metabolism.DEPRIVATION_FUEL_THRESHOLD
+local function clampUnderfeedingDebt(value)
+    return clamp(tonumber(value) or 0, 0, Metabolism.DEPRIVATION_DEBT_MAX_KCAL)
 end
 
-function Metabolism.advanceDeprivation(current, fuel, deltaHours)
-    local target = Metabolism.getDeprivationTarget(fuel)
+function Metabolism.getUnderfeedingDebtBurnFactor(fuel)
+    local value = clamp(fuel, Metabolism.FUEL_MIN, Metabolism.FUEL_MAX)
+    if value >= Metabolism.FUEL_LOW_THRESHOLD then
+        return 0
+    end
+    return clamp(
+        (Metabolism.FUEL_LOW_THRESHOLD - value) / math.max(1, Metabolism.FUEL_LOW_THRESHOLD - Metabolism.FUEL_MIN),
+        0,
+        1
+    )
+end
+
+function Metabolism.getUnderfeedingDebtProgress(underfeedingDebtKcal)
+    local debt = clampUnderfeedingDebt(underfeedingDebtKcal)
+    local deadzone = Metabolism.DEPRIVATION_DEBT_DEADZONE_KCAL
+    if debt <= deadzone then
+        return 0
+    end
+    return clamp(
+        (debt - deadzone) / math.max(0.000001, Metabolism.DEPRIVATION_DEBT_MAX_KCAL - deadzone),
+        0,
+        1
+    )
+end
+
+function Metabolism.addUnderfeedingDebtKcal(state, deltaKcal)
+    if type(state) ~= "table" then
+        return 0
+    end
+    state.underfeedingDebtKcal = clampUnderfeedingDebt((tonumber(state.underfeedingDebtKcal) or 0) + (tonumber(deltaKcal) or 0))
+    return state.underfeedingDebtKcal
+end
+
+function Metabolism.advanceUnderfeedingDebtKcal(currentDebtKcal, deltaKcal, deltaHours)
+    local debt = clampUnderfeedingDebt((tonumber(currentDebtKcal) or 0) + (tonumber(deltaKcal) or 0))
+    local hours = math.max(0, tonumber(deltaHours) or 0)
+    if hours <= 0 then
+        return debt
+    end
+    return clampUnderfeedingDebt(approach(debt, 0, hours / Metabolism.DEPRIVATION_DEBT_RESPONSE_HOURS))
+end
+
+function Metabolism.getDeprivationTarget(fuelOrState, underfeedingDebtKcal)
+    local fuel = fuelOrState
+    local debt = underfeedingDebtKcal
+    if type(fuelOrState) == "table" then
+        fuel = tonumber(fuelOrState.fuel) or 0
+        debt = tonumber(fuelOrState.underfeedingDebtKcal) or tonumber(fuelOrState.lastUnderfeedingDebtKcal) or 0
+    end
+    fuel = clamp(fuel, Metabolism.FUEL_MIN, Metabolism.FUEL_MAX)
+    return Metabolism.getUnderfeedingDebtProgress(debt)
+end
+
+function Metabolism.advanceDeprivation(current, fuel, underfeedingDebtKcal, deltaHours)
+    local target = Metabolism.getDeprivationTarget(fuel, underfeedingDebtKcal)
     local recovering = target <= current
     local responseHours = target > current
         and Metabolism.DEPRIVATION_RISE_HOURS
@@ -810,6 +863,16 @@ function Metabolism.ensureState(state)
     state.weightController = clamp(state.weightController or 0, -1, 1)
     state.weightBalanceKcal = clampWeightBalance(state.weightBalanceKcal or 0)
     state.deprivation = clamp(state.deprivation or 0, Metabolism.DEPRIVATION_MIN, Metabolism.DEPRIVATION_MAX)
+    if legacyVersion >= 1 and legacyVersion < 10 and tonumber(state.underfeedingDebtKcal) == nil then
+        local seededDebt = 0
+        if state.deprivation > 0 then
+            seededDebt = Metabolism.DEPRIVATION_DEBT_DEADZONE_KCAL
+                + (state.deprivation * math.max(0, Metabolism.DEPRIVATION_DEBT_MAX_KCAL - Metabolism.DEPRIVATION_DEBT_DEADZONE_KCAL))
+        end
+        state.underfeedingDebtKcal = clampUnderfeedingDebt(seededDebt)
+    else
+        state.underfeedingDebtKcal = clampUnderfeedingDebt(state.underfeedingDebtKcal or 0)
+    end
     state.lastZone = tostring(state.lastZone or Metabolism.getFuelZone(state.fuel))
     state.lastMetAverage = normalizedMet(state.lastMetAverage, Metabolism.MET_REST)
     state.lastMetPeak = normalizedMet(state.lastMetPeak, state.lastMetAverage)
@@ -841,6 +904,8 @@ function Metabolism.ensureState(state)
     state.lastWeightRateKgPerWeek = tonumber(state.lastWeightRateKgPerWeek) or 0
     state.lastWeightBalanceKcal = clampWeightBalance(state.lastWeightBalanceKcal or state.weightBalanceKcal or 0)
     state.lastWeightControllerTarget = clamp(tonumber(state.lastWeightControllerTarget) or 0, -1, 1)
+    state.lastUnderfeedingDebtKcal = clampUnderfeedingDebt(state.lastUnderfeedingDebtKcal or state.underfeedingDebtKcal or 0)
+    state.lastDeprivationTarget = clamp(tonumber(state.lastDeprivationTarget) or Metabolism.getDeprivationTarget(state), Metabolism.DEPRIVATION_MIN, Metabolism.DEPRIVATION_MAX)
     state.lastExertionMultiplier = tonumber(state.lastExertionMultiplier) or 1.0
     state.lastCarbDeficiency = nil
     state.lastFatDeficiency = nil
@@ -893,6 +958,7 @@ function Metabolism.applyFoodValues(state, values, fraction, reason)
 
     state.fuel = clamp(state.fuel + applied.kcal, Metabolism.FUEL_MIN, Metabolism.FUEL_MAX)
     state.weightBalanceKcal = Metabolism.addWeightBalanceKcal(state, applied.kcal)
+    state.underfeedingDebtKcal = Metabolism.addUnderfeedingDebtKcal(state, -applied.kcal * Metabolism.DEPRIVATION_DEBT_RECOVERY_PER_KCAL)
     state.proteins = clampProteinAdequacy(state.proteins + applied.proteins, state.weightKg)
     state.satietyBuffer = clamp(state.satietyBuffer + satietyContribution, 0, Metabolism.SATIETY_BUFFER_MAX)
     state.lastDepositKcal = applied.kcal
@@ -900,6 +966,8 @@ function Metabolism.applyFoodValues(state, values, fraction, reason)
     state.lastWeightRateKgPerWeek = 0
     state.lastWeightBalanceKcal = state.weightBalanceKcal
     state.lastWeightControllerTarget = Metabolism.getWeightControllerTargetFromBalance(state.weightBalanceKcal)
+    state.lastUnderfeedingDebtKcal = state.underfeedingDebtKcal
+    state.lastDeprivationTarget = Metabolism.getDeprivationTarget(state)
     state.lastTraceReason = tostring(reason or applied.label or "food")
     state.lastZone = Metabolism.getFuelZone(state.fuel)
     state.lastHungerMultiplier = Metabolism.getFuelHungerMultiplier(state.fuel)
@@ -965,6 +1033,8 @@ function Metabolism.advanceState(state, elapsedHours, workload, options)
         endFuel = state.fuel,
         endZone = Metabolism.getFuelZone(state.fuel),
         endWeightKg = state.weightKg,
+        startUnderfeedingDebtKcal = tonumber(state.underfeedingDebtKcal) or 0,
+        endUnderfeedingDebtKcal = tonumber(state.underfeedingDebtKcal) or 0,
         startWeightBalanceKcal = tonumber(state.weightBalanceKcal) or 0,
         endWeightBalanceKcal = tonumber(state.weightBalanceKcal) or 0,
         burnedKcal = 0,
@@ -984,6 +1054,8 @@ function Metabolism.advanceState(state, elapsedHours, workload, options)
         weightRateKgPerWeek = 0,
         startWeightTrait = Metabolism.getWeightTrait(state.weightKg),
         endWeightTrait = Metabolism.getWeightTrait(state.weightKg),
+        startDeprivationTarget = Metabolism.getDeprivationTarget(state),
+        endDeprivationTarget = Metabolism.getDeprivationTarget(state),
         startWeightControllerTarget = Metabolism.getWeightControllerTargetFromBalance(state.weightBalanceKcal),
         endWeightControllerTarget = Metabolism.getWeightControllerTargetFromBalance(state.weightBalanceKcal),
         peakWeightController = math.abs(state.weightController or 0),
@@ -1023,6 +1095,8 @@ function Metabolism.advanceState(state, elapsedHours, workload, options)
         state.lastExtraEnduranceDrain = 0
         state.lastWeightDeltaKg = 0
         state.lastWeightRateKgPerWeek = 0
+        state.lastUnderfeedingDebtKcal = report.endUnderfeedingDebtKcal
+        state.lastDeprivationTarget = report.endDeprivationTarget
         state.lastWeightBalanceKcal = report.endWeightBalanceKcal
         state.lastWeightControllerTarget = report.endWeightControllerTarget
         state.lastExertionMultiplier = report.peakExertionMultiplier
@@ -1059,10 +1133,16 @@ function Metabolism.advanceState(state, elapsedHours, workload, options)
         state.visibleHunger = clamp(state.visibleHunger + hungerGain, Metabolism.VISIBLE_HUNGER_MIN, Metabolism.VISIBLE_HUNGER_CAP)
         report.endVisibleHunger = state.visibleHunger
 
+        local deprivationDebtBurnFactor = Metabolism.getUnderfeedingDebtBurnFactor(state.fuel)
         local metabolicBurn = burnPerHour * sliceHours
         local fuelBurn = math.min(state.fuel, metabolicBurn)
         state.fuel = clamp(state.fuel - fuelBurn, Metabolism.FUEL_MIN, Metabolism.FUEL_MAX)
         state.weightBalanceKcal = Metabolism.advanceWeightBalanceKcal(state.weightBalanceKcal, -metabolicBurn, sliceHours)
+        state.underfeedingDebtKcal = Metabolism.advanceUnderfeedingDebtKcal(
+            state.underfeedingDebtKcal,
+            metabolicBurn * deprivationDebtBurnFactor,
+            sliceHours
+        )
         state.proteins = clampProteinAdequacy(state.proteins - (proteinRequirementPerHour * sliceHours), state.weightKg)
         report.burnedKcal = report.burnedKcal + metabolicBurn
 
@@ -1080,8 +1160,10 @@ function Metabolism.advanceState(state, elapsedHours, workload, options)
         report.peakWeightController = math.max(report.peakWeightController, math.abs(state.weightController))
         report.endWeightControllerTarget = weightTarget
 
-        state.deprivation = Metabolism.advanceDeprivation(state.deprivation, state.fuel, sliceHours)
+        state.deprivation = Metabolism.advanceDeprivation(state.deprivation, state.fuel, state.underfeedingDebtKcal, sliceHours)
         report.peakDeprivation = math.max(report.peakDeprivation or 0, state.deprivation)
+        report.endUnderfeedingDebtKcal = tonumber(state.underfeedingDebtKcal) or 0
+        report.endDeprivationTarget = Metabolism.getDeprivationTarget(state)
 
         local weightBefore = state.weightKg
         local weightRatePerHour = 0
@@ -1109,8 +1191,10 @@ function Metabolism.advanceState(state, elapsedHours, workload, options)
     report.endFuel = state.fuel
     report.endZone = Metabolism.getFuelZone(state.fuel)
     report.endWeightKg = state.weightKg
+    report.endUnderfeedingDebtKcal = tonumber(state.underfeedingDebtKcal) or 0
     report.endWeightBalanceKcal = tonumber(state.weightBalanceKcal) or 0
     report.endWeightTrait = Metabolism.getWeightTrait(state.weightKg)
+    report.endDeprivationTarget = Metabolism.getDeprivationTarget(state)
     report.endProteinHealingMultiplier = Metabolism.getProteinHealingMultiplier(state.proteins, state.weightKg)
     report.endSatietyBuffer = state.satietyBuffer
     if totalHours > 0 then
@@ -1138,6 +1222,8 @@ function Metabolism.advanceState(state, elapsedHours, workload, options)
     state.lastExtraEnduranceDrain = report.extraEnduranceDrain
     state.lastWeightDeltaKg = report.weightDeltaKg
     state.lastWeightRateKgPerWeek = report.weightRateKgPerWeek
+    state.lastUnderfeedingDebtKcal = report.endUnderfeedingDebtKcal
+    state.lastDeprivationTarget = report.endDeprivationTarget
     state.lastWeightBalanceKcal = report.endWeightBalanceKcal
     state.lastWeightControllerTarget = report.endWeightControllerTarget
     state.lastExertionMultiplier = report.peakExertionMultiplier

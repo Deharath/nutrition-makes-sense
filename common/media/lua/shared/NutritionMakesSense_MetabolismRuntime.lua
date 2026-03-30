@@ -323,6 +323,7 @@ function Runtime.ensureStateForPlayer(playerObj)
         state.proteins = seedProteinAdequacy(state.weightKg)
         state.weightController = 0
         state.weightBalanceKcal = 0
+        state.underfeedingDebtKcal = 0
         state.lastZone = Metabolism.getFuelZone(state.fuel)
         state.lastHungerMultiplier = Metabolism.getFuelHungerMultiplier(state.fuel)
         state.visibleHunger = clamp(getVisibleHungerValue(stats) or 0, Metabolism.VISIBLE_HUNGER_MIN, Metabolism.VISIBLE_HUNGER_MAX)
@@ -342,6 +343,8 @@ function Runtime.ensureStateForPlayer(playerObj)
         state.lastExtraEnduranceDrain = 0
         state.lastWeightDeltaKg = 0
         state.lastWeightRateKgPerWeek = 0
+        state.lastUnderfeedingDebtKcal = 0
+        state.lastDeprivationTarget = Metabolism.getDeprivationTarget(state)
         state.lastWeightBalanceKcal = 0
         state.lastWeightControllerTarget = 0
         state.lastExertionMultiplier = 1.0
@@ -768,6 +771,8 @@ local function refreshDerivedState(state, reason)
     state.lastFuelPressureFactor = Metabolism.getFuelPressureFactor(state.fuel)
     state.lastGateMultiplier = Metabolism.getHungerGateMultiplier(state.fuel)
     state.lastWeightTrait = Metabolism.getWeightTrait(state.weightKg)
+    state.lastUnderfeedingDebtKcal = tonumber(state.underfeedingDebtKcal) or 0
+    state.lastDeprivationTarget = Metabolism.getDeprivationTarget(state)
     state.lastProteinDeficiency = Metabolism.getProteinDeficiencyProgress(state.proteins, state.weightKg)
     state.lastProteinHealingMultiplier = Metabolism.getProteinHealingMultiplier(state.proteins, state.weightKg)
     state.lastTraceReason = tostring(reason or state.lastTraceReason or "debug-set")

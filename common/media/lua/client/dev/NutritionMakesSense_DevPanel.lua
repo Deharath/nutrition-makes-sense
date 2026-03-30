@@ -200,7 +200,7 @@ local CSV_HEADER = table.concat({
     "auth_work_tier", "auth_met_avg", "auth_met_peak", "auth_met_source",
     "live_work_tier", "live_met_avg", "live_met_peak", "live_met_source",
     "visible_hunger", "visible_endurance", "visible_fatigue",
-    "nms_fuel", "nms_zone", "nms_fuel_recovery",
+    "nms_fuel", "nms_zone", "nms_underfeeding_debt",
     "nms_proteins", "nms_weight_kg", "nms_weight_trait",
     "nms_weight_rate_kg_week", "nms_weight_controller",
     "nms_satiety_buffer", "nms_satiety_quality", "nms_satiety_return_factor",
@@ -210,7 +210,7 @@ local CSV_HEADER = table.concat({
     "nms_extra_endurance", "nms_end_regen_scale", "nms_end_depriv_drain",
     "nms_protein_def", "nms_protein_heal_mult",
     "nms_exertion_mult",
-    "nms_deprivation", "nms_deprivation_end", "nms_deprivation_fat", "nms_deprivation_melee",
+    "nms_deprivation", "nms_deprivation_target", "nms_deprivation_end", "nms_deprivation_fat", "nms_deprivation_melee",
     "event_reason", "event_item", "event_fraction",
     "event_pre_hunger", "event_target_hunger",
     "event_kcal", "event_carbs", "event_fats", "event_proteins",
@@ -248,6 +248,7 @@ local function recordSample(snap)
         tostring(snap.fatigue or ""),
         tostring(s.fuel or ""),
         tostring(s.lastZone or ""),
+        tostring(s.lastUnderfeedingDebtKcal or s.underfeedingDebtKcal or ""),
         tostring(s.proteins or ""),
         tostring(s.weightKg or ""),
         tostring(s.lastWeightTrait or ""),
@@ -272,6 +273,7 @@ local function recordSample(snap)
         tostring(s.lastProteinHealingMultiplier or ""),
         tostring(s.lastExertionMultiplier or ""),
         tostring(s.deprivation or 0),
+        tostring(s.lastDeprivationTarget or ""),
         tostring(Metabolism.getExertionPenaltyMultiplier(tonumber(s.deprivation) or 0)),
         tostring(Metabolism.getFatigueAccelFactor(tonumber(s.deprivation) or 0)),
         tostring(Metabolism.getMeleeDamageMultiplier(tonumber(s.deprivation) or 0)),
@@ -601,14 +603,21 @@ function NMS_DevOverlay:render()
     y = drawRow(self, y, "Fatigue", pct(fatigue))
 
     local deprivation = tonumber(s.deprivation) or 0
+    local depDebt = tonumber(s.lastUnderfeedingDebtKcal or s.underfeedingDebtKcal) or 0
+    local depTarget = tonumber(s.lastDeprivationTarget) or 0
     local endPenalty = Metabolism.getExertionPenaltyMultiplier(deprivation)
     local fatAccel = Metabolism.getFatigueAccelFactor(deprivation)
     local meleeMult = Metabolism.getMeleeDamageMultiplier(deprivation)
-    if deprivation > 0.01 or endPenalty > 1.005 then
+    if deprivation > 0.01 or depDebt > 1 or endPenalty > 1.005 then
         y = drawSection(self, y, "Deprivation")
         local depColor = deprivation > 0.5 and C.bad or deprivation > 0.1 and C.warn or C.dim
         y = drawLabeledBar(self, y, deprivation, depColor,
             "Deprivation", fmt(deprivation, 3) .. " / 1.0")
+        if depDebt > 1 or depTarget > 0.001 then
+            y = drawRow(self, y, "Recent Debt",
+                string.format("%s kcal  target:%s", fmt(depDebt, 0), fmt(depTarget, 3)),
+                C.dim)
+        end
         if endPenalty > 1.005 or fatAccel > 1.005 or meleeMult < 0.995 then
             y = drawRow(self, y, "Penalties",
                 string.format("end:x%s  fat:x%s  melee:x%s",

@@ -33,27 +33,27 @@ local BAD   = { r = 0.85, g = 0.25, b = 0.20, a = 1.0 }
 local PRESETS = {
     {
         name = "Well Fed", color = GOOD,
-        state = { fuel = 1300, deprivation = 0, satietyBuffer = 0.8, weightController = 0.05, weightBalanceKcal = 440 },
+        state = { fuel = 1300, deprivation = 0, satietyBuffer = 0.8, weightController = 0.05, weightBalanceKcal = 440, underfeedingDebtKcal = 0 },
         vanilla = { hunger = 0, endurance = 1, fatigue = 0 },
     },
     {
         name = "Hungry", color = WARN,
-        state = { fuel = 400, deprivation = 0, satietyBuffer = 0, weightController = -0.05, weightBalanceKcal = -510 },
+        state = { fuel = 400, deprivation = 0, satietyBuffer = 0, weightController = -0.05, weightBalanceKcal = -510, underfeedingDebtKcal = 120 },
         vanilla = { hunger = 0.35, endurance = 1, fatigue = 0 },
     },
     {
         name = "Deprived", color = WARN,
-        state = { fuel = 0, deprivation = 0.6, satietyBuffer = 0, weightController = -0.2, weightBalanceKcal = -1125 },
+        state = { fuel = 0, deprivation = 0.6, satietyBuffer = 0, weightController = -0.2, weightBalanceKcal = -1125, underfeedingDebtKcal = 624 },
         vanilla = { hunger = 0.60, endurance = 1, fatigue = 0.3 },
     },
     {
         name = "Critical", color = BAD,
-        state = { fuel = 0, deprivation = 0.9, satietyBuffer = 0, weightController = -0.4, weightBalanceKcal = -1950 },
+        state = { fuel = 0, deprivation = 0.9, satietyBuffer = 0, weightController = -0.4, weightBalanceKcal = -1950, underfeedingDebtKcal = 906 },
         vanilla = { hunger = 0.69, endurance = 0.5, fatigue = 0.5 },
     },
     {
         name = "Recovery", color = GOOD,
-        state = { fuel = 800, deprivation = 0.7, satietyBuffer = 0.5, weightController = 0, weightBalanceKcal = 0 },
+        state = { fuel = 800, deprivation = 0.7, satietyBuffer = 0.5, weightController = 0, weightBalanceKcal = 0, underfeedingDebtKcal = 220 },
         vanilla = { hunger = 0.20, endurance = 1, fatigue = 0.2 },
     },
 }
@@ -63,6 +63,7 @@ local SIM_PROFILES = type(SimRunner.getProfiles) == "function" and SimRunner.get
 local FIELDS = {
     { key = "fuel",              label = "Fuel",        fmt = "%.0f" },
     { key = "deprivation",       label = "Deprivation", fmt = "%.3f" },
+    { key = "underfeedingDebtKcal", label = "Dep Debt", fmt = "%.0f" },
     { key = "satietyBuffer",     label = "Satiety",     fmt = "%.3f" },
     { key = "proteins",          label = "Prot Adeq",   fmt = "%.0f" },
     { key = "weightController",  label = "Controller",  fmt = "%.3f" },

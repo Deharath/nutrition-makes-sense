@@ -185,6 +185,7 @@ function Runtime.debugSetStateFields(playerObj, updates, reason)
             or fieldName == "weightKg"
             or fieldName == "weightController"
             or fieldName == "weightBalanceKcal"
+            or fieldName == "underfeedingDebtKcal"
             or fieldName == "deprivation"
             or fieldName == "satietyBuffer" then
             local before = state[fieldName]
@@ -240,6 +241,7 @@ function Runtime.debugResetState(playerObj, reason)
         proteins = Metabolism.getDefaultProteinAdequacy(Metabolism.DEFAULT_WEIGHT_KG),
         weightController = 0,
         weightBalanceKcal = 0,
+        underfeedingDebtKcal = 0,
         satietyBuffer = 0,
         deprivation = 0,
         lastWorldHours = getWorldHours(),
@@ -268,6 +270,8 @@ function Runtime.debugResetState(playerObj, reason)
         lastExtraEnduranceDrain = 0,
         lastWeightDeltaKg = 0,
         lastWeightRateKgPerWeek = 0,
+        lastUnderfeedingDebtKcal = 0,
+        lastDeprivationTarget = 0,
         lastWeightBalanceKcal = 0,
         lastWeightControllerTarget = 0,
         lastExertionMultiplier = 1.0,

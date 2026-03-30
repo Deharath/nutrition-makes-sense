@@ -32,8 +32,12 @@ local function getDeprivationSeverity(progress)
     return UIHelpers.tr("UI_NMS_Deprivation_Severity_Mild", "Mild"), C_DIM
 end
 
-local function getDeprivationDirection(fuel, deprivation)
-    local target = Metabolism.getDeprivationTarget and Metabolism.getDeprivationTarget(fuel) or deprivation
+local function getDeprivationDirection(state, deprivation)
+    local target = tonumber(state and state.lastDeprivationTarget)
+    if target == nil and Metabolism.getDeprivationTarget then
+        target = Metabolism.getDeprivationTarget(state)
+    end
+    target = tonumber(target) or deprivation
     if target > deprivation + 0.01 then
         return UIHelpers.tr("UI_NMS_Deprivation_Direction_Worsening", "Worsening")
     end
@@ -49,7 +53,6 @@ local function collectLines(state)
     end
 
     local lines = {}
-    local fuel = tonumber(state.fuel) or 0
     local deprivation = tonumber(state.deprivation) or 0
     local weightKg = tonumber(state.weightKg) or Metabolism.DEFAULT_WEIGHT_KG
     local proteins = tonumber(state.proteins) or 0
@@ -62,7 +65,7 @@ local function collectLines(state)
     if deprivation >= (Metabolism.DEPRIVATION_PENALTY_ONSET or 0.10) then
         local progress = Metabolism.getDeprivationPenaltyProgress and Metabolism.getDeprivationPenaltyProgress(deprivation) or 0
         local severityText, severityColor = getDeprivationSeverity(progress)
-        local directionText = getDeprivationDirection(fuel, deprivation)
+        local directionText = getDeprivationDirection(state, deprivation)
         lines[#lines + 1] = { text = UIHelpers.tr("UI_NMS_Deprivation_Header", "Malnourishment"), color = C_HEADER }
         lines[#lines + 1] = {
             text = severityText .. " | " .. directionText,
