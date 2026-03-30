@@ -64,7 +64,7 @@ local FIELDS = {
     { key = "fuel",              label = "Fuel",        fmt = "%.0f" },
     { key = "deprivation",       label = "Deprivation", fmt = "%.3f" },
     { key = "satietyBuffer",     label = "Satiety",     fmt = "%.3f" },
-    { key = "proteins",          label = "Proteins",    fmt = "%.0f" },
+    { key = "proteins",          label = "Prot Adeq",   fmt = "%.0f" },
     { key = "weightController",  label = "Controller",  fmt = "%.3f" },
     { key = "weightBalanceKcal", label = "Wt Balance",  fmt = "%.0f" },
     { key = "weightKg",          label = "Weight",      fmt = "%.1f" },

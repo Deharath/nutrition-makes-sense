@@ -3,7 +3,7 @@ NutritionMakesSense = NutritionMakesSense or {}
 local Metabolism = NutritionMakesSense.Metabolism or {}
 NutritionMakesSense.Metabolism = Metabolism
 
-Metabolism.STATE_VERSION = 8
+Metabolism.STATE_VERSION = 9
 
 Metabolism.WORK_TIER_SLEEP = "sleep"
 Metabolism.WORK_TIER_REST = "rest"
@@ -48,11 +48,6 @@ Metabolism.VANILLA_NUTRITION_ANCHOR = {
     proteins = 0,
 }
 
-Metabolism.PROTEIN_MAX = 350
-Metabolism.DEFAULT_PROTEIN = 245
-Metabolism.PROTEIN_DEFICIENCY_START_RATIO = 0.10
-Metabolism.PROTEIN_HEALING_MAX_PENALTY = 0.12
-
 Metabolism.DEFAULT_WEIGHT_KG = 80
 Metabolism.WEIGHT_MIN_KG = 35
 Metabolism.WEIGHT_MAX_KG = 140
@@ -67,11 +62,19 @@ Metabolism.WEIGHT_BURN_REFERENCE_KG = 80
 Metabolism.WEIGHT_BURN_FACTOR_PER_KG = 0.0025
 Metabolism.WEIGHT_BURN_FACTOR_MIN = 0.90
 Metabolism.WEIGHT_BURN_FACTOR_MAX = 1.10
+Metabolism.LEGACY_PROTEIN_MAX = 350
+Metabolism.PROTEIN_DAILY_NEED_G_PER_KG = 0.80
+Metabolism.PROTEIN_DAILY_NEED_MIN = 45
+Metabolism.PROTEIN_DAILY_NEED_MAX = 110
+Metabolism.PROTEIN_ADEQUACY_DEFAULT_DAYS = 4.0
+Metabolism.PROTEIN_ADEQUACY_MAX_DAYS = 5.0
+Metabolism.PROTEIN_DEFICIENCY_START_DAYS = 2.0
+Metabolism.PROTEIN_HEALING_MAX_PENALTY = 0.12
+Metabolism.PROTEIN_MAX = Metabolism.DEFAULT_WEIGHT_KG * Metabolism.PROTEIN_DAILY_NEED_G_PER_KG * Metabolism.PROTEIN_ADEQUACY_MAX_DAYS
+Metabolism.DEFAULT_PROTEIN = Metabolism.DEFAULT_WEIGHT_KG * Metabolism.PROTEIN_DAILY_NEED_G_PER_KG * Metabolism.PROTEIN_ADEQUACY_DEFAULT_DAYS
 
 Metabolism.SLEEP_FUEL_BURN_PER_HOUR = 35
 Metabolism.SLEEP_VISIBLE_HUNGER_PER_HOUR = 0.004
-Metabolism.SLEEP_PROTEIN_BURN_PER_HOUR = 0.8
-Metabolism.WAKE_PROTEIN_BURN_PER_HOUR = 2.0
 
 Metabolism.SATIETY_BUFFER_MAX = 1.5
 Metabolism.SATIETY_BUFFER_DECAY_PER_HOUR = 0.08
@@ -313,12 +316,29 @@ function Metabolism.getVisibleHungerPerHourFromMet(workload)
     return Metabolism.BASE_WAKE_HUNGER_PER_HOUR
 end
 
-function Metabolism.getProteinBurnPerHour(workload)
-    local summary = Metabolism.normalizeWorkload(workload)
-    if summary.sleepObserved then
-        return Metabolism.SLEEP_PROTEIN_BURN_PER_HOUR
-    end
-    return Metabolism.WAKE_PROTEIN_BURN_PER_HOUR
+function Metabolism.getProteinNeedPerDay(weightKg)
+    local weight = clamp(tonumber(weightKg) or Metabolism.DEFAULT_WEIGHT_KG, Metabolism.WEIGHT_MIN_KG, Metabolism.WEIGHT_MAX_KG)
+    return clamp(
+        weight * Metabolism.PROTEIN_DAILY_NEED_G_PER_KG,
+        Metabolism.PROTEIN_DAILY_NEED_MIN,
+        Metabolism.PROTEIN_DAILY_NEED_MAX
+    )
+end
+
+function Metabolism.getProteinAdequacyMax(weightKg)
+    return Metabolism.getProteinNeedPerDay(weightKg) * Metabolism.PROTEIN_ADEQUACY_MAX_DAYS
+end
+
+function Metabolism.getDefaultProteinAdequacy(weightKg)
+    return Metabolism.getProteinNeedPerDay(weightKg) * Metabolism.PROTEIN_ADEQUACY_DEFAULT_DAYS
+end
+
+local function clampProteinAdequacy(value, weightKg)
+    return clamp(tonumber(value) or 0, 0, Metabolism.getProteinAdequacyMax(weightKg))
+end
+
+function Metabolism.getProteinRequirementPerHour(weightKg)
+    return Metabolism.getProteinNeedPerDay(weightKg) / 24
 end
 
 function Metabolism.getEnduranceDrainPerHourFromMet(workload)
@@ -352,9 +372,9 @@ function Metabolism.getDeprivationActivityDrain(deprivation, averageMet)
     return Metabolism.DEPRIVATION_ACTIVITY_DRAIN_MAX * progress * activityFactor
 end
 
-function Metabolism.getProteinDeficiencyProgress(proteins)
-    local deficiencyStart = Metabolism.PROTEIN_MAX * Metabolism.PROTEIN_DEFICIENCY_START_RATIO
-    local available = clamp(proteins or 0, 0, Metabolism.PROTEIN_MAX)
+function Metabolism.getProteinDeficiencyProgress(proteins, weightKg)
+    local deficiencyStart = Metabolism.getProteinNeedPerDay(weightKg) * Metabolism.PROTEIN_DEFICIENCY_START_DAYS
+    local available = clampProteinAdequacy(proteins or 0, weightKg)
     if available >= deficiencyStart then
         return 0
     end
@@ -364,15 +384,15 @@ function Metabolism.getProteinDeficiencyProgress(proteins)
     return clamp((deficiencyStart - available) / deficiencyStart, 0, 1)
 end
 
-function Metabolism.getMacroDeficiencyProgress(macroName, reserve)
+function Metabolism.getMacroDeficiencyProgress(macroName, reserve, weightKg)
     if macroName ~= "proteins" then
         return 0
     end
-    return Metabolism.getProteinDeficiencyProgress(reserve)
+    return Metabolism.getProteinDeficiencyProgress(reserve, weightKg)
 end
 
-function Metabolism.getProteinHealingMultiplier(proteins)
-    local deficiency = Metabolism.getProteinDeficiencyProgress(proteins)
+function Metabolism.getProteinHealingMultiplier(proteins, weightKg)
+    local deficiency = Metabolism.getProteinDeficiencyProgress(proteins, weightKg)
     return lerp(1.0, 1.0 - Metabolism.PROTEIN_HEALING_MAX_PENALTY, deficiency)
 end
 
@@ -381,10 +401,10 @@ function Metabolism.getMacroEffectSnapshot(state, workload)
     return {
         carbDeficiency = 0,
         fatDeficiency = 0,
-        proteinDeficiency = Metabolism.getProteinDeficiencyProgress(state.proteins),
+        proteinDeficiency = Metabolism.getProteinDeficiencyProgress(state.proteins, state.weightKg),
         carbEnduranceMultiplier = 1.0,
         fatWeightLossMultiplier = 1.0,
-        proteinHealingMultiplier = Metabolism.getProteinHealingMultiplier(state.proteins),
+        proteinHealingMultiplier = Metabolism.getProteinHealingMultiplier(state.proteins, state.weightKg),
     }
 end
 
@@ -772,15 +792,20 @@ end
 
 function Metabolism.ensureState(state)
     state = type(state) == "table" and state or {}
-
+    local legacyVersion = tonumber(state.version) or 0
     state.version = Metabolism.STATE_VERSION
     state.fuel = clamp(state.fuel or state.fuelKcal or Metabolism.DEFAULT_FUEL, Metabolism.FUEL_MIN, Metabolism.FUEL_MAX)
     state.carbs = nil
     state.fats = nil
     state.lipids = nil
-    state.proteins = clamp(state.proteins or Metabolism.DEFAULT_PROTEIN, 0, Metabolism.PROTEIN_MAX)
     state.lastWorldHours = tonumber(state.lastWorldHours) or nil
     state.weightKg = clamp(state.weightKg or state.weight or Metabolism.DEFAULT_WEIGHT_KG, Metabolism.WEIGHT_MIN_KG, Metabolism.WEIGHT_MAX_KG)
+    if legacyVersion >= 1 and legacyVersion < 9 and tonumber(state.proteins) ~= nil then
+        local legacyFraction = clamp((tonumber(state.proteins) or Metabolism.DEFAULT_PROTEIN) / math.max(0.000001, Metabolism.LEGACY_PROTEIN_MAX), 0, 1)
+        state.proteins = clampProteinAdequacy(legacyFraction * Metabolism.getProteinAdequacyMax(state.weightKg), state.weightKg)
+    else
+        state.proteins = clampProteinAdequacy(state.proteins or Metabolism.getDefaultProteinAdequacy(state.weightKg), state.weightKg)
+    end
     state.energyBalanceKcal = nil
     state.weightController = clamp(state.weightController or 0, -1, 1)
     state.weightBalanceKcal = clampWeightBalance(state.weightBalanceKcal or 0)
@@ -819,10 +844,10 @@ function Metabolism.ensureState(state)
     state.lastExertionMultiplier = tonumber(state.lastExertionMultiplier) or 1.0
     state.lastCarbDeficiency = nil
     state.lastFatDeficiency = nil
-    state.lastProteinDeficiency = tonumber(state.lastProteinDeficiency) or Metabolism.getProteinDeficiencyProgress(state.proteins)
+    state.lastProteinDeficiency = tonumber(state.lastProteinDeficiency) or Metabolism.getProteinDeficiencyProgress(state.proteins, state.weightKg)
     state.lastCarbEnduranceMultiplier = nil
     state.lastFatWeightLossMultiplier = nil
-    state.lastProteinHealingMultiplier = tonumber(state.lastProteinHealingMultiplier) or Metabolism.getProteinHealingMultiplier(state.proteins)
+    state.lastProteinHealingMultiplier = tonumber(state.lastProteinHealingMultiplier) or Metabolism.getProteinHealingMultiplier(state.proteins, state.weightKg)
     state.satietyBuffer = clamp(state.satietyBuffer or 0, 0, Metabolism.SATIETY_BUFFER_MAX)
     state.lastSatietyQuality = clamp(tonumber(state.lastSatietyQuality) or 0, 0, 1)
     state.lastSatietyContribution = math.max(0, tonumber(state.lastSatietyContribution) or 0)
@@ -868,7 +893,7 @@ function Metabolism.applyFoodValues(state, values, fraction, reason)
 
     state.fuel = clamp(state.fuel + applied.kcal, Metabolism.FUEL_MIN, Metabolism.FUEL_MAX)
     state.weightBalanceKcal = Metabolism.addWeightBalanceKcal(state, applied.kcal)
-    state.proteins = clamp(state.proteins + applied.proteins, 0, Metabolism.PROTEIN_MAX)
+    state.proteins = clampProteinAdequacy(state.proteins + applied.proteins, state.weightKg)
     state.satietyBuffer = clamp(state.satietyBuffer + satietyContribution, 0, Metabolism.SATIETY_BUFFER_MAX)
     state.lastDepositKcal = applied.kcal
     state.lastWeightDeltaKg = 0
@@ -963,9 +988,9 @@ function Metabolism.advanceState(state, elapsedHours, workload, options)
         endWeightControllerTarget = Metabolism.getWeightControllerTargetFromBalance(state.weightBalanceKcal),
         peakWeightController = math.abs(state.weightController or 0),
         burnWeightFactor = Metabolism.getWeightFuelBurnFactor(state.weightKg),
-        peakProteinDeficiency = Metabolism.getProteinDeficiencyProgress(state.proteins),
-        startProteinHealingMultiplier = Metabolism.getProteinHealingMultiplier(state.proteins),
-        endProteinHealingMultiplier = Metabolism.getProteinHealingMultiplier(state.proteins),
+        peakProteinDeficiency = Metabolism.getProteinDeficiencyProgress(state.proteins, state.weightKg),
+        startProteinHealingMultiplier = Metabolism.getProteinHealingMultiplier(state.proteins, state.weightKg),
+        endProteinHealingMultiplier = Metabolism.getProteinHealingMultiplier(state.proteins, state.weightKg),
         traitSatietyDecayMultiplier = traitEffects.satietyDecayMultiplier,
         traitBurnMultiplier = traitEffects.burnMultiplier,
         traitWeightGainMultiplier = traitEffects.weightGainMultiplier,
@@ -1010,7 +1035,7 @@ function Metabolism.advanceState(state, elapsedHours, workload, options)
     local slices = math.max(1, math.ceil(totalHours / 0.25))
     local sliceHours = totalHours / slices
     local burnPerHour = Metabolism.getFuelBurnPerHourFromMet(normalizedWorkload, state.weightKg, traitEffects)
-    local proteinBurnPerHour = Metabolism.getProteinBurnPerHour(normalizedWorkload)
+    local proteinRequirementPerHour = Metabolism.getProteinRequirementPerHour(state.weightKg)
     local hasPendingBurn = normalizedWorkload.pendingBurnKcal ~= nil and normalizedWorkload.pendingBurnKcal > 0
     if hasPendingBurn and totalHours > 0 then
         burnPerHour = math.max(0, normalizedWorkload.pendingBurnKcal) / totalHours
@@ -1038,10 +1063,10 @@ function Metabolism.advanceState(state, elapsedHours, workload, options)
         local fuelBurn = math.min(state.fuel, metabolicBurn)
         state.fuel = clamp(state.fuel - fuelBurn, Metabolism.FUEL_MIN, Metabolism.FUEL_MAX)
         state.weightBalanceKcal = Metabolism.advanceWeightBalanceKcal(state.weightBalanceKcal, -metabolicBurn, sliceHours)
-        state.proteins = clamp(state.proteins - (proteinBurnPerHour * sliceHours), 0, Metabolism.PROTEIN_MAX)
+        state.proteins = clampProteinAdequacy(state.proteins - (proteinRequirementPerHour * sliceHours), state.weightKg)
         report.burnedKcal = report.burnedKcal + metabolicBurn
 
-        local proteinDeficiency = Metabolism.getProteinDeficiencyProgress(state.proteins)
+        local proteinDeficiency = Metabolism.getProteinDeficiencyProgress(state.proteins, state.weightKg)
         report.peakProteinDeficiency = math.max(report.peakProteinDeficiency, proteinDeficiency)
 
         report.peakExertionMultiplier = math.max(report.peakExertionMultiplier, Metabolism.getExertionPenaltyMultiplier(state.deprivation))
@@ -1086,7 +1111,7 @@ function Metabolism.advanceState(state, elapsedHours, workload, options)
     report.endWeightKg = state.weightKg
     report.endWeightBalanceKcal = tonumber(state.weightBalanceKcal) or 0
     report.endWeightTrait = Metabolism.getWeightTrait(state.weightKg)
-    report.endProteinHealingMultiplier = Metabolism.getProteinHealingMultiplier(state.proteins)
+    report.endProteinHealingMultiplier = Metabolism.getProteinHealingMultiplier(state.proteins, state.weightKg)
     report.endSatietyBuffer = state.satietyBuffer
     if totalHours > 0 then
         report.weightRateKgPerWeek = report.weightDeltaKg / totalHours * 24 * 7

@@ -176,12 +176,8 @@ local function seedFuel(nutrition)
     return clamp(observedCalories, Metabolism.FUEL_PENALTY_THRESHOLD, 1500)
 end
 
-local function seedProteinReserve(nutrition, getterName)
-    local observed = tonumber(nutrition and safeCall(nutrition, getterName) or nil)
-    if observed ~= nil and observed > 0 then
-        return clamp(observed, 0, Metabolism.PROTEIN_MAX)
-    end
-    return Metabolism.DEFAULT_PROTEIN
+local function seedProteinAdequacy(weightKg)
+    return Metabolism.getDefaultProteinAdequacy(weightKg)
 end
 
 local function seedWeight(nutrition)
@@ -275,7 +271,7 @@ local function syncProteinHealing(bodyDamage, state)
     local baseHealthFromFood = tonumber(state.baseHealthFromFood) or seedHealthFromFood(bodyDamage)
     state.baseHealthFromFood = baseHealthFromFood
 
-    local healingMultiplier = Metabolism.getProteinHealingMultiplier(state.proteins)
+    local healingMultiplier = Metabolism.getProteinHealingMultiplier(state.proteins, state.weightKg)
     local desired = baseHealthFromFood * healingMultiplier
     local current = tonumber(safeCall(bodyDamage, "getHealthFromFood")) or nil
     if current == nil or math.abs(current - desired) > SYNC_EPSILON then
@@ -323,8 +319,8 @@ function Runtime.ensureStateForPlayer(playerObj)
     end
     if state.initialized ~= true then
         state.fuel = seedFuel(nutrition)
-        state.proteins = seedProteinReserve(nutrition, "getProteins")
         state.weightKg = seedWeight(nutrition)
+        state.proteins = seedProteinAdequacy(state.weightKg)
         state.weightController = 0
         state.weightBalanceKcal = 0
         state.lastZone = Metabolism.getFuelZone(state.fuel)
@@ -349,7 +345,7 @@ function Runtime.ensureStateForPlayer(playerObj)
         state.lastWeightBalanceKcal = 0
         state.lastWeightControllerTarget = 0
         state.lastExertionMultiplier = 1.0
-        state.lastProteinDeficiency = Metabolism.getProteinDeficiencyProgress(state.proteins)
+        state.lastProteinDeficiency = Metabolism.getProteinDeficiencyProgress(state.proteins, state.weightKg)
         state.lastMetAverage = Metabolism.MET_REST
         state.lastMetPeak = Metabolism.MET_REST
         state.lastEffectiveEnduranceMet = Metabolism.MET_REST
@@ -367,7 +363,7 @@ function Runtime.ensureStateForPlayer(playerObj)
         state.lastImmediateFillTarget = 0
         state.lastImmediateFillVanilla = 0
         state.lastImmediateFillCorrection = 0
-        state.lastProteinHealingMultiplier = Metabolism.getProteinHealingMultiplier(state.proteins)
+        state.lastProteinHealingMultiplier = Metabolism.getProteinHealingMultiplier(state.proteins, state.weightKg)
         log(string.format(
             "[STATE_INIT] player=%s fuel=%.1f proteins=%.1f weight=%.3f zone=%s",
             tostring(getPlayerLabel(playerObj)),
@@ -772,8 +768,8 @@ local function refreshDerivedState(state, reason)
     state.lastFuelPressureFactor = Metabolism.getFuelPressureFactor(state.fuel)
     state.lastGateMultiplier = Metabolism.getHungerGateMultiplier(state.fuel)
     state.lastWeightTrait = Metabolism.getWeightTrait(state.weightKg)
-    state.lastProteinDeficiency = Metabolism.getProteinDeficiencyProgress(state.proteins)
-    state.lastProteinHealingMultiplier = Metabolism.getProteinHealingMultiplier(state.proteins)
+    state.lastProteinDeficiency = Metabolism.getProteinDeficiencyProgress(state.proteins, state.weightKg)
+    state.lastProteinHealingMultiplier = Metabolism.getProteinHealingMultiplier(state.proteins, state.weightKg)
     state.lastTraceReason = tostring(reason or state.lastTraceReason or "debug-set")
     return state
 end

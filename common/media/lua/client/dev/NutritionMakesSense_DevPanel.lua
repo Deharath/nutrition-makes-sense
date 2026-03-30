@@ -174,11 +174,11 @@ local function drawLabeledBar(self, y, fraction, color, label, valueText)
     return y + BAR_H + BAR_BOT_PAD
 end
 
-local function drawProteinReserveBar(self, y, proteins)
-    local maxP = Metabolism.PROTEIN_MAX or 350
+local function drawProteinReserveBar(self, y, proteins, weightKg)
+    local maxP = Metabolism.getProteinAdequacyMax and Metabolism.getProteinAdequacyMax(weightKg) or Metabolism.PROTEIN_MAX or 350
     local w = PANEL_W - PAD * 2
 
-    self:drawText("Protein Reserve", PAD, y, C.label.r, C.label.g, C.label.b, C.label.a, FONT_S)
+    self:drawText("Protein Adequacy", PAD, y, C.label.r, C.label.g, C.label.b, C.label.a, FONT_S)
     self:drawTextRight(
         string.format("%s / %s g", fmt(proteins, 0), fmt(maxP, 0)),
         PANEL_W - PAD, y, C.value.r, C.value.g, C.value.b, C.value.a, FONT_S)
@@ -548,7 +548,7 @@ function NMS_DevOverlay:render()
     ---------------------------------------------------------------- Protein
     y = drawSection(self, y, "Protein")
     local mp = tonumber(s.proteins) or 0
-    y = drawProteinReserveBar(self, y, mp)
+    y = drawProteinReserveBar(self, y, mp, tonumber(s.weightKg) or Metabolism.DEFAULT_WEIGHT_KG)
 
     local pd = tonumber(s.lastProteinDeficiency) or 0
     if pd > 0 then

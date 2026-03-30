@@ -51,10 +51,11 @@ local function collectLines(state)
     local lines = {}
     local fuel = tonumber(state.fuel) or 0
     local deprivation = tonumber(state.deprivation) or 0
+    local weightKg = tonumber(state.weightKg) or Metabolism.DEFAULT_WEIGHT_KG
     local proteins = tonumber(state.proteins) or 0
     local proteinDef = tonumber(state.lastProteinDeficiency)
     if proteinDef == nil and Metabolism.getProteinDeficiencyProgress then
-        proteinDef = Metabolism.getProteinDeficiencyProgress(proteins)
+        proteinDef = Metabolism.getProteinDeficiencyProgress(proteins, weightKg)
     end
     proteinDef = tonumber(proteinDef) or 0
 
@@ -105,7 +106,7 @@ local function collectLines(state)
 
         local healingMultiplier = tonumber(state.lastProteinHealingMultiplier)
         if healingMultiplier == nil and Metabolism.getProteinHealingMultiplier then
-            healingMultiplier = Metabolism.getProteinHealingMultiplier(proteins)
+            healingMultiplier = Metabolism.getProteinHealingMultiplier(proteins, weightKg)
         end
         healingMultiplier = tonumber(healingMultiplier) or 1.0
         local healingPenalty = math.max(0, (1.0 - healingMultiplier) * 100)

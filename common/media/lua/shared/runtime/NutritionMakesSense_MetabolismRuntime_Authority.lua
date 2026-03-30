@@ -236,8 +236,8 @@ function Runtime.debugResetState(playerObj, reason)
     local state = Metabolism.newState({
         initialized = true,
         fuel = 1300,
-        proteins = Metabolism.DEFAULT_PROTEIN,
         weightKg = Metabolism.DEFAULT_WEIGHT_KG,
+        proteins = Metabolism.getDefaultProteinAdequacy(Metabolism.DEFAULT_WEIGHT_KG),
         weightController = 0,
         weightBalanceKcal = 0,
         satietyBuffer = 0,
