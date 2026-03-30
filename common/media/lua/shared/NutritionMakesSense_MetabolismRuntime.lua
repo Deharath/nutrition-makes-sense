@@ -326,6 +326,7 @@ function Runtime.ensureStateForPlayer(playerObj)
         state.proteins = seedProteinReserve(nutrition, "getProteins")
         state.weightKg = seedWeight(nutrition)
         state.weightController = 0
+        state.weightBalanceKcal = 0
         state.lastZone = Metabolism.getFuelZone(state.fuel)
         state.lastHungerMultiplier = Metabolism.getFuelHungerMultiplier(state.fuel)
         state.visibleHunger = clamp(getVisibleHungerValue(stats) or 0, Metabolism.VISIBLE_HUNGER_MIN, Metabolism.VISIBLE_HUNGER_MAX)
@@ -345,6 +346,8 @@ function Runtime.ensureStateForPlayer(playerObj)
         state.lastExtraEnduranceDrain = 0
         state.lastWeightDeltaKg = 0
         state.lastWeightRateKgPerWeek = 0
+        state.lastWeightBalanceKcal = 0
+        state.lastWeightControllerTarget = 0
         state.lastExertionMultiplier = 1.0
         state.lastProteinDeficiency = Metabolism.getProteinDeficiencyProgress(state.proteins)
         state.lastMetAverage = Metabolism.MET_REST

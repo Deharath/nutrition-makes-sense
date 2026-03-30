@@ -3,6 +3,7 @@ NutritionMakesSense.LiveScenarioCatalog = NutritionMakesSense.LiveScenarioCatalo
 
 local Catalog = NutritionMakesSense.LiveScenarioCatalog
 local Metabolism = NutritionMakesSense.Metabolism or {}
+Catalog.DEFAULT_TIME_MULTIPLIER = 80
 
 local function copyTable(source)
     if type(source) ~= "table" then
@@ -78,7 +79,7 @@ local function withProfileDefaults(profile)
     local normalized = copyTable(profile) or {}
     normalized.baseClockHour = tonumber(normalized.baseClockHour) or 6
     normalized.durationHours = tonumber(normalized.durationHours) or 16
-    normalized.timeMultiplier = tonumber(normalized.timeMultiplier) or 40
+    normalized.timeMultiplier = tonumber(normalized.timeMultiplier) or Catalog.DEFAULT_TIME_MULTIPLIER
     normalized.sortOrder = tonumber(normalized.sortOrder) or 100
     normalized.baselineState = normalized.baselineState or DEFAULT_BASELINE_STATE
     normalized.baselineVisible = normalized.baselineVisible or DEFAULT_BASELINE_VISIBLE

@@ -66,6 +66,21 @@ local function getEntrySemanticClass(entry)
     return nil
 end
 
+local function normalizeCarbProfile(value)
+    local profile = tostring(value or ""):lower()
+    if profile == "starchy" or profile == "sugary" then
+        return profile
+    end
+    return "neutral"
+end
+
+local function getEntryCarbProfile(entry)
+    if type(entry) ~= "table" then
+        return "neutral"
+    end
+    return normalizeCarbProfile(entry.carb_profile or entry.carbProfile)
+end
+
 local function isRuntimeComposedEntry(entry)
     local semanticClass = getEntrySemanticClass(entry)
     return semanticClass == "runtime_composed_output" or semanticClass == "carrier_scaffold"
@@ -243,6 +258,7 @@ local function normalizeSnapshot(fullType, entry, snapshot)
         carbs = tonumber(snapshot.carbs) or 0,
         fats = tonumber(snapshot.fats) or 0,
         proteins = tonumber(snapshot.proteins) or 0,
+        carbProfile = normalizeCarbProfile(snapshot.carbProfile or snapshot.carb_profile or getEntryCarbProfile(entry)),
         remainingFraction = snapshot.remainingFraction ~= nil and clamp01(snapshot.remainingFraction) or nil,
         fluidPayloadId = snapshot.fluidPayloadId and tostring(snapshot.fluidPayloadId) or nil,
         fluidCapacity = tonumber(snapshot.fluidCapacity) or nil,
@@ -816,6 +832,7 @@ buildAppliedSnapshot = function(totalSnapshot, fraction)
         carbs = (tonumber(totalSnapshot.carbs) or 0) * remainingFraction,
         fats = (tonumber(totalSnapshot.fats) or 0) * remainingFraction,
         proteins = (tonumber(totalSnapshot.proteins) or 0) * remainingFraction,
+        carbProfile = totalSnapshot.carbProfile,
         remainingFraction = remainingFraction,
         fluidPayloadId = totalSnapshot.fluidPayloadId,
         fluidCapacity = totalSnapshot.fluidCapacity,
@@ -848,6 +865,7 @@ local function scaleConsumedSnapshot(snapshot, fraction, nutritionMultiplier)
         carbs = (tonumber(snapshot.carbs) or 0) * ratio * multiplier,
         fats = (tonumber(snapshot.fats) or 0) * ratio * multiplier,
         proteins = (tonumber(snapshot.proteins) or 0) * ratio * multiplier,
+        carbProfile = snapshot.carbProfile,
         remainingFraction = snapshot.remainingFraction and clamp01(snapshot.remainingFraction * ratio) or nil,
         fluidPayloadId = snapshot.fluidPayloadId,
         fluidCapacity = snapshot.fluidCapacity,

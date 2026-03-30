@@ -111,6 +111,14 @@ function Utils.setTimeMultiplier(multiplier)
     return true
 end
 
+function Utils.restoreGameSpeedMode(mode)
+    if type(setGameSpeed) ~= "function" then
+        return false
+    end
+    local ok = pcall(setGameSpeed, tonumber(mode) or 1)
+    return ok == true
+end
+
 function Utils.getExpectedEffectiveMultiplier(baseMultiplier, requestedMultiplier)
     local base = tonumber(baseMultiplier)
     local requested = tonumber(requestedMultiplier)

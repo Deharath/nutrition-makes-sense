@@ -184,6 +184,7 @@ function Runtime.debugSetStateFields(playerObj, updates, reason)
             or fieldName == "proteins"
             or fieldName == "weightKg"
             or fieldName == "weightController"
+            or fieldName == "weightBalanceKcal"
             or fieldName == "deprivation"
             or fieldName == "satietyBuffer" then
             local before = state[fieldName]
@@ -238,6 +239,7 @@ function Runtime.debugResetState(playerObj, reason)
         proteins = Metabolism.DEFAULT_PROTEIN,
         weightKg = Metabolism.DEFAULT_WEIGHT_KG,
         weightController = 0,
+        weightBalanceKcal = 0,
         satietyBuffer = 0,
         deprivation = 0,
         lastWorldHours = getWorldHours(),
@@ -266,6 +268,8 @@ function Runtime.debugResetState(playerObj, reason)
         lastExtraEnduranceDrain = 0,
         lastWeightDeltaKg = 0,
         lastWeightRateKgPerWeek = 0,
+        lastWeightBalanceKcal = 0,
+        lastWeightControllerTarget = 0,
         lastExertionMultiplier = 1.0,
         lastTraceReason = tostring(reason or "debug-reset"),
         baseHealthFromFood = tonumber(previous and previous.baseHealthFromFood) or seedHealthFromFood(bodyDamage),

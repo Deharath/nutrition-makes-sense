@@ -211,9 +211,26 @@ function NMS_TestOverlay:createChildren()
         self.availabilityCombo.selected = 1
     end
 
-    self.startWeightLabelX = PAD
+    self.speedLabelX = PAD
+    self.speedLabelY = weightY + 1
+    self.speedCombo = ISComboBox:new(PAD + 42, weightY, 72, CONTROL_ROW_H, self, NMS_TestOverlay.onSpeedChanged)
+    self.speedCombo:initialise()
+    self:addChild(self.speedCombo)
+    local speedOptions = type(LiveRunner.getTimeMultiplierOptions) == "function" and LiveRunner.getTimeMultiplierOptions() or {}
+    local currentSpeed = type(LiveRunner.getTimeMultiplier) == "function" and LiveRunner.getTimeMultiplier() or 80
+    for index, option in ipairs(speedOptions) do
+        self.speedCombo:addOptionWithData(option.label or tostring(option.multiplier), option.multiplier)
+        if tonumber(option.multiplier) == tonumber(currentSpeed) then
+            self.speedCombo.selected = index
+        end
+    end
+    if #speedOptions > 0 and (not self.speedCombo.selected or self.speedCombo.selected <= 0) then
+        self.speedCombo.selected = 1
+    end
+
+    self.startWeightLabelX = PAD + 128
     self.startWeightLabelY = weightY + 1
-    self.startWeightEntry = ISTextEntryBox:new("", PAD + 78, weightY, 52, 18)
+    self.startWeightEntry = ISTextEntryBox:new("", self.startWeightLabelX + 78, weightY, 52, 18)
     self.startWeightEntry:initialise()
     self.startWeightEntry:instantiate()
     self.startWeightEntry:setOnlyNumbers(true)
@@ -272,6 +289,16 @@ function NMS_TestOverlay:onAvailabilityModeChanged()
     local mode = self.availabilityCombo:getOptionData(self.availabilityCombo.selected)
     if type(LiveRunner.setAvailabilityMode) == "function" then
         LiveRunner.setAvailabilityMode(mode)
+    end
+end
+
+function NMS_TestOverlay:onSpeedChanged()
+    if not self.speedCombo or not self.speedCombo.selected or self.speedCombo.selected <= 0 then
+        return
+    end
+    local multiplier = self.speedCombo:getOptionData(self.speedCombo.selected)
+    if type(LiveRunner.setTimeMultiplier) == "function" then
+        LiveRunner.setTimeMultiplier(multiplier)
     end
 end
 
@@ -389,6 +416,7 @@ function NMS_TestOverlay:render()
     self:drawText("Scenario", PAD, self.profileLabelY, LBL.r, LBL.g, LBL.b, LBL.a, FONT_S)
     self:drawText("Intake", self.triggerCombo and self.triggerCombo.x or PAD, self.intakeLabelY, LBL.r, LBL.g, LBL.b, LBL.a, FONT_S)
     self:drawText("Availability", self.availabilityCombo and self.availabilityCombo.x or PAD, self.availabilityLabelY, LBL.r, LBL.g, LBL.b, LBL.a, FONT_S)
+    self:drawText("Speed", self.speedLabelX or PAD, self.speedLabelY + 1, LBL.r, LBL.g, LBL.b, LBL.a, FONT_S)
     self:drawText("Start Weight", self.startWeightLabelX, self.startWeightLabelY + 1, LBL.r, LBL.g, LBL.b, LBL.a, FONT_S)
     self:drawText("kg", self.startWeightUnitX, self.startWeightLabelY + 1, DIM.r, DIM.g, DIM.b, DIM.a, FONT_S)
     self:drawText("Traits", PAD, self.traitsLabelY, LBL.r, LBL.g, LBL.b, LBL.a, FONT_S)

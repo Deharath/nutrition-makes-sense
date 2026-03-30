@@ -33,27 +33,27 @@ local BAD   = { r = 0.85, g = 0.25, b = 0.20, a = 1.0 }
 local PRESETS = {
     {
         name = "Well Fed", color = GOOD,
-        state = { fuel = 1300, deprivation = 0, satietyBuffer = 0.8, weightController = 0.05 },
+        state = { fuel = 1300, deprivation = 0, satietyBuffer = 0.8, weightController = 0.05, weightBalanceKcal = 440 },
         vanilla = { hunger = 0, endurance = 1, fatigue = 0 },
     },
     {
         name = "Hungry", color = WARN,
-        state = { fuel = 400, deprivation = 0, satietyBuffer = 0, weightController = -0.05 },
+        state = { fuel = 400, deprivation = 0, satietyBuffer = 0, weightController = -0.05, weightBalanceKcal = -510 },
         vanilla = { hunger = 0.35, endurance = 1, fatigue = 0 },
     },
     {
         name = "Deprived", color = WARN,
-        state = { fuel = 0, deprivation = 0.6, satietyBuffer = 0, weightController = -0.2 },
+        state = { fuel = 0, deprivation = 0.6, satietyBuffer = 0, weightController = -0.2, weightBalanceKcal = -1125 },
         vanilla = { hunger = 0.60, endurance = 1, fatigue = 0.3 },
     },
     {
         name = "Critical", color = BAD,
-        state = { fuel = 0, deprivation = 0.9, satietyBuffer = 0, weightController = -0.4 },
+        state = { fuel = 0, deprivation = 0.9, satietyBuffer = 0, weightController = -0.4, weightBalanceKcal = -1950 },
         vanilla = { hunger = 0.69, endurance = 0.5, fatigue = 0.5 },
     },
     {
         name = "Recovery", color = GOOD,
-        state = { fuel = 800, deprivation = 0.7, satietyBuffer = 0.5, weightController = 0 },
+        state = { fuel = 800, deprivation = 0.7, satietyBuffer = 0.5, weightController = 0, weightBalanceKcal = 0 },
         vanilla = { hunger = 0.20, endurance = 1, fatigue = 0.2 },
     },
 }
@@ -66,6 +66,7 @@ local FIELDS = {
     { key = "satietyBuffer",     label = "Satiety",     fmt = "%.3f" },
     { key = "proteins",          label = "Proteins",    fmt = "%.0f" },
     { key = "weightController",  label = "Controller",  fmt = "%.3f" },
+    { key = "weightBalanceKcal", label = "Wt Balance",  fmt = "%.0f" },
     { key = "weightKg",          label = "Weight",      fmt = "%.1f" },
 }
 

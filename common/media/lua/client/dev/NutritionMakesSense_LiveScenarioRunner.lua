@@ -24,6 +24,12 @@ local lastReportPath = nil
 local selectedTriggerMode = "strict_hunger_signal"
 local selectedAvailabilityMode = "eat_anytime"
 local selectedStartWeightKg = 80
+local TIME_MULTIPLIER_PRESETS = {
+    { id = "40x", label = "40x", multiplier = 40 },
+    { id = "80x", label = "80x", multiplier = 80 },
+    { id = "120x", label = "120x", multiplier = 120 },
+}
+local selectedTimeMultiplier = 80
 local SCENARIO_TRAITS = {
     { id = "hearty_appetite", label = "Hearty Appetite", traitName = "Hearty Appetite", traitEnum = "HEARTY_APPETITE" },
     { id = "light_eater", label = "Light Eater", traitName = "Light Eater", traitEnum = "LIGHT_EATER" },
@@ -147,6 +153,7 @@ local getTimeMultiplier = RunnerUtils.getTimeMultiplier
 local getGameSpeedMode = RunnerUtils.getGameSpeedMode
 local getGameSpeedModeForMultiplier = RunnerUtils.getGameSpeedModeForMultiplier
 local setTimeMultiplier = RunnerUtils.setTimeMultiplier
+local restoreGameSpeedMode = RunnerUtils.restoreGameSpeedMode
 local getExpectedEffectiveMultiplier = RunnerUtils.getExpectedEffectiveMultiplier
 local validateRequestedTimeAcceleration = RunnerUtils.validateRequestedTimeAcceleration
 local getPlayerStats = RunnerUtils.getPlayerStats
@@ -514,6 +521,14 @@ end
 
 local function cloneTable(source)
     return copyTable(source)
+end
+
+local function normalizeTimeMultiplier(value)
+    local numeric = tonumber(value)
+    if numeric == nil then
+        return tonumber(selectedTimeMultiplier) or 80
+    end
+    return clamp(numeric, 1, 200)
 end
 
 local function buildRunBaseline(profile)
@@ -940,6 +955,7 @@ local function setLastStatusFromRun(run)
         currentMealLabel = run.currentMeal and describeMeal(run.currentMeal.meal) or nil,
         currentItemLabel = run.currentMeal and run.currentMeal.currentItem and run.currentMeal.currentItem.label or nil,
         startWeightKg = tonumber(run.startWeightKg),
+        profileTimeMultiplier = tonumber(run.profileTimeMultiplier),
         traitSummary = describeSelectedTraits(run.selectedTraits),
         selectedTraits = cloneSelectedTraitFlags(run.selectedTraits),
         mealsCompleted = mealsCompleted,
@@ -978,6 +994,7 @@ local function setLastStatusFromRun(run)
             string.format("Phase %s  Target MET %s", tostring(phaseLabel or "--"), targetMet and string.format("%.2f", targetMet) or "--"),
             string.format("Next Meal %s  Elapsed %s", tostring(nextMeal or "--"), string.format("%.2fh", tonumber(elapsedHours or 0))),
             string.format("Start Weight %s", run.startWeightKg and string.format("%.1f kg", tonumber(run.startWeightKg) or 0) or "--"),
+            string.format("Runner Speed %sx", tostring(math.floor(tonumber(run.profileTimeMultiplier) or 0))),
             string.format("Traits %s", describeSelectedTraits(run.selectedTraits)),
             string.format("Availability %s", normalizeAvailabilityMode(run.availabilityMode) == AVAILABILITY_MODE_INTERRUPT_WORK_FOR_FOOD and "Interrupt work for food" or "Eat anytime"),
             string.format("Report %s", tostring(run.reportPath or lastReportPath or "--")),
@@ -1669,7 +1686,6 @@ local function captureSnapshot(run)
         visible = snapshotPlayer(run.player),
         traits = snapshotScenarioTraits(run.player),
         timeMultiplier = getTimeMultiplier(),
-        restoreRequestedMultiplier = tonumber(getTimeMultiplier()) or 1,
         restoreGameSpeedMode = getGameSpeedMode(),
     }
 
@@ -1756,13 +1772,9 @@ local function restoreSnapshot(run)
         safeInvoke(run.player, "setMetabolicTarget", Metabolics.StandingAtRest)
     end
 
-    if run.snapshot.restoreGameSpeedMode ~= nil and type(setGameSpeed) == "function" then
-        pcall(setGameSpeed, tonumber(run.snapshot.restoreGameSpeedMode) or 1)
-    end
-    if run.snapshot.restoreRequestedMultiplier ~= nil then
-        local gameTime = type(getGameTime) == "function" and getGameTime() or nil
-        if gameTime then
-            safeInvoke(gameTime, "setMultiplier", tonumber(run.snapshot.restoreRequestedMultiplier) or 1)
+    if run.snapshot.restoreGameSpeedMode ~= nil then
+        if not restoreGameSpeedMode(run.snapshot.restoreGameSpeedMode) then
+            addFinding(run, SEVERITY_WARN, "restore_game_speed_mode_failed", "failed to restore pre-run game speed mode")
         end
     end
     restoreTimedActionInstant(run, run.snapshot.visible and run.snapshot.visible.timedActionInstant == true)
@@ -1818,13 +1830,17 @@ local function restoreSnapshot(run)
     restoreOk = restoreOk and nearlyEqual(restored.fatigue, before.fatigue, RESTORE_TOLERANCE.fatigue)
     restoreOk = restoreOk and nearlyEqual(restored.healthFromFood, before.healthFromFood, RESTORE_TOLERANCE.healthFromFood)
     if before.timeMultiplier ~= nil and restored.timeMultiplier ~= nil then
-        local allowedDelta = math.max(RESTORE_TOLERANCE.multiplier, math.abs(tonumber(before.timeMultiplier) or 0) * 0.35)
-        multiplierDrift = math.abs((tonumber(restored.timeMultiplier) or 0) - (tonumber(before.timeMultiplier) or 0))
-        if multiplierDrift > allowedDelta then
-            recordRow(run, SEVERITY_PASS, "restore_time_multiplier_drift",
-                string.format("raw time multiplier drifted pre=%.4f post=%.4f",
-                    tonumber(before.timeMultiplier or 0),
-                    tonumber(restored.timeMultiplier or 0)))
+        local beforeMode = tonumber(run.snapshot.restoreGameSpeedMode)
+        local restoredMode = tonumber(restored.gameSpeedMode)
+        if beforeMode ~= nil and restoredMode ~= nil and beforeMode == restoredMode then
+            local allowedDelta = math.max(RESTORE_TOLERANCE.multiplier, math.abs(tonumber(before.timeMultiplier) or 0) * 0.35)
+            multiplierDrift = math.abs((tonumber(restored.timeMultiplier) or 0) - (tonumber(before.timeMultiplier) or 0))
+            if multiplierDrift > allowedDelta then
+                recordRow(run, SEVERITY_PASS, "restore_time_multiplier_drift",
+                    string.format("raw time multiplier drifted pre=%.4f post=%.4f",
+                        tonumber(before.timeMultiplier or 0),
+                        tonumber(restored.timeMultiplier or 0)))
+            end
         end
     end
     if run.snapshot.restoreGameSpeedMode ~= nil and restored.gameSpeedMode ~= nil then
@@ -1890,8 +1906,10 @@ end
 
 local function startRun(profile)
     local baselineState, baselineVisible = buildRunBaseline(profile)
+    local runTimeMultiplier = normalizeTimeMultiplier(selectedTimeMultiplier)
     local run = {
         profile = profile,
+        profileTimeMultiplier = runTimeMultiplier,
         baselineState = baselineState,
         baselineVisible = baselineVisible,
         startWeightKg = tonumber(baselineState and baselineState.weightKg),
@@ -1938,11 +1956,11 @@ local function startRun(profile)
     recordRow(run, SEVERITY_PASS, "scenario_traits_applied",
         string.format("applied scenario traits: %s", describeSelectedTraits(run.selectedTraits)))
 
-    if not setTimeMultiplier(profile.timeMultiplier) or not validateRequestedTimeAcceleration(run, profile.timeMultiplier) then
+    if not setTimeMultiplier(runTimeMultiplier) or not validateRequestedTimeAcceleration(run, runTimeMultiplier) then
         addFinding(run, SEVERITY_FAIL, "time_accel_not_applied",
             string.format(
                 "failed to apply accelerated live time request=%s actual=%s base=%s ratio=%s",
-                tostring(profile.timeMultiplier),
+                tostring(runTimeMultiplier),
                 tostring(getTimeMultiplier()),
                 tostring(run.snapshot.visible and run.snapshot.visible.timeMultiplier or "--"),
                 tostring(run.lastAppliedTimeRatio or "--")
@@ -1977,8 +1995,8 @@ local function tickActiveRun(playerObj)
         return
     end
 
-    if tonumber(run.profile and run.profile.timeMultiplier) and tonumber(run.profile.timeMultiplier) > 0 then
-        setTimeMultiplier(run.profile.timeMultiplier)
+    if tonumber(run.profileTimeMultiplier) and tonumber(run.profileTimeMultiplier) > 0 then
+        setTimeMultiplier(run.profileTimeMultiplier)
     end
 
     run.elapsedHours = getRunElapsedHours(run)
@@ -2151,6 +2169,33 @@ end
 
 function Runner.getProfiles()
     return ScenarioCatalog.getProfiles and ScenarioCatalog.getProfiles() or {}
+end
+
+function Runner.getTimeMultiplierOptions()
+    local options = {}
+    for _, option in ipairs(TIME_MULTIPLIER_PRESETS) do
+        options[#options + 1] = {
+            id = option.id,
+            label = option.label,
+            multiplier = option.multiplier,
+        }
+    end
+    return options
+end
+
+function Runner.setTimeMultiplier(multiplier)
+    selectedTimeMultiplier = normalizeTimeMultiplier(multiplier)
+    if activeRun then
+        activeRun.profileTimeMultiplier = selectedTimeMultiplier
+        setLastStatusFromRun(activeRun)
+    elseif lastStatus then
+        lastStatus.profileTimeMultiplier = selectedTimeMultiplier
+    end
+    return selectedTimeMultiplier
+end
+
+function Runner.getTimeMultiplier()
+    return normalizeTimeMultiplier(selectedTimeMultiplier)
 end
 
 if Events and Events.OnPlayerUpdate and type(Events.OnPlayerUpdate.Add) == "function" then
