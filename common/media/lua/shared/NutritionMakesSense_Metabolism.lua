@@ -67,8 +67,6 @@ Metabolism.SLEEP_FUEL_BURN_PER_HOUR = 35
 Metabolism.SLEEP_VISIBLE_HUNGER_PER_HOUR = 0.004
 Metabolism.SLEEP_PROTEIN_BURN_PER_HOUR = 0.8
 Metabolism.WAKE_PROTEIN_BURN_PER_HOUR = 2.0
-Metabolism.FUEL_ACUTE_ENDURANCE_THRESHOLD = 450
-Metabolism.FUEL_ACUTE_ENDURANCE_MAX_PENALTY = 0.15
 
 Metabolism.SATIETY_BUFFER_MAX = 1.5
 Metabolism.SATIETY_BUFFER_DECAY_PER_HOUR = 0.08
@@ -88,6 +86,14 @@ Metabolism.VISIBLE_HUNGER_CAP = 0.699
 Metabolism.SLEEP_HUNGER_FACTOR = 0.33
 Metabolism.HUNGER_MET_FACTOR_PER_MET = 0.05
 Metabolism.HUNGER_MET_FACTOR_MAX = 1.30
+Metabolism.TRAIT_SATIETY_DECAY_MULTIPLIER_HEARTY_APPETITE = 1.20
+Metabolism.TRAIT_SATIETY_DECAY_MULTIPLIER_LIGHT_EATER = 0.85
+Metabolism.TRAIT_BURN_MULTIPLIER_SLOW_METABOLISM = 0.96
+Metabolism.TRAIT_BURN_MULTIPLIER_FAST_METABOLISM = 1.04
+Metabolism.TRAIT_WEIGHT_GAIN_MULTIPLIER_SLOW_METABOLISM = 1.12
+Metabolism.TRAIT_WEIGHT_GAIN_MULTIPLIER_FAST_METABOLISM = 0.90
+Metabolism.TRAIT_WEIGHT_LOSS_MULTIPLIER_SLOW_METABOLISM = 0.90
+Metabolism.TRAIT_WEIGHT_LOSS_MULTIPLIER_FAST_METABOLISM = 1.12
 
 local function clamp(value, minValue, maxValue)
     local numeric = tonumber(value) or minValue
@@ -240,6 +246,16 @@ function Metabolism.normalizeWorkload(workload)
     }
 end
 
+function Metabolism.normalizeTraitEffects(traitEffects)
+    local normalized = type(traitEffects) == "table" and traitEffects or {}
+    return {
+        satietyDecayMultiplier = math.max(0, tonumber(normalized.satietyDecayMultiplier) or 1.0),
+        burnMultiplier = math.max(0, tonumber(normalized.burnMultiplier) or 1.0),
+        weightGainMultiplier = math.max(0, tonumber(normalized.weightGainMultiplier) or 1.0),
+        weightLossMultiplier = math.max(0, tonumber(normalized.weightLossMultiplier) or 1.0),
+    }
+end
+
 function Metabolism.copyState(state)
     return Metabolism.ensureState(shallowCopy(state or {}))
 end
@@ -268,13 +284,14 @@ function Metabolism.getWeightFuelBurnFactor(weightKg)
     return clamp(factor, Metabolism.WEIGHT_BURN_FACTOR_MIN, Metabolism.WEIGHT_BURN_FACTOR_MAX)
 end
 
-function Metabolism.getFuelBurnPerHourFromMet(workload, weightKg)
+function Metabolism.getFuelBurnPerHourFromMet(workload, weightKg, traitEffects)
     local summary = Metabolism.normalizeWorkload(workload)
     local weightFactor = Metabolism.getWeightFuelBurnFactor(weightKg)
+    local traitSummary = Metabolism.normalizeTraitEffects(traitEffects)
     if summary.sleepObserved then
-        return Metabolism.SLEEP_FUEL_BURN_PER_HOUR * weightFactor
+        return Metabolism.SLEEP_FUEL_BURN_PER_HOUR * weightFactor * traitSummary.burnMultiplier
     end
-    return (75 + (48 * math.max(0, summary.averageMet - Metabolism.MET_REST))) * weightFactor
+    return (75 + (48 * math.max(0, summary.averageMet - Metabolism.MET_REST))) * weightFactor * traitSummary.burnMultiplier
 end
 
 function Metabolism.getVisibleHungerPerHourFromMet(workload)
@@ -341,15 +358,6 @@ function Metabolism.getMacroDeficiencyProgress(macroName, reserve)
         return 0
     end
     return Metabolism.getProteinDeficiencyProgress(reserve)
-end
-
-function Metabolism.getFuelRecoveryScale(fuel)
-    local value = clamp(fuel, Metabolism.FUEL_MIN, Metabolism.FUEL_MAX)
-    if value >= Metabolism.FUEL_ACUTE_ENDURANCE_THRESHOLD then
-        return 1.0
-    end
-    local progress = 1.0 - (value / Metabolism.FUEL_ACUTE_ENDURANCE_THRESHOLD)
-    return lerp(1.0, 1.0 - Metabolism.FUEL_ACUTE_ENDURANCE_MAX_PENALTY, progress)
 end
 
 function Metabolism.getProteinHealingMultiplier(proteins)
@@ -529,7 +537,7 @@ function Metabolism.getStarvationDecelFactor(hunger)
     return math.max(Metabolism.STARVATION_DECEL_FLOOR, ratio * ratio)
 end
 
-function Metabolism.getPassiveVisibleHungerRatePerHour(state, workload)
+function Metabolism.getPassiveVisibleHungerRatePerHour(state, workload, traitEffects)
     state = Metabolism.ensureState(state)
     local summary = Metabolism.normalizeWorkload(workload)
     local hunger = clamp(state.visibleHunger or 0, Metabolism.VISIBLE_HUNGER_MIN, Metabolism.VISIBLE_HUNGER_MAX)
@@ -753,7 +761,6 @@ function Metabolism.ensureState(state)
     state.lastCarbEnduranceMultiplier = nil
     state.lastFatWeightLossMultiplier = nil
     state.lastProteinHealingMultiplier = tonumber(state.lastProteinHealingMultiplier) or Metabolism.getProteinHealingMultiplier(state.proteins)
-    state.lastAcuteFuelRecoveryScale = tonumber(state.lastAcuteFuelRecoveryScale) or Metabolism.getFuelRecoveryScale(state.fuel)
     state.satietyBuffer = clamp(state.satietyBuffer or 0, 0, Metabolism.SATIETY_BUFFER_MAX)
     state.lastSatietyQuality = clamp(tonumber(state.lastSatietyQuality) or 0, 0, 1)
     state.lastSatietyContribution = math.max(0, tonumber(state.lastSatietyContribution) or 0)
@@ -846,6 +853,7 @@ function Metabolism.advanceState(state, elapsedHours, workload, options)
 
     local totalHours = math.max(0, tonumber(elapsedHours) or 0)
     local normalizedWorkload = Metabolism.normalizeWorkload(workload)
+    local traitEffects = Metabolism.normalizeTraitEffects(options and options.traitEffects)
     local report = {
         elapsedHours = totalHours,
         averageMet = normalizedWorkload.averageMet,
@@ -887,7 +895,10 @@ function Metabolism.advanceState(state, elapsedHours, workload, options)
         peakProteinDeficiency = Metabolism.getProteinDeficiencyProgress(state.proteins),
         startProteinHealingMultiplier = Metabolism.getProteinHealingMultiplier(state.proteins),
         endProteinHealingMultiplier = Metabolism.getProteinHealingMultiplier(state.proteins),
-        peakAcuteFuelRecoveryScale = Metabolism.getFuelRecoveryScale(state.fuel),
+        traitSatietyDecayMultiplier = traitEffects.satietyDecayMultiplier,
+        traitBurnMultiplier = traitEffects.burnMultiplier,
+        traitWeightGainMultiplier = traitEffects.weightGainMultiplier,
+        traitWeightLossMultiplier = traitEffects.weightLossMultiplier,
         startSatietyBuffer = state.satietyBuffer,
         endSatietyBuffer = state.satietyBuffer,
         satietyReturnFactor = Metabolism.getSatietyReturnFactor(state.satietyBuffer),
@@ -920,13 +931,12 @@ function Metabolism.advanceState(state, elapsedHours, workload, options)
         state.lastWeightTrait = report.endWeightTrait
         state.lastZone = report.endZone
         state.lastSatietyReturnFactor = report.satietyReturnFactor
-        state.lastAcuteFuelRecoveryScale = report.peakAcuteFuelRecoveryScale
         return report
     end
 
     local slices = math.max(1, math.ceil(totalHours / 0.25))
     local sliceHours = totalHours / slices
-    local burnPerHour = Metabolism.getFuelBurnPerHourFromMet(normalizedWorkload, state.weightKg)
+    local burnPerHour = Metabolism.getFuelBurnPerHourFromMet(normalizedWorkload, state.weightKg, traitEffects)
     local proteinBurnPerHour = Metabolism.getProteinBurnPerHour(normalizedWorkload)
     local hasPendingBurn = normalizedWorkload.pendingBurnKcal ~= nil and normalizedWorkload.pendingBurnKcal > 0
     if hasPendingBurn and totalHours > 0 then
@@ -938,7 +948,7 @@ function Metabolism.advanceState(state, elapsedHours, workload, options)
     local satietyReturnFactorAccum = 0
 
     for _ = 1, slices do
-        local hungerRate = Metabolism.getPassiveVisibleHungerRatePerHour(state, normalizedWorkload)
+        local hungerRate = Metabolism.getPassiveVisibleHungerRatePerHour(state, normalizedWorkload, traitEffects)
         local hungerGain = hungerRate.ratePerHour * sliceHours
         satietyReturnFactorAccum = satietyReturnFactorAccum + (hungerRate.satietyBandFactor * sliceHours)
         report.baseHungerGain = report.baseHungerGain + hungerGain
@@ -959,7 +969,6 @@ function Metabolism.advanceState(state, elapsedHours, workload, options)
 
         local proteinDeficiency = Metabolism.getProteinDeficiencyProgress(state.proteins)
         report.peakProteinDeficiency = math.max(report.peakProteinDeficiency, proteinDeficiency)
-        report.peakAcuteFuelRecoveryScale = math.min(report.peakAcuteFuelRecoveryScale, Metabolism.getFuelRecoveryScale(state.fuel))
 
         report.peakExertionMultiplier = math.max(report.peakExertionMultiplier, Metabolism.getExertionPenaltyMultiplier(state.deprivation))
 
@@ -975,15 +984,21 @@ function Metabolism.advanceState(state, elapsedHours, workload, options)
         report.peakDeprivation = math.max(report.peakDeprivation or 0, state.deprivation)
 
         local weightBefore = state.weightKg
+        local weightRatePerHour = Metabolism.WEIGHT_MAX_RATE_KG_PER_HOUR * state.weightController
+        if weightRatePerHour > 0 then
+            weightRatePerHour = weightRatePerHour * traitEffects.weightGainMultiplier
+        elseif weightRatePerHour < 0 then
+            weightRatePerHour = weightRatePerHour * traitEffects.weightLossMultiplier
+        end
         state.weightKg = clamp(
-            state.weightKg + (Metabolism.WEIGHT_MAX_RATE_KG_PER_HOUR * state.weightController * sliceHours),
+            state.weightKg + (weightRatePerHour * sliceHours),
             Metabolism.WEIGHT_MIN_KG,
             Metabolism.WEIGHT_MAX_KG
         )
         report.weightDeltaKg = report.weightDeltaKg + (state.weightKg - weightBefore)
 
         state.satietyBuffer = clamp(
-            state.satietyBuffer - (Metabolism.SATIETY_BUFFER_DECAY_PER_HOUR * sliceHours),
+            state.satietyBuffer - (Metabolism.SATIETY_BUFFER_DECAY_PER_HOUR * traitEffects.satietyDecayMultiplier * sliceHours),
             0,
             Metabolism.SATIETY_BUFFER_MAX
         )
@@ -1023,7 +1038,6 @@ function Metabolism.advanceState(state, elapsedHours, workload, options)
     state.lastExertionMultiplier = report.peakExertionMultiplier
     state.lastProteinDeficiency = report.peakProteinDeficiency
     state.lastProteinHealingMultiplier = report.endProteinHealingMultiplier
-    state.lastAcuteFuelRecoveryScale = report.peakAcuteFuelRecoveryScale
     state.lastWeightTrait = report.endWeightTrait
     state.lastZone = report.endZone
     state.lastTraceReason = report.reason

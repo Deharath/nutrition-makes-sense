@@ -309,6 +309,16 @@ local function getCharacterStatValue(stats, enumKey, getterName)
     return nil
 end
 
+local function hasTrait(character, traitName, traitEnum)
+    if not character then
+        return false
+    end
+    if traitEnum and _G.CharacterTrait and CharacterTrait[traitEnum] ~= nil then
+        return safeCall(character, "hasTrait", CharacterTrait[traitEnum]) == true
+    end
+    return safeCall(character, "hasTrait", traitName) == true
+end
+
 function CoreUtils.safeCall(target, methodName, ...)
     return safeCall(target, methodName, ...)
 end
@@ -387,6 +397,10 @@ end
 
 function CoreUtils.getCharacterStatValue(stats, enumKey, getterName)
     return getCharacterStatValue(stats, enumKey, getterName)
+end
+
+function CoreUtils.hasTrait(character, traitName, traitEnum)
+    return hasTrait(character, traitName, traitEnum)
 end
 
 return CoreUtils

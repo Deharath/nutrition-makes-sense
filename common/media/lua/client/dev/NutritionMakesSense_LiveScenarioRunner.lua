@@ -24,6 +24,16 @@ local lastReportPath = nil
 local selectedTriggerMode = "strict_hunger_signal"
 local selectedAvailabilityMode = "eat_anytime"
 local selectedStartWeightKg = 80
+local SCENARIO_TRAITS = {
+    { id = "hearty_appetite", label = "Hearty Appetite", traitName = "Hearty Appetite", traitEnum = "HEARTY_APPETITE" },
+    { id = "light_eater", label = "Light Eater", traitName = "Light Eater", traitEnum = "LIGHT_EATER" },
+    { id = "slow_metabolism", label = "Slow Metabolism", traitName = "Slow Metabolism", traitEnum = "WEIGHT_GAIN" },
+    { id = "fast_metabolism", label = "Fast Metabolism", traitName = "Fast Metabolism", traitEnum = "WEIGHT_LOSS" },
+}
+local selectedTraitFlags = {}
+for _, trait in ipairs(SCENARIO_TRAITS) do
+    selectedTraitFlags[trait.id] = false
+end
 
 local TRIGGER_MODE_CLOCK = "clock"
 local TRIGGER_MODE_HUNGER_SIGNAL = "hunger_signal"
@@ -44,6 +54,7 @@ local AVAILABILITY_MODES = {
 }
 local recordRow
 local addFinding
+local snapshotPlayer
 
 local SEVERITY_PASS = "pass"
 local SEVERITY_WARN = "warn"
@@ -90,6 +101,7 @@ local REPORT_HEADER = table.concat({
     "work_met_peak",
     "work_source",
     "eat_availability",
+    "scenario_traits",
     "eat_block_reason",
     "meal_trigger",
     "meal",
@@ -123,6 +135,7 @@ end
 
 local safeCall = CoreUtils.safeCall
 local safeInvoke = CoreUtils.safeInvoke
+local hasTrait = CoreUtils.hasTrait
 local copyTable = RunnerUtils.copyTable
 local clamp = RunnerUtils.clamp
 local nearlyEqual = RunnerUtils.nearlyEqual
@@ -148,6 +161,71 @@ local inventoryContainsItem = RunnerUtils.inventoryContainsItem
 local removeInventoryItem = RunnerUtils.removeInventoryItem
 local getFoodEatenMoodle = RunnerUtils.getFoodEatenMoodle
 local getHungryMoodleLevel = RunnerUtils.getHungryMoodleLevel
+
+local function cloneSelectedTraitFlags(source)
+    local flags = {}
+    for _, trait in ipairs(SCENARIO_TRAITS) do
+        flags[trait.id] = type(source) == "table" and source[trait.id] == true or false
+    end
+    return flags
+end
+
+local function describeSelectedTraits(flags)
+    local labels = {}
+    for _, trait in ipairs(SCENARIO_TRAITS) do
+        if type(flags) == "table" and flags[trait.id] == true then
+            labels[#labels + 1] = trait.label
+        end
+    end
+    if #labels == 0 then
+        return "None"
+    end
+    return table.concat(labels, ", ")
+end
+
+local function snapshotScenarioTraits(playerObj)
+    local flags = {}
+    for _, trait in ipairs(SCENARIO_TRAITS) do
+        flags[trait.id] = hasTrait(playerObj, trait.traitName, trait.traitEnum)
+    end
+    return flags
+end
+
+local function setScenarioTraitEnabled(playerObj, traitDef, enabled)
+    if not playerObj or type(traitDef) ~= "table" then
+        return false
+    end
+    local traits = safeCall(playerObj, "getCharacterTraits")
+    if not traits then
+        return false
+    end
+
+    local alreadyEnabled = hasTrait(playerObj, traitDef.traitName, traitDef.traitEnum)
+    if alreadyEnabled == (enabled == true) then
+        return true
+    end
+
+    local traitKey = (_G.CharacterTrait and traitDef.traitEnum and CharacterTrait[traitDef.traitEnum]) or traitDef.traitName
+    local invoked
+    if enabled == true then
+        invoked = safeInvoke(traits, "add", traitKey)
+    else
+        invoked = safeInvoke(traits, "remove", traitKey)
+    end
+    if not invoked then
+        return false
+    end
+    return hasTrait(playerObj, traitDef.traitName, traitDef.traitEnum) == (enabled == true)
+end
+
+local function applyScenarioTraits(playerObj, flags)
+    for _, trait in ipairs(SCENARIO_TRAITS) do
+        if not setScenarioTraitEnabled(playerObj, trait, type(flags) == "table" and flags[trait.id] == true) then
+            return false, trait.label
+        end
+    end
+    return true, nil
+end
 
 local function normalizeTriggerMode(mode)
     if tostring(mode) == TRIGGER_MODE_STRICT_HUNGER_SIGNAL then
@@ -281,6 +359,13 @@ local function isHungrySignalReady(run, thresholdBand)
     return hungerBand == "peckish" or hungerBand == "hungry" or hungerBand == "starving", nil
 end
 
+local function getPendingCueReason(triggerMode, hungryMoodle)
+    if normalizeTriggerMode(triggerMode) == TRIGGER_MODE_STRICT_HUNGER_SIGNAL then
+        return hungryMoodle and ("waiting_hunger_moodle_" .. tostring(hungryMoodle)) or "waiting_hunger_signal"
+    end
+    return hungryMoodle and ("waiting_hunger_moodle_" .. tostring(hungryMoodle)) or "waiting_hunger_signal"
+end
+
 local function shouldStartMeal(run, mealIndex)
     local meal, earliestHour, deadlineHour = getNextMealWindow(run)
     local elapsedHours = tonumber(run and run.elapsedHours) or 0
@@ -306,13 +391,13 @@ local function shouldStartMeal(run, mealIndex)
                 { meal = meal and meal.label or "--", trigger = "strict_hunger_signal" })
             run.failureReason = "strict hunger signal missed deadline"
         end
-        return false, hungryMoodle and ("waiting_hunger_moodle_" .. tostring(hungryMoodle)) or "waiting_hunger_signal", deadlineHour
+        return false, getPendingCueReason(triggerMode, hungryMoodle), deadlineHour
     end
     if deadlineHour ~= nil and elapsedHours >= deadlineHour then
         return true, "deadline", deadlineHour
     end
 
-    return false, hungryMoodle and ("waiting_hunger_moodle_" .. tostring(hungryMoodle)) or "waiting_hunger_signal", deadlineHour
+    return false, getPendingCueReason(triggerMode, hungryMoodle), deadlineHour
 end
 
 local function getSequenceItem(run, itemIndex)
@@ -358,7 +443,7 @@ local function shouldStartSequenceItem(run)
     if signalReady then
         return true, "hunger_signal"
     end
-    return false, hungryMoodle and ("waiting_hunger_moodle_" .. tostring(hungryMoodle)) or "waiting_hunger_signal"
+    return false, getPendingCueReason(run and run.triggerMode, hungryMoodle)
 end
 
 local function shouldStartSignalMeal(run)
@@ -375,7 +460,7 @@ local function shouldStartSignalMeal(run)
     if signalReady then
         return true, "hunger_signal"
     end
-    return false, hungryMoodle and ("waiting_hunger_moodle_" .. tostring(hungryMoodle)) or "waiting_hunger_signal"
+    return false, getPendingCueReason(run and run.triggerMode, hungryMoodle)
 end
 
 local function getThermoSnapshot(playerObj)
@@ -387,7 +472,7 @@ local function getThermoSnapshot(playerObj)
     }
 end
 
-local function snapshotPlayer(playerObj)
+snapshotPlayer = function(playerObj)
     local stats = getPlayerStats(playerObj)
     local nutrition = getPlayerNutrition(playerObj)
     local bodyDamage = getPlayerBodyDamage(playerObj)
@@ -411,6 +496,7 @@ local function snapshotPlayer(playerObj)
         healthFromFoodTimer = tonumber(bodyDamage and safeCall(bodyDamage, "getHealthFromFoodTimer")) or 0,
         timedActionInstant = safeCall(playerObj, "isTimedActionInstantCheat") == true,
         foodEatenMoodle = getFoodEatenMoodle(playerObj),
+        scenarioTraits = snapshotScenarioTraits(playerObj),
         thermoTarget = thermo.target,
         thermoReal = thermo.real,
         timeMultiplier = getTimeMultiplier(),
@@ -672,6 +758,7 @@ recordRow = function(run, severity, code, message, extra)
     local snapshot = run.player and snapshotPlayer(run.player) or {}
     local state = snapshot and snapshot.state or {}
     local workload = snapshot and snapshot.workload or {}
+    local traitSummary = describeSelectedTraits(run and run.selectedTraits)
     local elapsedHours = getRunElapsedHours(run)
     local phase = run.currentPhase
     local mealRun = run.currentMeal
@@ -694,6 +781,7 @@ recordRow = function(run, severity, code, message, extra)
         tostring(state and state.lastMetPeak or workload and workload.peakMet or ""),
         tostring(state and state.lastMetSource or workload and workload.source or ""),
         tostring(normalizeAvailabilityMode(run and run.availabilityMode)),
+        tostring(traitSummary or ""),
         tostring((run and run.pendingBlockedReason) or ""),
         tostring((mealRun and mealRun.triggerReason) or (run.lastMealTriggerReason) or ""),
         describeMeal(mealRun and mealRun.meal or run.lastMeal),
@@ -725,16 +813,16 @@ recordRow = function(run, severity, code, message, extra)
             row[10] = tostring(extra.targetMet)
         end
         if extra.blockReason then
-            row[17] = tostring(extra.blockReason)
+            row[19] = tostring(extra.blockReason)
         end
         if extra.trigger then
-            row[18] = tostring(extra.trigger)
+            row[20] = tostring(extra.trigger)
         end
         if extra.meal then
-            row[19] = tostring(extra.meal)
+            row[21] = tostring(extra.meal)
         end
         if extra.item then
-            row[20] = tostring(extra.item)
+            row[22] = tostring(extra.item)
         end
     end
 
@@ -852,6 +940,8 @@ local function setLastStatusFromRun(run)
         currentMealLabel = run.currentMeal and describeMeal(run.currentMeal.meal) or nil,
         currentItemLabel = run.currentMeal and run.currentMeal.currentItem and run.currentMeal.currentItem.label or nil,
         startWeightKg = tonumber(run.startWeightKg),
+        traitSummary = describeSelectedTraits(run.selectedTraits),
+        selectedTraits = cloneSelectedTraitFlags(run.selectedTraits),
         mealsCompleted = mealsCompleted,
         mealsTotal = mealsTotal,
         elapsedHours = elapsedHours,
@@ -888,6 +978,7 @@ local function setLastStatusFromRun(run)
             string.format("Phase %s  Target MET %s", tostring(phaseLabel or "--"), targetMet and string.format("%.2f", targetMet) or "--"),
             string.format("Next Meal %s  Elapsed %s", tostring(nextMeal or "--"), string.format("%.2fh", tonumber(elapsedHours or 0))),
             string.format("Start Weight %s", run.startWeightKg and string.format("%.1f kg", tonumber(run.startWeightKg) or 0) or "--"),
+            string.format("Traits %s", describeSelectedTraits(run.selectedTraits)),
             string.format("Availability %s", normalizeAvailabilityMode(run.availabilityMode) == AVAILABILITY_MODE_INTERRUPT_WORK_FOR_FOOD and "Interrupt work for food" or "Eat anytime"),
             string.format("Report %s", tostring(run.reportPath or lastReportPath or "--")),
         },
@@ -1576,6 +1667,7 @@ local function captureSnapshot(run)
     run.snapshot = {
         state = Runtime.buildStateSnapshot(run.player, "live-runner-snapshot"),
         visible = snapshotPlayer(run.player),
+        traits = snapshotScenarioTraits(run.player),
         timeMultiplier = getTimeMultiplier(),
         restoreRequestedMultiplier = tonumber(getTimeMultiplier()) or 1,
         restoreGameSpeedMode = getGameSpeedMode(),
@@ -1686,6 +1778,11 @@ local function restoreSnapshot(run)
         end
         Runtime.importStateSnapshot(run.player, restorePayload or run.snapshot.state, "live-runner-restore")
     end
+    local restoreTraitsOk, restoreTraitLabel = applyScenarioTraits(run.player, run.snapshot.traits)
+    if not restoreTraitsOk then
+        addFinding(run, SEVERITY_FAIL, "restore_traits_failed",
+            string.format("failed to restore scenario trait %s", tostring(restoreTraitLabel or "?")))
+    end
     local stats = getPlayerStats(run.player)
     if run.snapshot.visible and run.snapshot.visible.thirst ~= nil then
         setCharacterStat(stats, "THIRST", "setThirst", run.snapshot.visible.thirst)
@@ -1740,6 +1837,11 @@ local function restoreSnapshot(run)
     restoreOk = restoreOk and nearlyEqual(restored.state and restored.state.proteins, beforeState.proteins, RESTORE_TOLERANCE.proteins)
     restoreOk = restoreOk and nearlyEqual(restored.state and restored.state.weightKg, beforeState.weightKg, RESTORE_TOLERANCE.weightKg)
     restoreOk = restoreOk and nearlyEqual(restored.state and restored.state.weightController, beforeState.weightController, RESTORE_TOLERANCE.weightController)
+    local restoredTraits = restored.scenarioTraits or {}
+    local beforeTraits = run.snapshot.traits or {}
+    for _, trait in ipairs(SCENARIO_TRAITS) do
+        restoreOk = restoreOk and (restoredTraits[trait.id] == beforeTraits[trait.id])
+    end
 
     if not restoreOk then
         addFinding(run, SEVERITY_FAIL, "restore_state_mismatch", "restored player state does not match pre-run snapshot")
@@ -1808,6 +1910,7 @@ local function startRun(profile)
         elapsedHours = 0,
         triggerMode = getEffectiveTriggerMode(profile, selectedTriggerMode),
         availabilityMode = normalizeAvailabilityMode(selectedAvailabilityMode),
+        selectedTraits = cloneSelectedTraitFlags(selectedTraitFlags),
     }
 
     recordRow(run, SEVERITY_PASS, "runner_created", "created live scripted scenario run")
@@ -1824,6 +1927,16 @@ local function startRun(profile)
         restoreSnapshot(run)
         return nil
     end
+
+    local appliedTraitsOk, failedTraitLabel = applyScenarioTraits(run.player, run.selectedTraits)
+    if not appliedTraitsOk then
+        addFinding(run, SEVERITY_FAIL, "scenario_traits_apply_failed",
+            string.format("failed to apply scenario trait %s", tostring(failedTraitLabel or "?")))
+        restoreSnapshot(run)
+        return nil
+    end
+    recordRow(run, SEVERITY_PASS, "scenario_traits_applied",
+        string.format("applied scenario traits: %s", describeSelectedTraits(run.selectedTraits)))
 
     if not setTimeMultiplier(profile.timeMultiplier) or not validateRequestedTimeAcceleration(run, profile.timeMultiplier) then
         addFinding(run, SEVERITY_FAIL, "time_accel_not_applied",
@@ -1985,6 +2098,40 @@ function Runner.abort(reason)
     end
     activeRun.abortRequested = tostring(reason or "aborted")
     return true
+end
+
+function Runner.getTraitOptions()
+    local traits = {}
+    for _, trait in ipairs(SCENARIO_TRAITS) do
+        traits[#traits + 1] = {
+            id = trait.id,
+            label = trait.label,
+            selected = selectedTraitFlags[trait.id] == true,
+        }
+    end
+    return traits
+end
+
+function Runner.setTraitSelected(traitId, enabled)
+    local key = tostring(traitId or "")
+    for _, trait in ipairs(SCENARIO_TRAITS) do
+        if trait.id == key then
+            selectedTraitFlags[trait.id] = enabled == true
+            if activeRun then
+                activeRun.selectedTraits = cloneSelectedTraitFlags(selectedTraitFlags)
+                setLastStatusFromRun(activeRun)
+            elseif lastStatus then
+                lastStatus.selectedTraits = cloneSelectedTraitFlags(selectedTraitFlags)
+                lastStatus.traitSummary = describeSelectedTraits(selectedTraitFlags)
+            end
+            return selectedTraitFlags[trait.id]
+        end
+    end
+    return false
+end
+
+function Runner.isTraitSelected(traitId)
+    return selectedTraitFlags[tostring(traitId or "")] == true
 end
 
 function Runner.isRunning()

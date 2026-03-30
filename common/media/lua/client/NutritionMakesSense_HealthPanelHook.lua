@@ -58,35 +58,7 @@ local function collectLines(state)
     end
     proteinDef = tonumber(proteinDef) or 0
 
-    local zone = tostring(state.lastZone or (Metabolism.getFuelZone and Metabolism.getFuelZone(fuel)) or "")
-
-    local acuteRecoveryScale = tonumber(state.lastAcuteFuelRecoveryScale)
-    if acuteRecoveryScale == nil and Metabolism.getFuelRecoveryScale then
-        acuteRecoveryScale = Metabolism.getFuelRecoveryScale(fuel)
-    end
-    acuteRecoveryScale = tonumber(acuteRecoveryScale) or 1.0
-    local acuteRecoveryPenalty = math.max(0, (1.0 - acuteRecoveryScale) * 100)
-    local hasFuelSection = false
-    if zone == "Penalty" or zone == "Low" or acuteRecoveryPenalty >= 1 then
-        hasFuelSection = true
-        lines[#lines + 1] = { text = UIHelpers.tr("UI_NMS_Section_Fuel", "Energy Reserves"), color = C_HEADER }
-        if zone == "Penalty" then
-            lines[#lines + 1] = { text = UIHelpers.tr("UI_NMS_Fuel_State_Depleted", "Depleted"), color = C_BAD }
-        elseif zone == "Low" then
-            lines[#lines + 1] = { text = UIHelpers.tr("UI_NMS_Fuel_State_Low", "Low"), color = C_WARN }
-        end
-    end
-    if acuteRecoveryPenalty >= 1 then
-        lines[#lines + 1] = {
-            text = UIHelpers.tr("UI_NMS_Fuel_RecoveryPenalty", "Stamina Recovery") .. " -" .. UIHelpers.formatPercent(acuteRecoveryPenalty),
-            color = C_DIM,
-        }
-    end
-
     if deprivation >= (Metabolism.DEPRIVATION_PENALTY_ONSET or 0.10) then
-        if hasFuelSection then
-            lines[#lines + 1] = { text = "", color = C_DIM }
-        end
         local progress = Metabolism.getDeprivationPenaltyProgress and Metabolism.getDeprivationPenaltyProgress(deprivation) or 0
         local severityText, severityColor = getDeprivationSeverity(progress)
         local directionText = getDeprivationDirection(fuel, deprivation)

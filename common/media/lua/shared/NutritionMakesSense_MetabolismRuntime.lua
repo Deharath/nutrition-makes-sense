@@ -29,6 +29,7 @@ local function log(msg)
 end
 
 local safeCall = CoreUtils.safeCall
+local hasTrait = CoreUtils.hasTrait
 
 local function clamp(value, minValue, maxValue)
     return Metabolism.clamp(value, minValue, maxValue)
@@ -87,6 +88,32 @@ local function normalizeVisibleHungerInput(value)
     end
 
     return clamp(numeric, Metabolism.VISIBLE_HUNGER_MIN, Metabolism.VISIBLE_HUNGER_MAX)
+end
+
+local function resolveTraitEffects(playerObj)
+    local effects = Metabolism.normalizeTraitEffects(nil)
+    if not playerObj then
+        return effects
+    end
+
+    if hasTrait(playerObj, "Hearty Appetite", "HEARTY_APPETITE") then
+        effects.satietyDecayMultiplier = effects.satietyDecayMultiplier * Metabolism.TRAIT_SATIETY_DECAY_MULTIPLIER_HEARTY_APPETITE
+    end
+    if hasTrait(playerObj, "Light Eater", "LIGHT_EATER") then
+        effects.satietyDecayMultiplier = effects.satietyDecayMultiplier * Metabolism.TRAIT_SATIETY_DECAY_MULTIPLIER_LIGHT_EATER
+    end
+    if hasTrait(playerObj, "Slow Metabolism", "WEIGHT_GAIN") then
+        effects.burnMultiplier = effects.burnMultiplier * Metabolism.TRAIT_BURN_MULTIPLIER_SLOW_METABOLISM
+        effects.weightGainMultiplier = effects.weightGainMultiplier * Metabolism.TRAIT_WEIGHT_GAIN_MULTIPLIER_SLOW_METABOLISM
+        effects.weightLossMultiplier = effects.weightLossMultiplier * Metabolism.TRAIT_WEIGHT_LOSS_MULTIPLIER_SLOW_METABOLISM
+    end
+    if hasTrait(playerObj, "Fast Metabolism", "WEIGHT_LOSS") then
+        effects.burnMultiplier = effects.burnMultiplier * Metabolism.TRAIT_BURN_MULTIPLIER_FAST_METABOLISM
+        effects.weightGainMultiplier = effects.weightGainMultiplier * Metabolism.TRAIT_WEIGHT_GAIN_MULTIPLIER_FAST_METABOLISM
+        effects.weightLossMultiplier = effects.weightLossMultiplier * Metabolism.TRAIT_WEIGHT_LOSS_MULTIPLIER_FAST_METABOLISM
+    end
+
+    return effects
 end
 
 local getPlayerNutrition = CoreUtils.getPlayerNutrition
@@ -338,7 +365,6 @@ function Runtime.ensureStateForPlayer(playerObj)
         state.lastImmediateFillVanilla = 0
         state.lastImmediateFillCorrection = 0
         state.lastProteinHealingMultiplier = Metabolism.getProteinHealingMultiplier(state.proteins)
-        state.lastAcuteFuelRecoveryScale = Metabolism.getFuelRecoveryScale(state.fuel)
         log(string.format(
             "[STATE_INIT] player=%s fuel=%.1f proteins=%.1f weight=%.3f zone=%s",
             tostring(getPlayerLabel(playerObj)),
@@ -745,7 +771,6 @@ local function refreshDerivedState(state, reason)
     state.lastWeightTrait = Metabolism.getWeightTrait(state.weightKg)
     state.lastProteinDeficiency = Metabolism.getProteinDeficiencyProgress(state.proteins)
     state.lastProteinHealingMultiplier = Metabolism.getProteinHealingMultiplier(state.proteins)
-    state.lastAcuteFuelRecoveryScale = Metabolism.getFuelRecoveryScale(state.fuel)
     state.lastTraceReason = tostring(reason or state.lastTraceReason or "debug-set")
     return state
 end
@@ -846,6 +871,7 @@ Runtime.getPlayerStats = getPlayerStats
 Runtime.getCharacterStatValue = getCharacterStatValue
 Runtime.getVisibleHungerValue = getVisibleHungerValue
 Runtime.normalizeVisibleHungerInput = normalizeVisibleHungerInput
+Runtime.resolveTraitEffects = resolveTraitEffects
 Runtime.getPlayerNutrition = getPlayerNutrition
 Runtime.getPlayerBodyDamage = getPlayerBodyDamage
 Runtime.getWorldHours = getWorldHours

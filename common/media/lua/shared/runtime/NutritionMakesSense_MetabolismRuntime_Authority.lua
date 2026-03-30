@@ -441,7 +441,11 @@ function Runtime.updatePlayer(playerObj, reason)
     state.lastWorldHours = nowHours or state.lastWorldHours
 
     local workload = consumeWorkloadSummary(playerObj)
-    local advanceReport = Metabolism.advanceState(state, elapsedHours, workload, { reason = reason or workload.workTier or "workload" })
+    local traitEffects = Runtime.resolveTraitEffects and Runtime.resolveTraitEffects(playerObj) or nil
+    local advanceReport = Metabolism.advanceState(state, elapsedHours, workload, {
+        reason = reason or workload.workTier or "workload",
+        traitEffects = traitEffects,
+    })
     local stats = getPlayerStats(playerObj)
     if workload.appliedEnduranceDrain == nil then
         removeEndurance(playerObj, stats, advanceReport.extraEnduranceDrain or 0)

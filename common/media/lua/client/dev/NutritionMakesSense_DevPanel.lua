@@ -248,7 +248,6 @@ local function recordSample(snap)
         tostring(snap.fatigue or ""),
         tostring(s.fuel or ""),
         tostring(s.lastZone or ""),
-        tostring(s.lastAcuteFuelRecoveryScale or ""),
         tostring(s.proteins or ""),
         tostring(s.weightKg or ""),
         tostring(s.lastWeightTrait or ""),
@@ -535,8 +534,6 @@ function NMS_DevOverlay:render()
     y = drawLabeledBar(self, y, fuel / fuelMax, zoneColor,
         zone, fmt(fuel, 0) .. " / " .. fmt(fuelMax, 0))
 
-    local fuelRecovery = tonumber(s.lastAcuteFuelRecoveryScale) or 1
-    local recColor = fuelRecovery >= 0.98 and C.good or (fuelRecovery >= 0.92 and C.warn or C.bad)
     local burn = tonumber(s.lastBurnKcal) or 0
     local deposit = tonumber(s.lastDepositKcal) or 0
     y = drawRow(self, y, "Flow",
@@ -547,8 +544,6 @@ function NMS_DevOverlay:render()
             string.format("%s / %s", fmt(projectedFuel, 0), fmt(fuelMax, 0)),
             C.dim)
     end
-    y = drawRow(self, y, "Recovery",
-        string.format("endurance x%s", fmt(fuelRecovery, 2)), recColor)
 
     ---------------------------------------------------------------- Protein
     y = drawSection(self, y, "Protein")

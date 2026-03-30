@@ -2,6 +2,7 @@ NutritionMakesSense = NutritionMakesSense or {}
 NutritionMakesSense.TestPanel = NutritionMakesSense.TestPanel or {}
 
 require "ISUI/ISTextEntryBox"
+require "ISUI/ISTickBox"
 require "dev/NutritionMakesSense_LiveScenarioRunner"
 require "ui/NutritionMakesSense_UIHelpers"
 
@@ -14,11 +15,13 @@ local UIHelpers = NutritionMakesSense.UIHelpers or {}
 local panelInstance = nil
 
 local W = 520
-local H = 700
+local H = 748
 local PAD = 12
 local ROW = 16
 local FONT_S = UIFont.NewSmall
 local FONT_M = UIFont.Medium
+local CONTROL_ROW_H = 22
+local CONTROL_LABEL_OFFSET = 12
 
 local BG    = { r = 0.05, g = 0.06, b = 0.08, a = 0.96 }
 local BORD  = { r = 0.25, g = 0.40, b = 0.48, a = 0.6 }
@@ -153,8 +156,18 @@ function NMS_TestOverlay:createChildren()
     self.closeBtn:initialise()
     self:addChild(self.closeBtn)
 
+    local profileY = 34
+    local modesY = 64
+    local weightY = 94
+    local traitsY = 120
+
+    self.profileLabelY = profileY - CONTROL_LABEL_OFFSET
+    self.intakeLabelY = modesY - CONTROL_LABEL_OFFSET
+    self.availabilityLabelY = modesY - CONTROL_LABEL_OFFSET
+    self.traitsLabelY = traitsY + 2
+
     local profiles = type(LiveRunner.getProfiles) == "function" and LiveRunner.getProfiles() or {}
-    self.profileCombo = ISComboBox:new(PAD, 30, 180, 22, self, NMS_TestOverlay.onScenarioChanged)
+    self.profileCombo = ISComboBox:new(PAD, profileY, 304, CONTROL_ROW_H, self, NMS_TestOverlay.onScenarioChanged)
     self.profileCombo:initialise()
     self:addChild(self.profileCombo)
     for _, profile in ipairs(profiles) do
@@ -165,7 +178,11 @@ function NMS_TestOverlay:createChildren()
     end
 
     local triggerModes = type(LiveRunner.getTriggerModes) == "function" and LiveRunner.getTriggerModes() or {}
-    self.triggerCombo = ISComboBox:new(self.profileCombo:getRight() + 6, 30, 118, 22, self, NMS_TestOverlay.onTriggerModeChanged)
+    self.actionBtn = ISButton:new(W - PAD - 72, profileY, 72, CONTROL_ROW_H, "Run", self, NMS_TestOverlay.onAction)
+    self.actionBtn:initialise()
+    self:addChild(self.actionBtn)
+
+    self.triggerCombo = ISComboBox:new(PAD, modesY, 170, CONTROL_ROW_H, self, NMS_TestOverlay.onTriggerModeChanged)
     self.triggerCombo:initialise()
     self:addChild(self.triggerCombo)
     local currentTriggerMode = type(LiveRunner.getTriggerMode) == "function" and LiveRunner.getTriggerMode() or "strict_hunger_signal"
@@ -180,7 +197,7 @@ function NMS_TestOverlay:createChildren()
     end
 
     local availabilityModes = type(LiveRunner.getAvailabilityModes) == "function" and LiveRunner.getAvailabilityModes() or {}
-    self.availabilityCombo = ISComboBox:new(self.triggerCombo:getRight() + 6, 30, 118, 22, self, NMS_TestOverlay.onAvailabilityModeChanged)
+    self.availabilityCombo = ISComboBox:new(self.triggerCombo:getRight() + 8, modesY, 190, CONTROL_ROW_H, self, NMS_TestOverlay.onAvailabilityModeChanged)
     self.availabilityCombo:initialise()
     self:addChild(self.availabilityCombo)
     local currentAvailabilityMode = type(LiveRunner.getAvailabilityMode) == "function" and LiveRunner.getAvailabilityMode() or "eat_anytime"
@@ -194,13 +211,9 @@ function NMS_TestOverlay:createChildren()
         self.availabilityCombo.selected = 1
     end
 
-    self.actionBtn = ISButton:new(self.availabilityCombo:getRight() + 6, 30, W - PAD - (self.availabilityCombo:getRight() + 6), 22, "Run", self, NMS_TestOverlay.onAction)
-    self.actionBtn:initialise()
-    self:addChild(self.actionBtn)
-
     self.startWeightLabelX = PAD
-    self.startWeightLabelY = 58
-    self.startWeightEntry = ISTextEntryBox:new("", PAD + 78, 56, 52, 18)
+    self.startWeightLabelY = weightY + 1
+    self.startWeightEntry = ISTextEntryBox:new("", PAD + 78, weightY, 52, 18)
     self.startWeightEntry:initialise()
     self.startWeightEntry:instantiate()
     self.startWeightEntry:setOnlyNumbers(true)
@@ -209,9 +222,31 @@ function NMS_TestOverlay:createChildren()
     self:addChild(self.startWeightEntry)
 
     self.startWeightUnitX = self.startWeightEntry:getRight() + 4
-    self.startWeightResetBtn = ISButton:new(self.startWeightEntry:getRight() + 34, 56, 44, 18, "Reset", self, NMS_TestOverlay.onResetStartWeight)
+    self.startWeightResetBtn = ISButton:new(self.startWeightEntry:getRight() + 34, weightY, 44, 18, "Reset", self, NMS_TestOverlay.onResetStartWeight)
     self.startWeightResetBtn:initialise()
     self:addChild(self.startWeightResetBtn)
+
+    self.traitTickBoxes = {}
+    local traitOptions = type(LiveRunner.getTraitOptions) == "function" and LiveRunner.getTraitOptions() or {}
+    local traitX = PAD + 52
+    local traitColumnWidth = 210
+    for index, trait in ipairs(traitOptions) do
+        local column = (index - 1) % 2
+        local row = math.floor((index - 1) / 2)
+        local tick = ISTickBox:new(traitX + (column * traitColumnWidth), traitsY + (row * 22), traitColumnWidth - 8, 18, "", self, NMS_TestOverlay.onTraitChanged, trait.id)
+        tick:initialise()
+        tick:instantiate()
+        tick:addOption(trait.label or trait.id, trait.id)
+        tick:setSelected(1, trait.selected == true)
+        self:addChild(tick)
+        self.traitTickBoxes[#self.traitTickBoxes + 1] = {
+            id = trait.id,
+            box = tick,
+        }
+    end
+
+    self.controlsDividerY = traitsY + 48
+    self.contentStartY = self.controlsDividerY + 10
 
     self:updateControls()
 end
@@ -289,6 +324,12 @@ function NMS_TestOverlay:onAction()
     end
 end
 
+function NMS_TestOverlay:onTraitChanged(_, enabled, traitId)
+    if type(LiveRunner.setTraitSelected) == "function" then
+        LiveRunner.setTraitSelected(traitId, enabled == true)
+    end
+end
+
 function NMS_TestOverlay:updateControls()
     local running = type(LiveRunner.isRunning) == "function" and LiveRunner.isRunning() or false
     local profile = currentProfileData(self)
@@ -307,6 +348,17 @@ function NMS_TestOverlay:updateControls()
     end
     if self.startWeightResetBtn then
         self.startWeightResetBtn.enable = not running
+    end
+    for _, entry in ipairs(self.traitTickBoxes or {}) do
+        if entry.box then
+            entry.box.enable = not running
+            if type(LiveRunner.isTraitSelected) == "function" then
+                local desired = LiveRunner.isTraitSelected(entry.id)
+                if entry.box:isSelected(1) ~= desired then
+                    entry.box:setSelected(1, desired)
+                end
+            end
+        end
     end
     if self.actionBtn then
         self.actionBtn.title = running and "Abort" or "Run"
@@ -334,10 +386,15 @@ function NMS_TestOverlay:render()
     local player = getLocalPlayer()
     local state = getState(player)
 
+    self:drawText("Scenario", PAD, self.profileLabelY, LBL.r, LBL.g, LBL.b, LBL.a, FONT_S)
+    self:drawText("Intake", self.triggerCombo and self.triggerCombo.x or PAD, self.intakeLabelY, LBL.r, LBL.g, LBL.b, LBL.a, FONT_S)
+    self:drawText("Availability", self.availabilityCombo and self.availabilityCombo.x or PAD, self.availabilityLabelY, LBL.r, LBL.g, LBL.b, LBL.a, FONT_S)
     self:drawText("Start Weight", self.startWeightLabelX, self.startWeightLabelY + 1, LBL.r, LBL.g, LBL.b, LBL.a, FONT_S)
     self:drawText("kg", self.startWeightUnitX, self.startWeightLabelY + 1, DIM.r, DIM.g, DIM.b, DIM.a, FONT_S)
+    self:drawText("Traits", PAD, self.traitsLabelY, LBL.r, LBL.g, LBL.b, LBL.a, FONT_S)
+    self:drawRect(PAD, self.controlsDividerY, W - PAD * 2, 1, 0.3, BORD.r, BORD.g, BORD.b)
 
-    local y = 84
+    local y = self.contentStartY or 84
     if s and s.running then
         y = self:renderRunning(s, y)
     elseif s and s.stage and s.stage ~= "" then
@@ -405,6 +462,9 @@ function NMS_TestOverlay:renderRunning(s, startY)
     if s.availabilityMode then
         local availabilityText = s.availabilityMode == "interrupt_work_for_food" and "Interrupt work for food" or "Eat anytime"
         y = drawKV(self, y, "Availability", availabilityText)
+    end
+    if s.traitSummary then
+        y = drawKV(self, y, "Traits", s.traitSummary, s.traitSummary == "None" and DIM or VAL)
     end
 
     local intakeSectionLabel = s.consumptionMode == "signal_sequence" and "Junk Intake" or "Meals"
@@ -544,6 +604,9 @@ function NMS_TestOverlay:renderResult(s, startY)
     end
     if s.availabilityMode then
         y = drawKV(self, y, "Availability", s.availabilityMode == "interrupt_work_for_food" and "Interrupt work for food" or "Eat anytime")
+    end
+    if s.traitSummary then
+        y = drawKV(self, y, "Traits", s.traitSummary, s.traitSummary == "None" and DIM or VAL)
     end
     if s.lastMealTrigger then
         local triggerLabel = s.lastMealTrigger == "hunger_signal" and "Hunger signal"

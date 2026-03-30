@@ -28,7 +28,6 @@ local PROJECTED_NUMERIC_FIELDS = {
     "lastDepositKcal",
     "lastProteinDeficiency",
     "lastProteinHealingMultiplier",
-    "lastAcuteFuelRecoveryScale",
     "lastExtraEnduranceDrain",
     "visibleHunger",
     "hunger",

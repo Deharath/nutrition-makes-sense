@@ -107,10 +107,8 @@ local function accumulateWorkloadSample(playerObj, state, cache, live, nowHours)
             if previous ~= nil then
                 local delta = endurance - previous
                 local deprivation = tonumber(state.deprivation) or 0
-                local fuelRecoveryScale = Metabolism.getFuelRecoveryScale(state.fuel)
-
                 if delta > 0 then
-                    regenScale = Metabolism.getDeprivationRegenScale(deprivation) * fuelRecoveryScale
+                    regenScale = Metabolism.getDeprivationRegenScale(deprivation)
                     controlled = previous + delta * regenScale
                 end
 

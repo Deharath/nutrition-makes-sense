@@ -1,8 +1,4 @@
 {
-    "UI_NMS_Section_Fuel": "Energy Reserves",
-    "UI_NMS_Fuel_State_Low": "Low",
-    "UI_NMS_Fuel_State_Depleted": "Depleted",
-    "UI_NMS_Fuel_RecoveryPenalty": "Stamina Recovery",
     "UI_NMS_Deprivation_Header": "Malnourishment",
     "UI_NMS_Deprivation_Severity_Mild": "Mild",
     "UI_NMS_Deprivation_Severity_Moderate": "Moderate",
@@ -17,16 +13,7 @@
     "UI_NMS_Protein_Low": "Low",
     "UI_NMS_Protein_HealingPenalty": "Wound Healing",
     "UI_NMS_ModOptions_Title": "Nutrition Makes Sense",
-    "UI_NMS_ModOptions_Awareness_Title": "Awareness Cues",
-    "UI_NMS_ModOptions_LowEnergySoundCue": "Low Energy Sound Cue",
-    "UI_NMS_ModOptions_LowEnergySoundCue_Tooltip": "Play a short drained-sounding cue when your energy reserves first drop into the low-fuel penalty state.",
-    "UI_NMS_ModOptions_LowEnergyHaloCue": "Low Energy Halo Cue",
-    "UI_NMS_ModOptions_LowEnergyHaloCue_Tooltip": "Show a short floating body cue when your energy reserves first drop into the low-fuel penalty state.",
     "UI_NMS_ModOptions_Debug_Title": "Debug",
     "UI_NMS_ModOptions_DebugTooltips": "Show Debug Food Tooltips",
-    "UI_NMS_ModOptions_DebugTooltips_Tooltip": "Toggle NMS debug food tooltip numbers while the game is running with -debug.",
-    "UI_NMS_LowEnergyCue_Header": "(Low glycogen reserves)",
-    "UI_NMS_LowEnergyCue_Thought_1": "\"A snack wouldn't hurt...\"",
-    "UI_NMS_LowEnergyCue_Thought_2": "\"Feeling a bit flat...\"",
-    "UI_NMS_LowEnergyCue_Thought_3": "\"Body feels a little flat...\""
+    "UI_NMS_ModOptions_DebugTooltips_Tooltip": "Toggle NMS debug food tooltip numbers while the game is running with -debug."
 }

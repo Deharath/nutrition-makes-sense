@@ -54,22 +54,6 @@ function ClientOptions.ensureRegistered()
         return false
     end
 
-    options:addTitle(getText("UI_NMS_ModOptions_Awareness_Title"))
-    ensureTickBox(
-        options,
-        "lowEnergySoundCue",
-        getText("UI_NMS_ModOptions_LowEnergySoundCue"),
-        true,
-        getText("UI_NMS_ModOptions_LowEnergySoundCue_Tooltip")
-    )
-    ensureTickBox(
-        options,
-        "lowEnergyHaloCue",
-        getText("UI_NMS_ModOptions_LowEnergyHaloCue"),
-        true,
-        getText("UI_NMS_ModOptions_LowEnergyHaloCue_Tooltip")
-    )
-
     if DevSupport.isDebugLaunch and DevSupport.isDebugLaunch() then
         options:addTitle(getText("UI_NMS_ModOptions_Debug_Title"))
         ensureTickBox(
@@ -101,38 +85,6 @@ function ClientOptions.getShowDebugFoodTooltips()
     end
 
     local option = options and options:getOption("showDebugFoodTooltips") or nil
-    if option and type(option.getValue) == "function" then
-        return option:getValue() == true
-    end
-
-    return true
-end
-
-function ClientOptions.getLowEnergySoundCueEnabled()
-    ClientOptions.ensureRegistered()
-
-    local options = getOptionsObject()
-    if not options then
-        return true
-    end
-
-    local option = type(options.getOption) == "function" and options:getOption("lowEnergySoundCue") or nil
-    if option and type(option.getValue) == "function" then
-        return option:getValue() == true
-    end
-
-    return true
-end
-
-function ClientOptions.getLowEnergyHaloCueEnabled()
-    ClientOptions.ensureRegistered()
-
-    local options = getOptionsObject()
-    if not options then
-        return true
-    end
-
-    local option = type(options.getOption) == "function" and options:getOption("lowEnergyHaloCue") or nil
     if option and type(option.getValue) == "function" then
         return option:getValue() == true
     end
