@@ -57,6 +57,23 @@ local function formatValues(values)
     )
 end
 
+local FOOD_VALUE_KEYS = { "hunger", "kcal", "carbs", "fats", "proteins" }
+
+local function formatSignedNumber(value, precision)
+    local numeric = tonumber(value)
+    if numeric == nil then
+        return "nil"
+    end
+    return string.format("%+." .. tostring(precision or 3) .. "f", numeric)
+end
+
+local function joinParts(parts, separator)
+    if type(parts) ~= "table" or #parts <= 0 then
+        return ""
+    end
+    return table.concat(parts, separator or " | ")
+end
+
 local function formatSnapshotMeta(snapshot)
     if type(snapshot) ~= "table" then
         return "nil"
@@ -103,6 +120,182 @@ local function resolveMoodDynamicDelta(runtimeValue, unmodifiedValue)
         return nil
     end
     return runtime - unmodified
+end
+
+local function nearlyEqual(lhs, rhs, epsilon)
+    local left = tonumber(lhs)
+    local right = tonumber(rhs)
+    if left == nil or right == nil then
+        return left == right
+    end
+    return math.abs(left - right) <= (epsilon or 0.0005)
+end
+
+local function valuesDiffer(lhs, rhs)
+    if lhs == nil and rhs == nil then
+        return false
+    end
+    if type(lhs) ~= "table" or type(rhs) ~= "table" then
+        return lhs ~= rhs
+    end
+
+    for _, key in ipairs(FOOD_VALUE_KEYS) do
+        if not nearlyEqual(lhs[key], rhs[key]) then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function shouldLogAuthorityDump(display, applied, current, stored, expectedMode, resolvedMode)
+    if expectedMode ~= nil and resolvedMode ~= nil and tostring(expectedMode) ~= tostring(resolvedMode) then
+        return true
+    end
+
+    return valuesDiffer(display, applied)
+        or valuesDiffer(display, current)
+        or valuesDiffer(display, stored)
+        or valuesDiffer(applied, current)
+        or valuesDiffer(applied, stored)
+        or valuesDiffer(current, stored)
+end
+
+local function flattenCollectionEntries(collection)
+    local entries = {}
+    if collection == nil then
+        return entries
+    end
+
+    if type(collection) == "table" then
+        local count = 0
+        for _, entry in ipairs(collection) do
+            entries[#entries + 1] = entry
+            count = count + 1
+        end
+        if count > 0 then
+            return entries
+        end
+        for _, entry in pairs(collection) do
+            entries[#entries + 1] = entry
+        end
+        return entries
+    end
+
+    local size = tonumber(safeCall(collection, "size"))
+    if size == nil then
+        return entries
+    end
+
+    for i = 0, size - 1 do
+        entries[#entries + 1] = safeCall(collection, "get", i)
+    end
+    return entries
+end
+
+local function summarizeCollection(collection)
+    local entries = flattenCollectionEntries(collection)
+    local counts = {}
+    local order = {}
+    local total = 0
+
+    for _, entry in ipairs(entries) do
+        local token = tostring(entry or "")
+        if token ~= "" and token ~= "nil" then
+            if counts[token] == nil then
+                counts[token] = 0
+                order[#order + 1] = token
+            end
+            counts[token] = counts[token] + 1
+            total = total + 1
+        end
+    end
+
+    local listed = {}
+    local duplicates = {}
+    for _, token in ipairs(order) do
+        local count = counts[token]
+        local part = token .. " x" .. tostring(count)
+        listed[#listed + 1] = part
+        if count > 1 then
+            duplicates[#duplicates + 1] = part
+        end
+    end
+
+    return {
+        total = total,
+        distinct = #order,
+        listed = #listed > 0 and table.concat(listed, ", ") or "none",
+        duplicates = #duplicates > 0 and table.concat(duplicates, ", ") or "none",
+    }
+end
+
+local function hasGoodFrozenMood(item)
+    local itemType = tostring(safeCall(item, "getType") or "")
+    if itemType == "Icecream" then
+        return true
+    end
+    if safeCall(item, "hasTag", "GOOD_FROZEN") == true then
+        return true
+    end
+    if ItemTag and ItemTag.GOOD_FROZEN and safeCall(item, "hasTag", ItemTag.GOOD_FROZEN) == true then
+        return true
+    end
+    return false
+end
+
+local function formatMoodContributorSummary(item, context)
+    local boredomParts = {}
+    local unhappyParts = {}
+
+    local function addBoth(label, amount)
+        local part = label .. " " .. formatSignedNumber(amount, 0)
+        boredomParts[#boredomParts + 1] = part
+        unhappyParts[#unhappyParts + 1] = part
+    end
+
+    local function addUnhappy(label, amount)
+        unhappyParts[#unhappyParts + 1] = label .. " " .. formatSignedNumber(amount, 0)
+    end
+
+    if context.frozen and not hasGoodFrozenMood(item) then
+        addBoth("frozen", 30)
+    end
+    if context.burnt then
+        addBoth("burnt", 20)
+    end
+    if context.ageBand == "stale" then
+        addBoth("stale", 10)
+    elseif context.ageBand == "rotten" then
+        addBoth("rotten", 20)
+    end
+
+    local heat = tonumber(context.heat) or 0
+    if context.badCold and context.cookable and context.cooked and heat < 1.3 then
+        addUnhappy("badCold", 2)
+    end
+    if context.goodHot and context.cookable and context.cooked and heat > 1.3 then
+        addUnhappy("goodHot", -2)
+    end
+
+    return #boredomParts > 0 and table.concat(boredomParts, ", ") or "none",
+        #unhappyParts > 0 and table.concat(unhappyParts, ", ") or "none"
+end
+
+local function choosePrimaryValues(display, current, applied, stored)
+    if type(display) == "table" then
+        return display, "display"
+    end
+    if type(current) == "table" then
+        return current, "current"
+    end
+    if type(applied) == "table" then
+        return applied, "applied"
+    end
+    if type(stored) == "table" then
+        return stored, "stored"
+    end
+    return nil, "none"
 end
 
 local function resolveActualItems(items)
@@ -198,89 +391,126 @@ local function logFoodItemDebug(item)
     local scriptThirst = safeCall(scriptItem, "getThirstChange")
     local probeThirst = safeCall(probe, "getThirstChange")
     local probeThirstUnmodified = safeCall(probe, "getThirstChangeUnmodified")
+    local chef = tostring(safeCall(item, "getChef") or "")
+    if chef == "" then
+        chef = "nil"
+    end
+    local ingredients = summarizeCollection(safeCall(item, "getExtraItems"))
+    local spices = summarizeCollection(safeCall(item, "getSpices"))
+    local boredomContribSummary, unhappyContribSummary = formatMoodContributorSummary(item, {
+        ageBand = ageBand,
+        frozen = frozen,
+        burnt = burnt,
+        cooked = cooked,
+        cookable = cookable,
+        badCold = badCold,
+        goodHot = goodHot,
+        heat = heat,
+    })
+    local primaryValues, primaryLabel = choosePrimaryValues(display, current, applied, stored)
+    local authorityMismatch = shouldLogAuthorityDump(display, applied, current, stored, expectedMode, resolvedMode)
+    local scriptBoredomDelta = nil
+    local scriptUnhappyDelta = nil
+    if tonumber(moodBoredomUnmodified) ~= nil and tonumber(scriptMoodBoredom) ~= nil then
+        scriptBoredomDelta = (tonumber(moodBoredomUnmodified) or 0) - (tonumber(scriptMoodBoredom) or 0)
+    end
+    if tonumber(moodUnhappyUnmodified) ~= nil and tonumber(scriptMoodUnhappy) ~= nil then
+        scriptUnhappyDelta = (tonumber(moodUnhappyUnmodified) or 0) - (tonumber(scriptMoodUnhappy) or 0)
+    end
 
     log(string.format(
-        "[FOOD_DEBUG] item=%s name=%s id=%s cooked=%s burnt=%s frozen=%s rotten=%s age=%s offAge=%s offAgeMax=%s",
+        "[FOOD_DEBUG] item=%s name=%s id=%s state=cooked:%s burnt:%s frozen:%s rotten:%s ageBand=%s heat=%s uses=%s/%s",
         tostring(fullType),
         tostring(displayName),
         tostring(itemId or "nil"),
-        formatBool(safeCall(item, "isCooked")),
-        formatBool(safeCall(item, "isBurnt")),
-        formatBool(safeCall(item, "isFrozen")),
+        formatBool(cooked),
+        formatBool(burnt),
+        formatBool(frozen),
         formatBool(safeCall(item, "isRotten")),
-        formatNumber(safeCall(item, "getAge"), 3),
-        formatNumber(safeCall(item, "getOffAge"), 3),
-        formatNumber(safeCall(item, "getOffAgeMax"), 3)
+        tostring(ageBand),
+        formatNumber(heat, 3),
+        formatNumber(safeCall(item, "getCurrentUses"), 3),
+        formatNumber(safeCall(item, "getMaxUses"), 3)
     ))
+
+    local nutritionParts = {
+        "source=" .. tostring(resolvedSource or source or "nil"),
+        "class=" .. tostring(semanticClass or "nil"),
+        "mode=" .. tostring(resolvedMode or expectedMode or "nil"),
+        primaryLabel .. "=" .. formatValues(primaryValues),
+        "raw=" .. formatValues({
+            hunger = safeCall(item, "getHungChange") or safeCall(item, "getHungerChange"),
+            kcal = safeCall(item, "getCalories"),
+            carbs = safeCall(item, "getCarbohydrates"),
+            fats = safeCall(item, "getLipids"),
+            proteins = safeCall(item, "getProteins"),
+        }),
+        "thirst=" .. formatNumber(thirst, 3),
+    }
+    if type(primaryValues) == "table" and type(current) == "table" and valuesDiffer(primaryValues, current) then
+        nutritionParts[#nutritionParts + 1] = "live=" .. formatValues(current)
+    end
+    log("[FOOD_DEBUG] nutrition " .. joinParts(nutritionParts))
+
+    local authorityParts = {
+        "status=" .. (authorityMismatch and "mismatch" or "aligned"),
+        "expected=" .. tostring(expectedMode or "nil"),
+        "resolved=" .. tostring(resolvedMode or "nil"),
+        "patch=" .. tostring(patchSource or "nil"),
+        "target=" .. tostring(authorityTarget or "nil"),
+    }
+    log("[FOOD_DEBUG] authority " .. joinParts(authorityParts))
+
+    log(string.format(
+        "[FOOD_DEBUG] mood current boredom=%s unhappy=%s | unmodified boredom=%s unhappy=%s | script boredom=%s unhappy=%s",
+        formatNumber(moodBoredom, 3),
+        formatNumber(moodUnhappy, 3),
+        formatNumber(moodBoredomUnmodified, 3),
+        formatNumber(moodUnhappyUnmodified, 3),
+        formatNumber(scriptMoodBoredom, 3),
+        formatNumber(scriptMoodUnhappy, 3)
+    ))
+    log(string.format(
+        "[FOOD_DEBUG] mood provenance boredom dynamic=%s itemVsScript=%s | unhappy dynamic=%s itemVsScript=%s",
+        tostring(boredomContribSummary),
+        formatSignedNumber(scriptBoredomDelta, 3),
+        tostring(unhappyContribSummary),
+        formatSignedNumber(scriptUnhappyDelta, 3)
+    ))
+
+    local compositionParts = {
+        "ingredients=" .. tostring(ingredients.total) .. " [" .. ingredients.listed .. "]",
+        "duplicates=" .. ingredients.duplicates,
+        "spices=" .. tostring(spices.total) .. " [" .. spices.listed .. "]",
+        "chef=" .. chef,
+    }
+    log("[FOOD_DEBUG] composition " .. joinParts(compositionParts))
+
+    if not authorityMismatch then
+        return
+    end
+
     log("[FOOD_DEBUG] display " .. formatValues(display))
     log("[FOOD_DEBUG] applied " .. formatValues(applied))
     log("[FOOD_DEBUG] current " .. formatValues(current))
     log("[FOOD_DEBUG] stored  " .. formatValues(stored))
-    log(string.format(
-        "[FOOD_DEBUG] semantics source=%s class=%s expectedMode=%s resolvedMode=%s patchSource=%s authorityTarget=%s",
-        tostring(source or "nil"),
-        tostring(semanticClass or "nil"),
-        tostring(expectedMode or "nil"),
-        tostring(resolvedMode or "nil"),
-        tostring(patchSource or "nil"),
-        tostring(authorityTarget or "nil")
-    ))
     log("[FOOD_DEBUG] meta display " .. formatSnapshotMeta(display))
     log("[FOOD_DEBUG] meta applied " .. formatSnapshotMeta(applied))
     log("[FOOD_DEBUG] meta current " .. formatSnapshotMeta(current))
     log("[FOOD_DEBUG] meta stored  " .. formatSnapshotMeta(stored))
     log(string.format(
-        "[FOOD_DEBUG] raw baseHunger=%s hunger=%s thirst=%s thirstUnmod=%s calories=%s carbs=%s fats=%s proteins=%s currentUses=%s maxUses=%s resolvedSource=%s",
-        formatNumber(safeCall(item, "getBaseHunger"), 3),
-        formatNumber(safeCall(item, "getHungChange") or safeCall(item, "getHungerChange"), 3),
-        formatNumber(thirst, 3),
-        formatNumber(thirstUnmodified, 3),
-        formatNumber(safeCall(item, "getCalories"), 1),
-        formatNumber(safeCall(item, "getCarbohydrates"), 3),
-        formatNumber(safeCall(item, "getLipids"), 3),
-        formatNumber(safeCall(item, "getProteins"), 3),
-        formatNumber(safeCall(item, "getCurrentUses"), 3),
-        formatNumber(safeCall(item, "getMaxUses"), 3),
-        tostring(resolvedSource or "nil")
-    ))
-    log(string.format(
-        "[FOOD_DEBUG] mood boredom=%s unmod=%s dynamicDelta=%s bar=%s unhappy=%s unmod=%s dynamicDelta=%s bar=%s",
-        formatNumber(moodBoredom, 3),
-        formatNumber(moodBoredomUnmodified, 3),
-        formatNumber(moodBoredomDelta, 3),
-        formatPercent(math.abs((tonumber(moodBoredom) or 0) * 0.02)),
-        formatNumber(moodUnhappy, 3),
-        formatNumber(moodUnhappyUnmodified, 3),
-        formatNumber(moodUnhappyDelta, 3),
-        formatPercent(math.abs((tonumber(moodUnhappy) or 0) * 0.02))
-    ))
-    log(string.format(
-        "[FOOD_DEBUG] mood context ageBand=%s frozen=%s canBeFrozen=%s freezingTime=%s burnt=%s cooked=%s cookable=%s badCold=%s goodHot=%s heat=%s",
-        tostring(ageBand),
-        formatBool(frozen),
-        tostring(canBeFrozen),
-        formatNumber(freezingTime, 3),
-        formatBool(burnt),
-        formatBool(cooked),
-        formatBool(cookable),
-        formatBool(badCold),
-        formatBool(goodHot),
-        formatNumber(heat, 3)
-    ))
-    log(string.format(
-        "[FOOD_DEBUG] mood baseline scriptBoredom=%s scriptUnhappy=%s probeBoredom=%s probeBoredomUnmod=%s probeUnhappy=%s probeUnhappyUnmod=%s",
-        formatNumber(scriptMoodBoredom, 3),
-        formatNumber(scriptMoodUnhappy, 3),
+        "[FOOD_DEBUG] mood baselines probeBoredom=%s probeBoredomUnmod=%s probeUnhappy=%s probeUnhappyUnmod=%s scriptThirst=%s probeThirst=%s probeThirstUnmod=%s canBeFrozen=%s freezingTime=%s badCold=%s goodHot=%s",
         formatNumber(probeMoodBoredom, 3),
         formatNumber(probeMoodBoredomUnmodified, 3),
         formatNumber(probeMoodUnhappy, 3),
-        formatNumber(probeMoodUnhappyUnmodified, 3)
-    ))
-    log(string.format(
-        "[FOOD_DEBUG] thirst baseline script=%s probe=%s probeUnmod=%s",
+        formatNumber(probeMoodUnhappyUnmodified, 3),
         formatNumber(scriptThirst, 3),
         formatNumber(probeThirst, 3),
-        formatNumber(probeThirstUnmodified, 3)
+        formatNumber(probeThirstUnmodified, 3),
+        tostring(canBeFrozen),
+        formatNumber(freezingTime, 3),
+        formatBool(badCold),
+        formatBool(goodHot)
     ))
     log("[FOOD_DEBUG] delta current-stored " .. formatDeltaLine(current, stored))
     log("[FOOD_DEBUG] delta current-applied " .. formatDeltaLine(current, applied))

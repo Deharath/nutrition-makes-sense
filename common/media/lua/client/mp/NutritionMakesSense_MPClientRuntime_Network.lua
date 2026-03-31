@@ -10,6 +10,7 @@ local getWallClockSeconds = MPClient.getWallClockSeconds
 local getPlayerLabel = MPClient.getPlayerLabel
 local normalizeIdComponent = MPClient.normalizeIdComponent
 local Runtime = MPClient.Runtime or {}
+local log = NutritionMakesSense.log
 
 local function workloadChanged(live)
     local previousAverage = tonumber(state.lastReportedWorkloadAverageMet) or nil
@@ -55,6 +56,10 @@ function MPClient.getRuntimeEventSessionId()
     return getRuntimeEventSessionId()
 end
 
+local function refreshLog()
+    log = NutritionMakesSense.log or log
+end
+
 local function makeEventId(playerObj, itemId, reason)
     state.nextEventSequence = tonumber(state.nextEventSequence) or 0
     state.nextEventSequence = state.nextEventSequence + 1
@@ -71,6 +76,7 @@ end
 MPClient.makeEventId = makeEventId
 
 function MPClient.getSnapshot()
+    refreshLog()
     return state.latestSnapshot
 end
 
@@ -101,6 +107,8 @@ function MPClient.reportWorkload(playerObj, force, reason)
     if not isClientRuntime() or type(sendClientCommand) ~= "function" or not playerObj then
         return false
     end
+
+    refreshLog()
 
     local live = Runtime.sampleReportedWorkload and Runtime.sampleReportedWorkload(playerObj) or nil
     if type(live) ~= "table" then
@@ -142,9 +150,9 @@ function MPClient.reportWorkload(playerObj, force, reason)
         reason = tostring(reason or (changed and "workload-change" or "workload-keepalive")),
     }
     local ok = pcall(sendClientCommand, tostring(MP.NET_MODULE), tostring(MP.REPORT_WORKLOAD_COMMAND), args)
-    if ok and changed then
-        print(string.format(
-            "[NutritionMakesSense] [CLIENT_WORKLOAD] met=%.2f/%.2f source=%s reason=%s",
+    if ok and changed and type(log) == "function" then
+        log(string.format(
+            "[CLIENT_WORKLOAD] met=%.2f/%.2f source=%s reason=%s",
             averageMet,
             peakMet,
             source,

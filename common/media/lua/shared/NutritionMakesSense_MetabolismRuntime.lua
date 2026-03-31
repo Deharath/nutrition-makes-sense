@@ -779,8 +779,6 @@ local function refreshDerivedState(state, reason)
     return state
 end
 
-local ADOPT_THRESHOLD = 0.01
-
 local function syncVisibleHunger(playerObj, state, reason)
     if not playerObj or not state then
         return false
@@ -793,21 +791,13 @@ local function syncVisibleHunger(playerObj, state, reason)
 
     local desired = clamp(state.visibleHunger or 0, Metabolism.VISIBLE_HUNGER_MIN, Metabolism.VISIBLE_HUNGER_MAX)
     local current = getVisibleHungerValue(stats) or desired
-    local lastSynced = state.lastSyncedHunger
-
-    if lastSynced ~= nil and math.abs(current - lastSynced) > ADOPT_THRESHOLD then
-        state.visibleHunger = clamp(current, Metabolism.VISIBLE_HUNGER_MIN, Metabolism.VISIBLE_HUNGER_MAX)
-        state.hunger = state.visibleHunger
-        state.lastHungerBand = Metabolism.getVisibleHungerBand(state.visibleHunger)
-        state.lastSyncedHunger = current
-        state.lastTraceReason = tostring(reason or state.lastTraceReason or "visible-hunger-adopt")
-        return true
-    end
 
     if math.abs(current - desired) <= SYNC_EPSILON then
         return false
     end
 
+    -- Keep the vanilla-facing hunger stat slaved to NMS state. Letting live vanilla
+    -- drift accumulate back into state causes threshold chatter and moodle pop-in/out.
     local changed = setVisibleHunger(stats, desired)
     if changed then
         state.lastSyncedHunger = desired
