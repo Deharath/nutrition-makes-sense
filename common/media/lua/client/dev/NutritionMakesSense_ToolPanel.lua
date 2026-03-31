@@ -61,7 +61,7 @@ local PRESETS = {
 local SIM_PROFILES = type(SimRunner.getProfiles) == "function" and SimRunner.getProfiles() or {}
 
 local FIELDS = {
-    { key = "fuel",              label = "Fuel",        fmt = "%.0f" },
+    { key = "fuel",              label = "Energy",      fmt = "%.0f" },
     { key = "deprivation",       label = "Deprivation", fmt = "%.3f" },
     { key = "underfeedingDebtKcal", label = "Dep Debt", fmt = "%.0f" },
     { key = "satietyBuffer",     label = "Satiety",     fmt = "%.3f" },
@@ -158,9 +158,9 @@ local function buildSimulationStatus(summary)
     return {
         string.format("%s simulated", tostring(summary.label or summary.profileId or "profile")),
         string.format("Peckish %s  Hungry %s", tostring(summary.firstPeckishLabel or "--"), tostring(summary.firstHungryLabel or "--")),
-        string.format("Low %s  Penalty %s", tostring(summary.firstLowLabel or "--"), tostring(summary.firstPenaltyLabel or "--")),
+        string.format("Low %s  Depleted %s", tostring(summary.firstLowLabel or "--"), tostring(summary.firstDepletedLabel or "--")),
         string.format("Deprivation %s  Peak %.3f", tostring(summary.firstDeprivationLabel or "--"), tonumber(summary.highestDeprivation or 0)),
-        string.format("End fuel %.0f  End hunger %.3f", tonumber(summary.endFuel or 0), tonumber(summary.endHunger or 0)),
+        string.format("End energy %.0f  End hunger %.3f", tonumber(summary.endFuel or 0), tonumber(summary.endHunger or 0)),
         string.format("Weight %+0.3f kg", tonumber(summary.weightDeltaKg or 0)),
     }
 end

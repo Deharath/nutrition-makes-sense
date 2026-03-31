@@ -57,8 +57,8 @@ local function fmt(value, f)
 end
 
 local function colorForZone(z)
-    if z == "Storage" or z == "High" then return GOOD end
-    if z == "Comfortable" then return VAL end
+    if z == "Stored" then return GOOD end
+    if z == "Ready" then return VAL end
     if z == "Low" then return WARN end
     return BAD
 end
@@ -437,7 +437,7 @@ function NMS_TestOverlay:renderIdle(state, startY)
     if not state then
         return drawKV(self, y, "State", "unavailable", DIM)
     end
-    y = drawStateRow(self, y, "Fuel", state.fuel, "%.0f", state.lastZone, colorForZone(state.lastZone), (state.fuel or 0) / 2000, colorForZone(state.lastZone))
+    y = drawStateRow(self, y, "Energy", state.fuel, "%.0f", state.lastZone, colorForZone(state.lastZone), (state.fuel or 0) / 2000, colorForZone(state.lastZone))
     y = drawStateRow(self, y, "Hunger", state.visibleHunger, "%.3f", state.lastHungerBand, colorForBand(state.lastHungerBand), state.visibleHunger, colorForBand(state.lastHungerBand))
     y = drawStateRow(self, y, "Depriv", state.deprivation, "%.3f", nil, nil, state.deprivation, colorForDepriv(state.deprivation))
     y = drawStateRow(self, y, "Satiety", state.satietyBuffer, "%.3f", nil, nil, (state.satietyBuffer or 0) / 1.5, HEAD)
@@ -558,7 +558,7 @@ function NMS_TestOverlay:renderRunning(s, startY)
                 detail = detail .. string.format("  (+%.0f kcal)", entry.depositKcal)
             end
             if entry.fuelAfter then
-                detail = detail .. string.format("  fuel->%.0f", entry.fuelAfter)
+                detail = detail .. string.format("  energy->%.0f", entry.fuelAfter)
             end
             if entry.hungerAfter then
                 detail = detail .. string.format("  hgr->%.3f", entry.hungerAfter)
@@ -571,7 +571,7 @@ function NMS_TestOverlay:renderRunning(s, startY)
     -- Player State
     y = drawSection(self, y, "Player State")
     local zc = colorForZone(s.zone)
-    y = drawStateRow(self, y, "Fuel", s.fuel, "%.0f", s.zone, zc, (s.fuel or 0) / 2000, zc)
+    y = drawStateRow(self, y, "Energy", s.fuel, "%.0f", s.zone, zc, (s.fuel or 0) / 2000, zc)
     local hc = colorForBand(s.hungerBand)
     y = drawStateRow(self, y, "Hunger", s.hunger, "%.3f", s.hungerBand, hc, s.hunger, hc)
     local dc = colorForDepriv(s.deprivation)

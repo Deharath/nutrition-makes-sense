@@ -603,7 +603,7 @@ local function ensureAnalysis(run)
         peakDeprivation = { value = 0, hour = 0, clock = getScenarioClockLabel(run and run.profile, 0) },
         meals = {},
         timeInLowHours = 0,
-        timeInPenaltyHours = 0,
+        timeInDepletedHours = 0,
         lastObservedElapsedHours = 0,
     }
     return run.analysis
@@ -654,9 +654,9 @@ local function updateDerivedSignals(run)
     if zone == "Low" then
         captureAnalysisEvent(run, "firstLowZone", snapshot, elapsedHours)
         analysis.timeInLowHours = (tonumber(analysis.timeInLowHours) or 0) + observedDelta
-    elseif zone == "Penalty" then
-        captureAnalysisEvent(run, "firstPenaltyZone", snapshot, elapsedHours)
-        analysis.timeInPenaltyHours = (tonumber(analysis.timeInPenaltyHours) or 0) + observedDelta
+    elseif zone == "Depleted" then
+        captureAnalysisEvent(run, "firstDepletedZone", snapshot, elapsedHours)
+        analysis.timeInDepletedHours = (tonumber(analysis.timeInDepletedHours) or 0) + observedDelta
     end
     if deprivation > anyThreshold then
         captureAnalysisEvent(run, "firstDeprivationAny", snapshot, elapsedHours)
@@ -739,7 +739,7 @@ local function finalizeAnalysis(run)
     }) or {}
 
     addAnalysisSummaryRow(run, "analysis_summary",
-        string.format("firstPeckish=%s fuel=%s firstDepriv=%s peakDepriv=%s deprivZero=%s",
+        string.format("firstPeckish=%s energy=%s firstDepriv=%s peakDepriv=%s deprivZero=%s",
             formatMetricHour(analysis.firstPeckish and analysis.firstPeckish.hour),
             formatMetricNumber(analysis.firstPeckish and analysis.firstPeckish.fuel, "%.0f"),
             formatMetricHour(analysis.firstDeprivationAny and analysis.firstDeprivationAny.hour),

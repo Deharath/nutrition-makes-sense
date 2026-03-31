@@ -52,11 +52,10 @@ local C = {
 }
 
 local ZONE_COLORS = {
-    Penalty     = C.bad,
+    Depleted    = C.bad,
     Low         = C.warn,
-    Comfortable = C.fuel,
-    High        = C.good,
-    Storage     = C.satiety,
+    Ready       = C.fuel,
+    Stored      = C.satiety,
 }
 
 local BAND_COLORS = {
@@ -524,14 +523,14 @@ function NMS_DevOverlay:render()
     local metFactor = tonumber(s.lastMetHungerFactor) or 1
     y = drawRow(self, y, "Rate", fmts(passiveGain, 4) .. " / tick")
     y = drawRow(self, y, "Multipliers",
-        string.format("gate x%s   met x%s   sat x%s   fuel x%s",
+        string.format("gate x%s   met x%s   sat x%s   energy x%s",
             fmt(gateMult, 2), fmt(metFactor, 2), fmt(retFactor, 2), fmt(fuelPressure, 2)))
 
-    ---------------------------------------------------------------- Fuel
-    y = drawSection(self, y, "Fuel")
+    ---------------------------------------------------------------- Available Energy
+    y = drawSection(self, y, "Available Energy")
     local fuel = tonumber(s.fuel) or 0
     local fuelMax = Metabolism.FUEL_MAX or 2000
-    local zone = s.lastZone or "Comfortable"
+    local zone = s.lastZone or "Ready"
     local zoneColor = ZONE_COLORS[zone] or C.fuel
     y = drawLabeledBar(self, y, fuel / fuelMax, zoneColor,
         zone, fmt(fuel, 0) .. " / " .. fmt(fuelMax, 0))

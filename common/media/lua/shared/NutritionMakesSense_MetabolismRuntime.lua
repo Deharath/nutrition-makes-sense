@@ -173,7 +173,7 @@ local function seedFuel(nutrition)
     if observedCalories == nil then
         return Metabolism.DEFAULT_FUEL
     end
-    return clamp(observedCalories, Metabolism.FUEL_PENALTY_THRESHOLD, 1500)
+    return clamp(observedCalories, Metabolism.FUEL_DEPLETED_THRESHOLD, 1500)
 end
 
 local function seedProteinAdequacy(weightKg)

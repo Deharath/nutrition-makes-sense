@@ -25,15 +25,13 @@ Metabolism.ACTIVITY_STRENUOUS = "strenuous"
 
 Metabolism.FUEL_MIN = 0
 Metabolism.FUEL_MAX = 2000
-Metabolism.FUEL_STORAGE_THRESHOLD = 1700
-Metabolism.FUEL_HIGH_THRESHOLD = 1500
+Metabolism.FUEL_STORED_THRESHOLD = 1500
 Metabolism.FUEL_LOW_THRESHOLD = 550
-Metabolism.FUEL_PENALTY_THRESHOLD = 200
+Metabolism.FUEL_DEPLETED_THRESHOLD = 200
 Metabolism.DEFAULT_FUEL = 1000
 
 Metabolism.DEPRIVATION_MIN = 0
 Metabolism.DEPRIVATION_MAX = 1.0
-Metabolism.DEPRIVATION_FUEL_THRESHOLD = 200
 Metabolism.DEPRIVATION_DEBT_RESPONSE_HOURS = 18
 Metabolism.DEPRIVATION_DEBT_MAX_KCAL = 700
 Metabolism.DEPRIVATION_DEBT_DEADZONE_KCAL = 60
@@ -280,19 +278,16 @@ end
 
 function Metabolism.getFuelZone(fuel)
     local value = clamp(fuel, Metabolism.FUEL_MIN, Metabolism.FUEL_MAX)
-    if value > Metabolism.FUEL_STORAGE_THRESHOLD then
-        return "Storage"
-    end
-    if value > Metabolism.FUEL_HIGH_THRESHOLD then
-        return "High"
+    if value > Metabolism.FUEL_STORED_THRESHOLD then
+        return "Stored"
     end
     if value >= Metabolism.FUEL_LOW_THRESHOLD then
-        return "Comfortable"
+        return "Ready"
     end
-    if value >= Metabolism.FUEL_PENALTY_THRESHOLD then
+    if value >= Metabolism.FUEL_DEPLETED_THRESHOLD then
         return "Low"
     end
-    return "Penalty"
+    return "Depleted"
 end
 
 function Metabolism.getWeightFuelBurnFactor(weightKg)
@@ -517,13 +512,13 @@ function Metabolism.getFuelPressureFactor(fuel)
     if value >= Metabolism.FUEL_LOW_THRESHOLD then
         return 1.0
     end
-    if value >= Metabolism.FUEL_PENALTY_THRESHOLD then
-        local lowProgress = (Metabolism.FUEL_LOW_THRESHOLD - value) / (Metabolism.FUEL_LOW_THRESHOLD - Metabolism.FUEL_PENALTY_THRESHOLD)
+    if value >= Metabolism.FUEL_DEPLETED_THRESHOLD then
+        local lowProgress = (Metabolism.FUEL_LOW_THRESHOLD - value) / (Metabolism.FUEL_LOW_THRESHOLD - Metabolism.FUEL_DEPLETED_THRESHOLD)
         local curved = 1.0 - ((1.0 - lowProgress) * (1.0 - lowProgress) * (1.0 - lowProgress))
         return lerp(1.0, 3.2, curved)
     end
-    local penaltyProgress = 1.0 - (value / Metabolism.FUEL_PENALTY_THRESHOLD)
-    return lerp(3.2, 4.2, penaltyProgress)
+    local depletedProgress = 1.0 - (value / Metabolism.FUEL_DEPLETED_THRESHOLD)
+    return lerp(3.2, 4.2, depletedProgress)
 end
 
 function Metabolism.getHungerGateMultiplier(fuel)
@@ -531,12 +526,12 @@ function Metabolism.getHungerGateMultiplier(fuel)
     if value >= Metabolism.FUEL_LOW_THRESHOLD then
         return 0.8
     end
-    if value >= Metabolism.FUEL_PENALTY_THRESHOLD then
-        local lowProgress = (Metabolism.FUEL_LOW_THRESHOLD - value) / (Metabolism.FUEL_LOW_THRESHOLD - Metabolism.FUEL_PENALTY_THRESHOLD)
+    if value >= Metabolism.FUEL_DEPLETED_THRESHOLD then
+        local lowProgress = (Metabolism.FUEL_LOW_THRESHOLD - value) / (Metabolism.FUEL_LOW_THRESHOLD - Metabolism.FUEL_DEPLETED_THRESHOLD)
         return lerp(0.8, 1.5, lowProgress)
     end
-    local penaltyProgress = 1.0 - (value / Metabolism.FUEL_PENALTY_THRESHOLD)
-    return lerp(1.5, 2.2, penaltyProgress)
+    local depletedProgress = 1.0 - (value / Metabolism.FUEL_DEPLETED_THRESHOLD)
+    return lerp(1.5, 2.2, depletedProgress)
 end
 
 function Metabolism.getMetHungerFactor(workload)

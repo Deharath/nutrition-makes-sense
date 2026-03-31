@@ -14,15 +14,15 @@ end
 local function buildDefaultAnalysisSummary(run, helpers)
     local analysis = helpers.ensureAnalysis(run)
     return {
-        metricLine("First Peckish", string.format("%s  fuel %s", helpers.formatMetricHour(analysis.firstPeckish and analysis.firstPeckish.hour), helpers.formatMetricNumber(analysis.firstPeckish and analysis.firstPeckish.fuel, "%.0f"))),
-        metricLine("First Hungry", string.format("%s  fuel %s", helpers.formatMetricHour(analysis.firstHungry and analysis.firstHungry.hour), helpers.formatMetricNumber(analysis.firstHungry and analysis.firstHungry.fuel, "%.0f"))),
+        metricLine("First Peckish", string.format("%s  energy %s", helpers.formatMetricHour(analysis.firstPeckish and analysis.firstPeckish.hour), helpers.formatMetricNumber(analysis.firstPeckish and analysis.firstPeckish.fuel, "%.0f"))),
+        metricLine("First Hungry", string.format("%s  energy %s", helpers.formatMetricHour(analysis.firstHungry and analysis.firstHungry.hour), helpers.formatMetricNumber(analysis.firstHungry and analysis.firstHungry.fuel, "%.0f"))),
         metricLine("First Low", helpers.formatMetricHour(analysis.firstLowZone and analysis.firstLowZone.hour)),
-        metricLine("First Penalty", helpers.formatMetricHour(analysis.firstPenaltyZone and analysis.firstPenaltyZone.hour)),
+        metricLine("First Depleted", helpers.formatMetricHour(analysis.firstDepletedZone and analysis.firstDepletedZone.hour)),
         metricLine("Depriv Start", helpers.formatMetricHour(analysis.firstDeprivationAny and analysis.firstDeprivationAny.hour)),
         metricLine("Peak Depriv", string.format("%s at %s", helpers.formatMetricNumber(analysis.peakDeprivation and analysis.peakDeprivation.value, "%.3f"), helpers.formatMetricHour(analysis.peakDeprivation and analysis.peakDeprivation.hour))),
         metricLine("Depriv Zero", helpers.formatMetricHour(analysis.deprivationZeroAfterRecovery and analysis.deprivationZeroAfterRecovery.hour)),
         metricLine("Low Time", string.format("%.2fh", tonumber(analysis.timeInLowHours) or 0)),
-        metricLine("Penalty Time", string.format("%.2fh", tonumber(analysis.timeInPenaltyHours) or 0)),
+        metricLine("Depleted Time", string.format("%.2fh", tonumber(analysis.timeInDepletedHours) or 0)),
     }
 end
 
@@ -51,11 +51,11 @@ PROFILE_SUMMARY_BUILDERS.junk_food_day = function(run, helpers)
         metricLine("Avg Pre-Hunger", helpers.formatMetricNumber(avgPreHunger, "%.3f")),
         metricLine("Max Pre-Hunger", helpers.formatMetricNumber(maxPreHunger, "%.3f")),
         metricLine("First Low", helpers.formatMetricHour(analysis.firstLowZone and analysis.firstLowZone.hour)),
-        metricLine("First Penalty", helpers.formatMetricHour(analysis.firstPenaltyZone and analysis.firstPenaltyZone.hour)),
+        metricLine("First Depleted", helpers.formatMetricHour(analysis.firstDepletedZone and analysis.firstDepletedZone.hour)),
         metricLine("Peak Depriv", string.format("%s at %s", helpers.formatMetricNumber(analysis.peakDeprivation and analysis.peakDeprivation.value, "%.3f"), helpers.formatMetricHour(analysis.peakDeprivation and analysis.peakDeprivation.hour))),
         metricLine("Low Time", string.format("%.2fh", tonumber(analysis.timeInLowHours) or 0)),
-        metricLine("Penalty Time", string.format("%.2fh", tonumber(analysis.timeInPenaltyHours) or 0)),
-        metricLine("End Fuel", helpers.formatMetricNumber(finalState.fuel, "%.0f")),
+        metricLine("Depleted Time", string.format("%.2fh", tonumber(analysis.timeInDepletedHours) or 0)),
+        metricLine("End Energy", helpers.formatMetricNumber(finalState.fuel, "%.0f")),
         metricLine("End Depriv", helpers.formatMetricNumber(finalState.deprivation, "%.3f")),
     }
 end
@@ -64,18 +64,18 @@ PROFILE_SUMMARY_BUILDERS.light_meals_day = function(run, helpers)
     local analysis = helpers.ensureAnalysis(run)
     local finalState = analysis.finalSnapshot and analysis.finalSnapshot.state or {}
     return {
-        metricLine("First Peckish", string.format("%s  fuel %s",
+        metricLine("First Peckish", string.format("%s  energy %s",
             helpers.formatMetricHour(analysis.firstPeckish and analysis.firstPeckish.hour),
             helpers.formatMetricNumber(analysis.firstPeckish and analysis.firstPeckish.fuel, "%.0f"))),
         metricLine("First Low", helpers.formatMetricHour(analysis.firstLowZone and analysis.firstLowZone.hour)),
-        metricLine("First Penalty", helpers.formatMetricHour(analysis.firstPenaltyZone and analysis.firstPenaltyZone.hour)),
+        metricLine("First Depleted", helpers.formatMetricHour(analysis.firstDepletedZone and analysis.firstDepletedZone.hour)),
         metricLine("Depriv Start", helpers.formatMetricHour(analysis.firstDeprivationAny and analysis.firstDeprivationAny.hour)),
         metricLine("Peak Depriv", string.format("%s at %s",
             helpers.formatMetricNumber(analysis.peakDeprivation and analysis.peakDeprivation.value, "%.3f"),
             helpers.formatMetricHour(analysis.peakDeprivation and analysis.peakDeprivation.hour))),
         metricLine("Low Time", string.format("%.2fh", tonumber(analysis.timeInLowHours) or 0)),
-        metricLine("Penalty Time", string.format("%.2fh", tonumber(analysis.timeInPenaltyHours) or 0)),
-        metricLine("End Fuel", helpers.formatMetricNumber(finalState.fuel, "%.0f")),
+        metricLine("Depleted Time", string.format("%.2fh", tonumber(analysis.timeInDepletedHours) or 0)),
+        metricLine("End Energy", helpers.formatMetricNumber(finalState.fuel, "%.0f")),
         metricLine("End Depriv", helpers.formatMetricNumber(finalState.deprivation, "%.3f")),
     }
 end
@@ -86,12 +86,12 @@ PROFILE_EVALUATORS.canonical_day = function(run, helpers)
     local consumes = analysis.consumes or {}
     local peakDeprivationValue = tonumber(analysis.peakDeprivation and analysis.peakDeprivation.value) or 0
     local lowHours = tonumber(analysis.timeInLowHours) or 0
-    local penaltyHours = tonumber(analysis.timeInPenaltyHours) or 0
+    local depletedHours = tonumber(analysis.timeInDepletedHours) or 0
     local endState = analysis.finalSnapshot and analysis.finalSnapshot.state or {}
     local endFuel = tonumber(endState.fuel) or 0
     local endDeprivation = tonumber(endState.deprivation) or 0
     local endZone = tostring(endState.lastZone or "")
-    local firstPenalty = analysis.firstPenaltyZone
+    local firstDepleted = analysis.firstDepletedZone
     local hungerDropThreshold = tonumber(validation.hungerDropThreshold) or 0.01
     local lowHoursWarn = tonumber(validation.lowHoursWarn) or 1.5
     local endFuelWarn = tonumber(validation.endFuelWarn) or 350
@@ -118,20 +118,20 @@ PROFILE_EVALUATORS.canonical_day = function(run, helpers)
         return
     end
 
-    if firstPenalty or penaltyHours > 0 or endFuel < endFuelFail or endZone == "Penalty" then
+    if firstDepleted or depletedHours > 0 or endFuel < endFuelFail or endZone == "Depleted" then
         helpers.addEvaluation(run, helpers.SEVERITY_FAIL, "canonical_day_became_too_rough",
-            string.format("canonical day still hit penalty behavior (firstPenalty=%s, penaltyTime=%.2fh, endFuel=%.0f, endZone=%s)",
-                helpers.formatMetricHour(firstPenalty and firstPenalty.hour), penaltyHours, endFuel, endZone ~= "" and endZone or "--"))
+            string.format("canonical day still hit depleted behavior (firstDepleted=%s, depletedTime=%.2fh, endEnergy=%.0f, endZone=%s)",
+                helpers.formatMetricHour(firstDepleted and firstDepleted.hour), depletedHours, endFuel, endZone ~= "" and endZone or "--"))
     elseif endDeprivation >= (Metabolism.DEPRIVATION_PENALTY_ONSET or 0.10) or peakDeprivationValue >= (Metabolism.DEPRIVATION_PENALTY_ONSET or 0.10) then
         helpers.addEvaluation(run, helpers.SEVERITY_FAIL, "canonical_day_crossed_deprivation_onset",
             string.format("canonical day crossed deprivation penalty onset (peak=%.3f end=%.3f)", peakDeprivationValue, endDeprivation))
     elseif lowHours > lowHoursWarn or peakDeprivationValue > deprivationWarn or endFuel < endFuelWarn or endZone == "Low" then
         helpers.addEvaluation(run, helpers.SEVERITY_WARN, "canonical_day_finished_rough",
-            string.format("canonical day stayed afloat, but leaned rough (lowTime=%.2fh peakDepriv=%.3f endFuel=%.0f endZone=%s)",
+            string.format("canonical day stayed afloat, but leaned rough (lowTime=%.2fh peakDepriv=%.3f endEnergy=%.0f endZone=%s)",
                 lowHours, peakDeprivationValue, endFuel, endZone ~= "" and endZone or "--"))
     else
         helpers.addEvaluation(run, helpers.SEVERITY_PASS, "canonical_day_stable",
-            string.format("canonical day stayed broadly stable (lowTime=%.2fh peakDepriv=%.3f endFuel=%.0f)",
+            string.format("canonical day stayed broadly stable (lowTime=%.2fh peakDepriv=%.3f endEnergy=%.0f)",
                 lowHours, peakDeprivationValue, endFuel))
     end
 
@@ -159,13 +159,13 @@ PROFILE_EVALUATORS.snack_gap_stress = function(run, helpers)
 
     if firstFuelBelow300 then
         helpers.addEvaluation(run, helpers.SEVERITY_PASS, "stress_block_reached_deprivation_zone",
-            string.format("stress block pushed fuel below %.0f at %s", requiredFuelBelow, helpers.formatMetricHour(firstFuelBelow300.hour)))
+            string.format("stress block pushed energy below %.0f at %s", requiredFuelBelow, helpers.formatMetricHour(firstFuelBelow300.hour)))
     elseif firstFuelBelow500 then
         helpers.addEvaluation(run, helpers.SEVERITY_WARN, "stress_block_reached_deprivation_zone",
-            string.format("stress block only reached Low zone; fuel stayed above %.0f", requiredFuelBelow))
+            string.format("stress block only reached Low zone; energy stayed above %.0f", requiredFuelBelow))
     else
         helpers.addEvaluation(run, helpers.SEVERITY_FAIL, "stress_block_reached_deprivation_zone",
-            string.format("stress block never pushed fuel below 500 or into %s zone", tostring(validation.expectedFuelZone or "Low")))
+            string.format("stress block never pushed energy below 500 or into %s zone", tostring(validation.expectedFuelZone or "Low")))
     end
 
     if firstDeprivationAny then
@@ -187,15 +187,15 @@ PROFILE_EVALUATORS.snack_gap_stress = function(run, helpers)
     end
 
     if firstPeckishFuel == nil then
-        helpers.addEvaluation(run, helpers.SEVERITY_FAIL, "peckish_above_threshold_fuel", "fuel at first peckish was never observed")
+        helpers.addEvaluation(run, helpers.SEVERITY_FAIL, "peckish_above_threshold_fuel", "energy at first peckish was never observed")
     elseif firstPeckishFuel > peckishThreshold then
         helpers.addEvaluation(run, helpers.SEVERITY_PASS, "peckish_above_threshold_fuel",
-            string.format("peckish appeared with fuel %.0f above threshold %.0f", firstPeckishFuel, peckishThreshold))
+            string.format("peckish appeared with energy %.0f above threshold %.0f", firstPeckishFuel, peckishThreshold))
     elseif firstPeckishFuel > 0 then
         helpers.addEvaluation(run, helpers.SEVERITY_WARN, "peckish_above_threshold_fuel",
-            string.format("peckish appeared late with fuel %.0f below threshold %.0f", firstPeckishFuel, peckishThreshold))
+            string.format("peckish appeared late with energy %.0f below threshold %.0f", firstPeckishFuel, peckishThreshold))
     else
-        helpers.addEvaluation(run, helpers.SEVERITY_FAIL, "peckish_above_threshold_fuel", "peckish did not appear before fuel hit zero")
+        helpers.addEvaluation(run, helpers.SEVERITY_FAIL, "peckish_above_threshold_fuel", "peckish did not appear before energy hit zero")
     end
 
     if recoveryMealDrop ~= nil and recoveryMealDrop >= hungerDropThreshold then

@@ -100,8 +100,8 @@ local function updateSummary(summary, state, report, hour)
     summary.lastZone = zone
     summary.totalBurnKcal = summary.totalBurnKcal + (tonumber(report and report.burnedKcal) or 0)
 
-    markFirst(summary, "firstLowHour", zone == "Low" or zone == "Penalty", hour)
-    markFirst(summary, "firstPenaltyHour", zone == "Penalty", hour)
+    markFirst(summary, "firstLowHour", zone == "Low" or zone == "Depleted", hour)
+    markFirst(summary, "firstDepletedHour", zone == "Depleted", hour)
     markFirst(summary, "firstDeprivationHour", deprivation >= 0.10, hour)
     markFirst(summary, "firstPeckishHour", hunger >= Metabolism.HUNGER_THRESHOLD_PECKISH, hour)
     markFirst(summary, "firstHungryHour", hunger >= Metabolism.HUNGER_THRESHOLD_HUNGRY, hour)
@@ -233,7 +233,7 @@ function SimRunner.runProfile(profileId, initialState)
     summary.weightRateKgPerWeek = tonumber(state.lastWeightRateKgPerWeek) or 0
     summary.finalState = Metabolism.copyState(state)
     summary.firstLowLabel = summary.firstLowHour and formatHour(summary.firstLowHour) or "--"
-    summary.firstPenaltyLabel = summary.firstPenaltyHour and formatHour(summary.firstPenaltyHour) or "--"
+    summary.firstDepletedLabel = summary.firstDepletedHour and formatHour(summary.firstDepletedHour) or "--"
     summary.firstDeprivationLabel = summary.firstDeprivationHour and formatHour(summary.firstDeprivationHour) or "--"
     summary.firstPeckishLabel = summary.firstPeckishHour and formatHour(summary.firstPeckishHour) or "--"
     summary.firstHungryLabel = summary.firstHungryHour and formatHour(summary.firstHungryHour) or "--"

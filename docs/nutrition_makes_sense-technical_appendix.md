@@ -13,7 +13,7 @@ This appendix documents the repository as shipped in `1.0.0`: build layout, runt
 
 Core design goals:
 - make food values authoritative across stable foods, partial foods, opened containers, fluids, and composed outputs
-- separate appetite, ready energy, deprivation, protein reserve, and weight trend into distinct gameplay layers
+- separate appetite, available energy, deprivation, protein adequacy, and weight trend into distinct gameplay layers
 - retain vanilla-facing hunger, weight, and healing surfaces only as synchronized presentation shells
 - prevent vanilla starvation damage from becoming the active penalty model
 - keep singleplayer and multiplayer behavior aligned through shared logic in `common/media/lua/shared/`
@@ -64,11 +64,11 @@ The metabolism model is defined in [NutritionMakesSense_Metabolism.lua](../commo
 Core state fields:
 - `visibleHunger`
 - `satietyBuffer`
-- `fuel`
+- `fuel` (available-energy buffer)
 - `deprivation`
 - `proteins`
 - `weightKg`
-- weight-trend state derived from long-horizon fuel history
+- weight-trend state derived from long-horizon energy-balance history
 
 Vanilla nutrition fields are not the primary simulation. Instead, the runtime:
 - anchors vanilla calories, carbohydrates, fats, and proteins to neutral baseline values
@@ -78,7 +78,7 @@ Vanilla nutrition fields are not the primary simulation. Instead, the runtime:
 
 ### Workload Sampling
 
-NMS uses vanilla thermoregulator workload data as input to fuel burn and exertion-related calculations.
+NMS uses vanilla thermoregulator workload data as input to available-energy burn and exertion-related calculations.
 
 [NutritionMakesSense_MetabolismRuntime_Workload.lua](../common/media/lua/shared/runtime/NutritionMakesSense_MetabolismRuntime_Workload.lua) samples:
 - average MET exposure
@@ -92,7 +92,7 @@ NMS uses vanilla thermoregulator workload data as input to fuel burn and exertio
 - `effectiveEnduranceMet`
 - `workTier`
 
-These normalized workload values feed fuel burn, hunger pressure, and exertion-related penalties without replacing the broader metabolism model with a direct thermoregulator simulation.
+These normalized workload values feed available-energy burn, hunger pressure, and exertion-related penalties without replacing the broader metabolism model with a direct thermoregulator simulation.
 
 ### Multiplayer Authority
 
@@ -115,12 +115,11 @@ Tooltip presentation:
 
 Character and health presentation:
 - [NutritionMakesSense_WeightDisplayHook.lua](../common/media/lua/client/NutritionMakesSense_WeightDisplayHook.lua) adds a smoothed `kg/wk` trend readout to the character screen
-- [NutritionMakesSense_HealthPanelHook.lua](../common/media/lua/client/NutritionMakesSense_HealthPanelHook.lua) displays low-fuel, deprivation, and low-protein warnings in the health panel
+- [NutritionMakesSense_HealthPanelHook.lua](../common/media/lua/client/NutritionMakesSense_HealthPanelHook.lua) displays deprivation and low-protein warnings in the health panel
 - [NutritionMakesSense_MalnourishedMoodle.lua](../common/media/lua/client/NutritionMakesSense_MalnourishedMoodle.lua) registers and drives the malnourishment moodle surface
 
-Awareness cues:
-- [NutritionMakesSense_AwarenessCues.lua](../common/media/lua/client/NutritionMakesSense_AwarenessCues.lua) triggers optional low-energy sound and halo cues when fuel enters the configured low-energy band
-- [NutritionMakesSense_ClientOptions.lua](../common/media/lua/client/NutritionMakesSense_ClientOptions.lua) registers the client-facing cue toggles and debug-tooltip options
+Client options:
+- [NutritionMakesSense_ClientOptions.lua](../common/media/lua/client/NutritionMakesSense_ClientOptions.lua) registers client-facing debug-tooltip options
 
 ## Module Inventory
 
@@ -169,7 +168,6 @@ Awareness cues:
 - `client/NutritionMakesSense_HealthPanelHook.lua` — health-panel warning integration
 - `client/NutritionMakesSense_WeightDisplayHook.lua` — character-screen weight-trend display
 - `client/NutritionMakesSense_MalnourishedMoodle.lua` — malnourishment moodle integration
-- `client/NutritionMakesSense_AwarenessCues.lua` — low-energy cue runtime
 - `client/NutritionMakesSense_ClientOptions.lua` — client mod options
 
 ### Server Runtime
