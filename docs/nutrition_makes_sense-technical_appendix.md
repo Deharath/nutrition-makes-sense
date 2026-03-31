@@ -136,7 +136,7 @@ Client options:
 - `shared/NutritionMakesSense_Data.lua` — generated food-data loader
 - `shared/NutritionMakesSense_StablePatcher.lua` — authored-food patcher and validation report builder
 - `shared/NutritionMakesSense_StableItemRuntime.lua` — stable patch repair hooks
-- `shared/NutritionMakesSense_DevSupport.lua` — debug-launch and development-environment helpers
+- `shared/NutritionMakesSense_DebugSupport.lua` — debug-launch and development-environment helpers
 - `shared/NutritionMakesSense_Metabolism.lua` — metabolism formulas, thresholds, normalization, and gameplay-effect math
 - `shared/NutritionMakesSense_MetabolismRuntime.lua` — authoritative metabolism facade, deposit handling, shell anchoring, and state IO
 - `shared/runtime/NutritionMakesSense_MetabolismRuntime_Lifecycle.lua` — runtime installation and event lifecycle orchestration

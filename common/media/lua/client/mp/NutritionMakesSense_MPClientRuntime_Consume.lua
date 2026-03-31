@@ -169,9 +169,9 @@ function MPClient.applyLocalConsume(playerObj, item, consumedContext, fraction, 
         Runtime.applyVisibleHungerTarget(playerObj, immediateHunger.targetVisibleHunger, (reason or "local-consume") .. "-hunger")
     end
 
-    local DevSupport = NutritionMakesSense.DevSupport
-    if DevSupport and type(DevSupport.noteConsumeEvent) == "function" then
-        DevSupport.noteConsumeEvent({
+    local DebugSupport = NutritionMakesSense.DebugSupport
+    if DebugSupport and type(DebugSupport.noteConsumeEvent) == "function" then
+        DebugSupport.noteConsumeEvent({
             reason = reason or "local-consume",
             item = fullType,
             consume_source = consumeSource,

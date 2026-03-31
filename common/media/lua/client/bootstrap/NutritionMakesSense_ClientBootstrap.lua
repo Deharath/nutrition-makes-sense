@@ -1,6 +1,6 @@
 NutritionMakesSense = NutritionMakesSense or {}
 
-require "NutritionMakesSense_DevSupport"
+require "NutritionMakesSense_DebugSupport"
 require "NutritionMakesSense_ItemAuthority"
 require "NutritionMakesSense_CoreUtils"
 
@@ -12,7 +12,7 @@ local TAG = "[NutritionMakesSense]"
 local DEV_PANEL_HOTKEY = Keyboard and Keyboard.KEY_NUMPAD6 or nil
 local TOOL_PANEL_HOTKEY = Keyboard and Keyboard.KEY_NUMPAD7 or nil
 local TEST_PANEL_HOTKEY = Keyboard and Keyboard.KEY_NUMPAD8 or nil
-local DevSupport = NutritionMakesSense.DevSupport or {}
+local DebugSupport = NutritionMakesSense.DebugSupport or {}
 
 local function log(msg)
     if NutritionMakesSense.log then
@@ -323,7 +323,7 @@ local function canUseDevPanel()
         return false
     end
 
-    return DevSupport.canUseDevTools and DevSupport.canUseDevTools() or false
+    return DebugSupport.canUseDevTools and DebugSupport.canUseDevTools() or false
 end
 
 local function toggleLoadedPanel(tryLoad, globalKey, label)

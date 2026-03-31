@@ -6,7 +6,7 @@ end
 NutritionMakesSense._bootDone = true
 
 require "NutritionMakesSense_MPCompat"
-require "NutritionMakesSense_DevSupport"
+require "NutritionMakesSense_DebugSupport"
 require "NutritionMakesSense_StablePatcher"
 require "NutritionMakesSense_StableItemRuntime"
 require "NutritionMakesSense_ItemAuthority"

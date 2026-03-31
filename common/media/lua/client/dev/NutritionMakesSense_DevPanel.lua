@@ -1,7 +1,7 @@
 NutritionMakesSense = NutritionMakesSense or {}
 NutritionMakesSense.DevPanel = NutritionMakesSense.DevPanel or {}
 
-require "NutritionMakesSense_DevSupport"
+require "NutritionMakesSense_DebugSupport"
 require "dev/panels/NutritionMakesSense_DevPanelSink"
 require "ui/NutritionMakesSense_UIHelpers"
 

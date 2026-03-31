@@ -1,7 +1,7 @@
 NutritionMakesSense = NutritionMakesSense or {}
 
 require "NutritionMakesSense_Boot"
-require "NutritionMakesSense_DevSupport"
+require "NutritionMakesSense_DebugSupport"
 require "NutritionMakesSense_MPClientRuntime"
 require "NutritionMakesSense_ClientOptions"
 require "NutritionMakesSense_TooltipOverlay"

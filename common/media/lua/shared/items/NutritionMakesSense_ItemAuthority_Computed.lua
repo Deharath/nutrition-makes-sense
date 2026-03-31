@@ -51,9 +51,9 @@ local function isDynamicPayloadEntry(entry)
 end
 
 local function notifySeedEvent(reason, item, values)
-    local DevSupport = NutritionMakesSense.DevSupport
-    if DevSupport and type(DevSupport.noteSeedEvent) == "function" then
-        DevSupport.noteSeedEvent({
+    local DebugSupport = NutritionMakesSense.DebugSupport
+    if DebugSupport and type(DebugSupport.noteSeedEvent) == "function" then
+        DebugSupport.noteSeedEvent({
             reason = reason,
             item = item,
             kcal = values.kcal,

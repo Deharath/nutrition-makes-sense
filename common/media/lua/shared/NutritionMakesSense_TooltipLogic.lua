@@ -173,8 +173,8 @@ local function isDebugTooltipMode()
         end
     end
 
-    local devSupport = NutritionMakesSense and NutritionMakesSense.DevSupport or nil
-    if devSupport and type(devSupport.isDebugLaunch) == "function" and devSupport.isDebugLaunch() then
+    local debugSupport = NutritionMakesSense and NutritionMakesSense.DebugSupport or nil
+    if debugSupport and type(debugSupport.isDebugLaunch) == "function" and debugSupport.isDebugLaunch() then
         return true
     end
 

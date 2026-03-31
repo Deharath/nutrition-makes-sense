@@ -1,13 +1,13 @@
 NutritionMakesSense = NutritionMakesSense or {}
 
-require "NutritionMakesSense_DevSupport"
+require "NutritionMakesSense_DebugSupport"
 
 local ClientOptions = NutritionMakesSense.ClientOptions or {}
 NutritionMakesSense.ClientOptions = ClientOptions
 
 local MOD_OPTIONS_ID = "NutritionMakesSense"
 local registered = false
-local DevSupport = NutritionMakesSense.DevSupport or {}
+local DebugSupport = NutritionMakesSense.DebugSupport or {}
 
 local function getOptionsObject()
     if not (PZAPI and PZAPI.ModOptions and type(PZAPI.ModOptions.getOptions) == "function") then
@@ -54,7 +54,7 @@ function ClientOptions.ensureRegistered()
         return false
     end
 
-    if DevSupport.isDebugLaunch and DevSupport.isDebugLaunch() then
+    if DebugSupport.isDebugLaunch and DebugSupport.isDebugLaunch() then
         options:addTitle(getText("UI_NMS_ModOptions_Debug_Title"))
         ensureTickBox(
             options,
@@ -70,7 +70,7 @@ function ClientOptions.ensureRegistered()
 end
 
 function ClientOptions.isDebugLaunch()
-    return DevSupport.isDebugLaunch and DevSupport.isDebugLaunch() or false
+    return DebugSupport.isDebugLaunch and DebugSupport.isDebugLaunch() or false
 end
 
 function ClientOptions.getShowDebugFoodTooltips()

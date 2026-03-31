@@ -1,10 +1,10 @@
 NutritionMakesSense = NutritionMakesSense or {}
 
-local DevSupport = NutritionMakesSense.DevSupport or {}
-NutritionMakesSense.DevSupport = DevSupport
+local DebugSupport = NutritionMakesSense.DebugSupport or {}
+NutritionMakesSense.DebugSupport = DebugSupport
 
-local eventSinks = DevSupport._eventSinks or {}
-DevSupport._eventSinks = eventSinks
+local eventSinks = DebugSupport._eventSinks or {}
+DebugSupport._eventSinks = eventSinks
 
 local function isDebugLaunch()
     if type(isDebugEnabled) == "function" and isDebugEnabled() then
@@ -22,11 +22,11 @@ local function isDebugLaunch()
     return false
 end
 
-function DevSupport.isDebugLaunch()
+function DebugSupport.isDebugLaunch()
     return isDebugLaunch()
 end
 
-function DevSupport.canUseDevTools()
+function DebugSupport.canUseDevTools()
     if isDebugLaunch() then
         return true
     end
@@ -53,7 +53,7 @@ local function normalizeSink(sink)
     return sink
 end
 
-function DevSupport.registerEventSink(name, sink)
+function DebugSupport.registerEventSink(name, sink)
     local key = tostring(name or "")
     if key == "" then
         return false
@@ -68,7 +68,7 @@ function DevSupport.registerEventSink(name, sink)
     return true
 end
 
-function DevSupport.unregisterEventSink(name)
+function DebugSupport.unregisterEventSink(name)
     local key = tostring(name or "")
     if key == "" then
         return false
@@ -79,7 +79,7 @@ function DevSupport.unregisterEventSink(name)
     return existed
 end
 
-function DevSupport.getEventSinkCount()
+function DebugSupport.getEventSinkCount()
     local count = 0
     for _, _ in pairs(eventSinks) do
         count = count + 1
@@ -96,12 +96,12 @@ local function dispatchEvent(methodName, event)
     end
 end
 
-function DevSupport.noteConsumeEvent(event)
+function DebugSupport.noteConsumeEvent(event)
     dispatchEvent("noteConsumeEvent", event)
 end
 
-function DevSupport.noteSeedEvent(event)
+function DebugSupport.noteSeedEvent(event)
     dispatchEvent("noteSeedEvent", event)
 end
 
-return DevSupport
+return DebugSupport
