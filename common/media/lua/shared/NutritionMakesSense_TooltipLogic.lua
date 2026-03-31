@@ -372,14 +372,12 @@ function TooltipLogic.buildDescriptorRows(item, viewer)
     local debugMode = isDebugTooltipMode()
     local visibility = TooltipLogic.getVanillaNutritionVisibility(item, viewer)
 
-    local satiety = TooltipLogic.getSatietyDescriptor(values)
-    if satiety then
-        local label = "Satiety"
-        if debugMode and Metabolism and type(Metabolism.getImmediateHungerDrop) == "function" then
-            label = string.format("Satiety [%s]", formatDebugNumber(Metabolism.getImmediateHungerDrop(values, 1), 2))
-        end
-        rows[#rows + 1] = { label = label, value = satiety }
+    local satiety = TooltipLogic.getSatietyDescriptor(values) or "None"
+    local satietyLabel = "Satiety"
+    if debugMode and Metabolism and type(Metabolism.getImmediateHungerDrop) == "function" then
+        satietyLabel = string.format("Satiety [%s]", formatDebugNumber(Metabolism.getImmediateHungerDrop(values, 1), 2))
     end
+    rows[#rows + 1] = { label = satietyLabel, value = satiety }
 
     if debugMode and Metabolism and type(Metabolism.getSatietyContribution) == "function" then
         rows[#rows + 1] = {
@@ -388,14 +386,12 @@ function TooltipLogic.buildDescriptorRows(item, viewer)
         }
     end
 
-    local energy = TooltipLogic.getEnergyDescriptor(values)
-    if energy then
-        local label = "Energy Content"
-        if debugMode then
-            label = string.format("Energy Content [%s kcal]", formatDebugNumber(values.kcal, 0))
-        end
-        rows[#rows + 1] = { label = label, value = energy }
+    local energy = TooltipLogic.getEnergyDescriptor(values) or "None"
+    local energyLabel = "Energy Content"
+    if debugMode then
+        energyLabel = string.format("Energy Content [%s kcal]", formatDebugNumber(values.kcal, 0))
     end
+    rows[#rows + 1] = { label = energyLabel, value = energy }
 
     local macro = TooltipLogic.getDominantMacroDescriptor(values)
     if macro and not visibility.exactNumbersVisible then

@@ -1,9 +1,11 @@
 NutritionMakesSense = NutritionMakesSense or {}
 
 require "NutritionMakesSense_Data"
+require "NutritionMakesSense_Settings"
 
 local StablePatcher = NutritionMakesSense.StablePatcher or {}
 NutritionMakesSense.StablePatcher = StablePatcher
+local Settings = NutritionMakesSense.Settings or {}
 
 local EPSILON = 0.001
 local HUNGER_TO_RUNTIME_SCALE = 0.01
@@ -16,6 +18,13 @@ local function log(msg)
     else
         print("[NutritionMakesSense] " .. tostring(msg))
     end
+end
+
+local function useCuratedFoodValues()
+    if type(Settings.useCuratedFoodValues) == "function" then
+        return Settings.useCuratedFoodValues()
+    end
+    return true
 end
 
 local function getScriptManagerHandle()
@@ -208,6 +217,8 @@ local function buildRuntimeReport(data, context)
         routedRows = 0,
         explicitExceptionRows = 0,
         deferredProbeRows = 0,
+        skippedPatchedRows = 0,
+        curatedValuesEnabled = true,
     }
 end
 
@@ -225,58 +236,66 @@ function StablePatcher.ensurePatched(context)
 
     local data = NutritionMakesSense.Data.loadRuntimeData(false)
     local runtimeReport = buildRuntimeReport(data, context or "unknown")
+    runtimeReport.curatedValuesEnabled = useCuratedFoodValues()
     local reportOkay, reportErr = validateStaticReport(runtimeReport)
     if not reportOkay then
         error(reportErr)
     end
 
-    local scriptManager = getScriptManagerHandle()
-    if not scriptManager or type(scriptManager.getItem) ~= "function" then
-        error("ScriptManager.getItem unavailable during stable patching")
+    local scriptManager = nil
+    if runtimeReport.curatedValuesEnabled then
+        scriptManager = getScriptManagerHandle()
+        if not scriptManager or type(scriptManager.getItem) ~= "function" then
+            error("ScriptManager.getItem unavailable during stable patching")
+        end
     end
 
     for _, entry in ipairs(runtimeReport.entries) do
         if entry.action == "patched" then
-            local expectedValues = data.valuesByItemId[entry.patch_source or entry.item_id]
-            if not expectedValues then
-                addIssue(runtimeReport.validation.patchedRowsMissingValues, entry.item_id, "missing curated runtime values")
+            if not runtimeReport.curatedValuesEnabled then
+                runtimeReport.skippedPatchedRows = runtimeReport.skippedPatchedRows + 1
             else
-                local scriptItem = scriptManager:getItem(entry.item_id)
-                if not scriptItem then
-                    addIssue(runtimeReport.validation.missingScriptItems, entry.item_id, "script item not found")
+                local expectedValues = data.valuesByItemId[entry.patch_source or entry.item_id]
+                if not expectedValues then
+                    addIssue(runtimeReport.validation.patchedRowsMissingValues, entry.item_id, "missing curated runtime values")
                 else
-                    local expected = toExpectedValues(expectedValues)
-                    local ok, patchErr = pcall(patchScriptItem, scriptItem, expected)
-                    if not ok then
-                        addIssue(runtimeReport.validation.patchFailures, entry.item_id, patchErr)
+                    local scriptItem = scriptManager:getItem(entry.item_id)
+                    if not scriptItem then
+                        addIssue(runtimeReport.validation.missingScriptItems, entry.item_id, "script item not found")
                     else
-                        local probeOkay, probeErr = probePatchedItem(entry.item_id, expected)
-                        if not probeOkay then
-                            if probeErr == PROBE_UNAVAILABLE_ERR then
-                                addIssue(runtimeReport.validation.deferredProbeFailures, entry.item_id, probeErr)
-                                runtimeReport.deferredProbeRows = runtimeReport.deferredProbeRows + 1
-                                runtimeReport.patchedRows = runtimeReport.patchedRows + 1
-                            else
-                                addIssue(runtimeReport.validation.probeFailures, entry.item_id, probeErr)
-                                if #runtimeReport.validation.probeFailures <= MAX_PROBE_FAILURE_LOGS then
-                                    local scriptSnapshot = snapshotScriptItem(scriptItem)
-                                    log(string.format(
-                                        "[STABLE_PATCH_PROBE_FAIL] item=%s scriptHunger=%s scriptKcal=%s scriptCarbs=%s scriptFats=%s scriptProteins=%s expectedScriptHunger=%s expectedRuntimeHunger=%s expectedKcal=%s detail=%s",
-                                        tostring(entry.item_id),
-                                        tostring(scriptSnapshot.hungerChange),
-                                        tostring(scriptSnapshot.calories),
-                                        tostring(scriptSnapshot.carbs),
-                                        tostring(scriptSnapshot.fats),
-                                        tostring(scriptSnapshot.proteins),
-                                        tostring(expected.hunger),
-                                        tostring(expected.runtimeHunger),
-                                        tostring(expected.kcal),
-                                        tostring(probeErr)
-                                    ))
-                                end
-                            end
+                        local expected = toExpectedValues(expectedValues)
+                        local ok, patchErr = pcall(patchScriptItem, scriptItem, expected)
+                        if not ok then
+                            addIssue(runtimeReport.validation.patchFailures, entry.item_id, patchErr)
                         else
-                            runtimeReport.patchedRows = runtimeReport.patchedRows + 1
+                            local probeOkay, probeErr = probePatchedItem(entry.item_id, expected)
+                            if not probeOkay then
+                                if probeErr == PROBE_UNAVAILABLE_ERR then
+                                    addIssue(runtimeReport.validation.deferredProbeFailures, entry.item_id, probeErr)
+                                    runtimeReport.deferredProbeRows = runtimeReport.deferredProbeRows + 1
+                                    runtimeReport.patchedRows = runtimeReport.patchedRows + 1
+                                else
+                                    addIssue(runtimeReport.validation.probeFailures, entry.item_id, probeErr)
+                                    if #runtimeReport.validation.probeFailures <= MAX_PROBE_FAILURE_LOGS then
+                                        local scriptSnapshot = snapshotScriptItem(scriptItem)
+                                        log(string.format(
+                                            "[STABLE_PATCH_PROBE_FAIL] item=%s scriptHunger=%s scriptKcal=%s scriptCarbs=%s scriptFats=%s scriptProteins=%s expectedScriptHunger=%s expectedRuntimeHunger=%s expectedKcal=%s detail=%s",
+                                            tostring(entry.item_id),
+                                            tostring(scriptSnapshot.hungerChange),
+                                            tostring(scriptSnapshot.calories),
+                                            tostring(scriptSnapshot.carbs),
+                                            tostring(scriptSnapshot.fats),
+                                            tostring(scriptSnapshot.proteins),
+                                            tostring(expected.hunger),
+                                            tostring(expected.runtimeHunger),
+                                            tostring(expected.kcal),
+                                            tostring(probeErr)
+                                        ))
+                                    end
+                                end
+                            else
+                                runtimeReport.patchedRows = runtimeReport.patchedRows + 1
+                            end
                         end
                     end
                 end
@@ -298,11 +317,13 @@ function StablePatcher.ensurePatched(context)
     NutritionMakesSense.stablePatchReport = runtimeReport
 
     log(string.format(
-        "[STABLE_PATCH_REPORT] mod=%s active=%s context=%s patched=%d deferred=%d runtime=%d explicit=%d direct=%s whole=%s open=%s composed=%s",
+        "[STABLE_PATCH_REPORT] mod=%s active=%s context=%s curated=%s patched=%d skipped=%d deferred=%d runtime=%d explicit=%d direct=%s whole=%s open=%s composed=%s",
         tostring(runtimeReport.modId),
         tostring(runtimeReport.activeModId),
         tostring(runtimeReport.context),
+        tostring(runtimeReport.curatedValuesEnabled),
         runtimeReport.patchedRows,
+        runtimeReport.skippedPatchedRows,
         runtimeReport.deferredProbeRows,
         tonumber(runtimeReport.actionTotals and runtimeReport.actionTotals.authored_runtime or 0),
         runtimeReport.explicitExceptionRows,

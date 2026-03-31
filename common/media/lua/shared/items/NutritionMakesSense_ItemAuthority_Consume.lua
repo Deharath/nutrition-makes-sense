@@ -6,6 +6,18 @@ local Metabolism = NutritionMakesSense.Metabolism or {}
 
 local CONSUME_EPSILON = 0.0001
 
+local function resolveStaticAuthoritySource(totalSnapshot, fullType, entry)
+    if type(totalSnapshot) == "table" and type(totalSnapshot.nutritionSource) == "string" and totalSnapshot.nutritionSource ~= "" then
+        return totalSnapshot.nutritionSource
+    end
+
+    if type(ItemAuthority.getStaticFoodValueSource) == "function" then
+        return ItemAuthority.getStaticFoodValueSource(fullType, entry)
+    end
+
+    return "authored"
+end
+
 local function resolveFullTypeHint(itemOrFullType, hintedFullType)
     if type(hintedFullType) == "string" and hintedFullType ~= "" then
         return hintedFullType
@@ -166,18 +178,20 @@ function ItemAuthority.resolveGameplayConsumeAuthoritySource(itemOrFullType, hin
 
     local fullType = tostring(totalSnapshot.fullType or resolveFullTypeHint(itemOrFullType, hintedFullType) or "")
     local entry = type(ItemAuthority.getFoodEntry) == "function" and select(1, ItemAuthority.getFoodEntry(fullType)) or nil
-    local authoritySource = snapshotMode == "static" and "authored" or "computed"
+    local authoritySource = snapshotMode == "static"
+        and resolveStaticAuthoritySource(totalSnapshot, fullType, entry) or "computed"
     return authoritySource, entry, fullType
 end
 
 function ItemAuthority.resolveGameplayAuthoredConsumedValues(itemOrFullType, fraction, hintedFullType)
-    local totalSnapshot, entry, _, snapshotMode, current = resolveSnapshotState(itemOrFullType, hintedFullType, "authored-consume")
+    local totalSnapshot, entry, fullType, snapshotMode, current = resolveSnapshotState(itemOrFullType, hintedFullType, "authored-consume")
     if snapshotMode ~= "static" then
         return nil
     end
 
     local remainingSnapshot = buildRemainingSnapshot(itemOrFullType, totalSnapshot, current)
-    return scaleSnapshotForConsume(itemOrFullType, remainingSnapshot, fraction, entry, "authored")
+    local authoritySource = resolveStaticAuthoritySource(totalSnapshot, fullType, entry)
+    return scaleSnapshotForConsume(itemOrFullType, remainingSnapshot, fraction, entry, authoritySource)
 end
 
 function ItemAuthority.resolveGameplayComputedConsumedValues(itemOrFullType, fraction, hintedFullType)
@@ -197,13 +211,14 @@ function ItemAuthority.resolveGameplayConsumedValues(itemOrFullType, fraction, h
         return nil
     end
 
-    local totalSnapshot, entry, _, snapshotMode, current = resolveSnapshotState(itemOrFullType, hintedFullType, "consume")
+    local totalSnapshot, entry, fullType, snapshotMode, current = resolveSnapshotState(itemOrFullType, hintedFullType, "consume")
     if type(totalSnapshot) ~= "table" then
         return nil
     end
 
     local remainingSnapshot = buildRemainingSnapshot(itemOrFullType, totalSnapshot, current)
-    local authoritySource = snapshotMode == "static" and "authored" or "computed"
+    local authoritySource = snapshotMode == "static"
+        and resolveStaticAuthoritySource(totalSnapshot, fullType, entry) or "computed"
     return scaleSnapshotForConsume(itemOrFullType, remainingSnapshot, consumedFraction, entry, authoritySource)
 end
 

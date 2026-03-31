@@ -15,6 +15,7 @@ local resolveAppliedSnapshot = ItemAuthority.resolveAppliedSnapshot
 local snapshotsMatch = ItemAuthority.snapshotsMatch
 local applySnapshot = ItemAuthority.applySnapshot
 local warnAuthorityOnce = ItemAuthority.warnAuthorityOnce
+local getStaticFoodValueSource = ItemAuthority.getStaticFoodValueSource
 local visitList = CoreUtils.visitList
 
 local function refreshBindings()
@@ -30,6 +31,7 @@ local function refreshBindings()
     snapshotsMatch = ItemAuthority.snapshotsMatch
     applySnapshot = ItemAuthority.applySnapshot
     warnAuthorityOnce = ItemAuthority.warnAuthorityOnce
+    getStaticFoodValueSource = ItemAuthority.getStaticFoodValueSource
     visitList = CoreUtils.visitList
     eachKnownPlayer = CoreUtils.eachKnownPlayer
 end
@@ -362,7 +364,12 @@ syncItem = function(item, mode, reason)
     end
 
     if type(resolveEntrySource) == "function" and type(resolveSnapshotMode) == "function" then
-        if resolveEntrySource(entry) == "authored" and resolveSnapshotMode(item, fullType, entry) == "static" then
+        local staticSource = type(getStaticFoodValueSource) == "function"
+            and getStaticFoodValueSource(fullType, entry) or "authored"
+        if resolveEntrySource(entry) == "authored"
+            and resolveSnapshotMode(item, fullType, entry) == "static"
+            and staticSource == "authored"
+        then
             return "ignored"
         end
     end
@@ -380,7 +387,7 @@ syncItem = function(item, mode, reason)
             tostring(mode or "capture"),
             tostring(reason),
             tostring(fullType),
-            tostring(resolvedSource or "authored")
+            tostring(applied and applied.nutritionSource or resolvedSource or "authored")
         ))
         return stored and "restored" or "captured"
     end

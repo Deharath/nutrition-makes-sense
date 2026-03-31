@@ -4,15 +4,17 @@ require "NutritionMakesSense_Data"
 require "NutritionMakesSense_MPCompat"
 require "NutritionMakesSense_StablePatcher"
 require "NutritionMakesSense_CoreUtils"
+require "NutritionMakesSense_Settings"
 
 local ItemAuthority = NutritionMakesSense.ItemAuthority or {}
 NutritionMakesSense.ItemAuthority = ItemAuthority
 
 local CoreUtils = NutritionMakesSense.CoreUtils or {}
+local Settings = NutritionMakesSense.Settings or {}
 
 local SNAPSHOT_KEY = "NutritionMakesSenseItemAuthority"
 local SNAPSHOT_VERSION_KEY = "NutritionMakesSenseItemAuthorityVersion"
-local SNAPSHOT_VERSION = 8
+local SNAPSHOT_VERSION = 9
 local EPSILON = 0.001
 local HUNGER_TO_RUNTIME_SCALE = 0.01
 local SNAPSHOT_MODE_STATIC = "static"
@@ -20,6 +22,7 @@ local SNAPSHOT_MODE_FLUID = "fluid"
 local SNAPSHOT_MODE_COMPOSED = "composed"
 local TRACKED_SOURCES = {
     authored = true,
+    vanilla = true,
     computed = true,
 }
 local authorityWarnings = {}
@@ -105,6 +108,23 @@ end
 
 local function isTrackedSource(nutritionSource)
     return TRACKED_SOURCES[nutritionSource] == true
+end
+
+local function getStaticFoodValueSource()
+    if type(Settings.getStaticFoodValueSource) == "function" then
+        return Settings.getStaticFoodValueSource()
+    end
+    return "authored"
+end
+
+local function getScriptManagerHandle()
+    if type(getScriptManager) == "function" then
+        return getScriptManager()
+    end
+    if ScriptManager and ScriptManager.instance then
+        return ScriptManager.instance
+    end
+    return nil
 end
 
 local function getRuntimeData()
@@ -227,10 +247,15 @@ local function normalizeSnapshot(fullType, entry, snapshot)
         return nil
     end
 
-    local nutritionSource = tostring(snapshot.nutritionSource or snapshot.nutrition_source or resolveEntrySource(entry) or "")
-    if nutritionSource == "" then
-        nutritionSource = inferredMode == SNAPSHOT_MODE_STATIC and "authored" or "computed"
+    local nutritionSource = snapshot.nutritionSource or snapshot.nutrition_source
+    if nutritionSource == nil or tostring(nutritionSource) == "" then
+        if inferredMode == SNAPSHOT_MODE_STATIC then
+            nutritionSource = getStaticFoodValueSource()
+        else
+            nutritionSource = resolveEntrySource(entry) or "computed"
+        end
     end
+    nutritionSource = tostring(nutritionSource or "")
     if not isTrackedSource(nutritionSource) then
         return nil
     end
@@ -332,6 +357,64 @@ local function getFoodEntry(itemOrFullType)
     end
 
     return nil, fullType
+end
+
+local function readScriptNumber(scriptItem, getterName, fieldName)
+    local value = safeCall(scriptItem, getterName)
+    if value == nil and fieldName then
+        value = rawLookup(scriptItem, fieldName)
+    end
+    return tonumber(value)
+end
+
+local function getStaticScriptItem(fullType, entry)
+    local scriptManager = getScriptManagerHandle()
+    if not scriptManager or type(scriptManager.getItem) ~= "function" then
+        return nil, nil
+    end
+
+    local resolvedFullType = tostring(fullType or "")
+    if resolvedFullType ~= "" then
+        local directItem = scriptManager:getItem(resolvedFullType)
+        if directItem then
+            return directItem, resolvedFullType
+        end
+    end
+
+    local patchSource = entry and entry.patch_source and tostring(entry.patch_source) or nil
+    if patchSource and patchSource ~= "" and patchSource ~= resolvedFullType then
+        local patchItem = scriptManager:getItem(patchSource)
+        if patchItem then
+            return patchItem, patchSource
+        end
+    end
+
+    return nil, nil
+end
+
+local function getVanillaDefaultValues(fullType, entry)
+    local scriptItem, sourceFullType = getStaticScriptItem(fullType, entry)
+    if not scriptItem then
+        warnAuthorityOnce(fullType, "vanilla-defaults-script-missing")
+        return nil
+    end
+
+    local scriptHunger = readScriptNumber(scriptItem, "getHungerChange", "hungerChange") or 0
+    local runtimeHunger = scriptHunger * HUNGER_TO_RUNTIME_SCALE
+    return normalizeSnapshot(fullType, entry, {
+        fullType = fullType,
+        nutritionSource = "vanilla",
+        snapshotMode = SNAPSHOT_MODE_STATIC,
+        sourceFullType = sourceFullType or fullType,
+        provenance = "vanilla",
+        seedReason = "defaults",
+        hunger = runtimeHunger,
+        baseHunger = runtimeHunger,
+        kcal = readScriptNumber(scriptItem, "getCalories", "calories") or 0,
+        carbs = readScriptNumber(scriptItem, "getCarbohydrates", "carbohydrates") or 0,
+        fats = readScriptNumber(scriptItem, "getLipids", "lipids") or 0,
+        proteins = readScriptNumber(scriptItem, "getProteins", "proteins") or 0,
+    })
 end
 
 local function getFluidContainer(item)
@@ -447,7 +530,7 @@ local function readCurrentValues(item, fullType, entry)
 
     return normalizeSnapshot(fullType, entry, {
         fullType = fullType,
-        nutritionSource = resolveEntrySource(entry) or (isRuntimeComposedEntry(entry) and "computed" or "authored"),
+        nutritionSource = isRuntimeComposedEntry(entry) and "computed" or getStaticFoodValueSource(),
         sourceFullType = fullType,
         provenance = "live",
         seedReason = "current-values",
@@ -465,6 +548,10 @@ local function getDefaultValues(fullType, entry)
     local resolvedFullType = type(fullType) == "string" and fullType or tostring(fullType or "")
     if resolvedFullType == "" then
         return nil
+    end
+
+    if getStaticFoodValueSource() == "vanilla" then
+        return getVanillaDefaultValues(resolvedFullType, entry)
     end
 
     local patchSource = (entry and entry.patch_source) or resolvedFullType
@@ -705,6 +792,13 @@ local function ensureSnapshot(item, reason, hintedFullType)
     if stored and tostring(stored.snapshotMode or "") ~= tostring(expectedMode) then
         clearStoredSnapshot(item)
         stored = nil
+    end
+    if stored and expectedMode == SNAPSHOT_MODE_STATIC then
+        local expectedSource = getStaticFoodValueSource()
+        if tostring(stored.nutritionSource or "") ~= tostring(expectedSource) then
+            clearStoredSnapshot(item)
+            stored = nil
+        end
     end
 
     if stored and expectedMode == SNAPSHOT_MODE_FLUID and shouldReseedFluidSnapshot(current, stored) then
@@ -1015,6 +1109,7 @@ ItemAuthority.clamp01 = clamp01
 ItemAuthority.getFoodEntry = getFoodEntry
 ItemAuthority.resolveEntrySource = resolveEntrySource
 ItemAuthority.hasVanillaDynamicValues = hasVanillaDynamicValues
+ItemAuthority.getStaticFoodValueSource = getStaticFoodValueSource
 ItemAuthority.readCurrentValuesPrivate = readCurrentValues
 ItemAuthority.readStoredSnapshotPrivate = readStoredSnapshot
 ItemAuthority.resolveSnapshotMode = getExpectedSnapshotMode

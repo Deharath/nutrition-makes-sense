@@ -123,9 +123,15 @@ function ItemAuthority.getResolvedNutritionSource(item)
     local stored = type(ItemAuthority.readStoredSnapshotPrivate) == "function"
         and ItemAuthority.readStoredSnapshotPrivate(item, fullType, entry) or nil
     if type(stored) == "table" then
-        return tostring(stored.snapshotMode or stored.nutritionSource or "unknown")
+        return tostring(stored.nutritionSource or stored.snapshotMode or "unknown")
     end
-    return type(ItemAuthority.resolveEntrySource) == "function" and ItemAuthority.resolveEntrySource(entry) or nil
+    local source = type(ItemAuthority.resolveEntrySource) == "function" and ItemAuthority.resolveEntrySource(entry) or nil
+    local snapshotMode = type(ItemAuthority.resolveSnapshotMode) == "function"
+        and ItemAuthority.resolveSnapshotMode(item, fullType, entry) or nil
+    if source == "authored" and snapshotMode == "static" and type(ItemAuthority.getStaticFoodValueSource) == "function" then
+        return ItemAuthority.getStaticFoodValueSource(fullType, entry)
+    end
+    return source
 end
 
 function ItemAuthority.getItemId(item)

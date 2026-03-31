@@ -1,0 +1,5 @@
+{
+    "Sandbox_NutritionMakesSense": "Nutrition Makes Sense",
+    "Sandbox_NutritionMakesSense_UseCuratedFoodValues": "Use Curated Food Values",
+    "Sandbox_NutritionMakesSense_UseCuratedFoodValues_tooltip": "When enabled, NMS rewrites vanilla food hunger, calorie, and macro values to its curated set. Turn this off to keep vanilla food values while still using the broader NMS hunger, weight, and deprivation systems."
+}
