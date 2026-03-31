@@ -345,7 +345,7 @@ end
 
 function DevPanel.isRecording() return recording end
 
-function DevPanel.noteConsumeEvent(event)
+function DevPanel.noteConsumeEvent(_self, event)
     if type(event) ~= "table" then return end
     pendingRecordEvent = {
         reason = tostring(event.reason or ""),
@@ -365,7 +365,7 @@ function DevPanel.noteConsumeEvent(event)
     end
 end
 
-function DevPanel.noteSeedEvent(event)
+function DevPanel.noteSeedEvent(_self, event)
     if type(event) ~= "table" or not recording then return end
     lastSampleGameMinute = getWorldAgeMinutes()
     recordSample(computeSnapshot())

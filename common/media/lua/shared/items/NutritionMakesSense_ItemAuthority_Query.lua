@@ -7,8 +7,9 @@ NutritionMakesSense.ItemAuthority = ItemAuthority
 local Metabolism = NutritionMakesSense.Metabolism or {}
 local CoreUtils = NutritionMakesSense.CoreUtils or {}
 
+-- Consume.lua loads after this file and overrides the public consume/display entry points.
 local visitList = CoreUtils.visitList
-local CONSUME_EPSILON = 0.0001
+local CONSUME_EPSILON = ItemAuthority.CONSUME_EPSILON or 0.0001
 
 local function refreshBindings()
     ItemAuthority = NutritionMakesSense.ItemAuthority or ItemAuthority
@@ -16,6 +17,7 @@ local function refreshBindings()
     Metabolism = NutritionMakesSense.Metabolism or Metabolism
     CoreUtils = NutritionMakesSense.CoreUtils or CoreUtils
     visitList = ItemAuthority.visitList or CoreUtils.visitList
+    CONSUME_EPSILON = ItemAuthority.CONSUME_EPSILON or CONSUME_EPSILON
 end
 
 local function hasMeaningfulNutrition(snapshot)
@@ -74,7 +76,7 @@ end
 
 function ItemAuthority.resolveAuthoredConsumedValues(itemOrFullType, fraction)
     refreshBindings()
-    local entry, fullType = ItemAuthority.getFoodEntry and ItemAuthority.getFoodEntry(itemOrFullType) or nil, nil
+    local entry, fullType = nil, nil
     if type(ItemAuthority.getFoodEntry) == "function" then
         entry, fullType = ItemAuthority.getFoodEntry(itemOrFullType)
     end
@@ -113,7 +115,7 @@ end
 
 function ItemAuthority.getResolvedNutritionSource(item)
     refreshBindings()
-    local entry, fullType = type(ItemAuthority.getFoodEntry) == "function" and ItemAuthority.getFoodEntry(item) or nil, nil
+    local entry, fullType = nil, nil
     if type(ItemAuthority.getFoodEntry) == "function" then
         entry, fullType = ItemAuthority.getFoodEntry(item)
     end
@@ -123,7 +125,15 @@ function ItemAuthority.getResolvedNutritionSource(item)
     local stored = type(ItemAuthority.readStoredSnapshotPrivate) == "function"
         and ItemAuthority.readStoredSnapshotPrivate(item, fullType, entry) or nil
     if type(stored) == "table" then
-        return tostring(stored.nutritionSource or stored.snapshotMode or "unknown")
+        local storedSource = tostring(stored.nutritionSource or "")
+        if storedSource ~= "" then
+            return storedSource
+        end
+        local storedMode = tostring(stored.snapshotMode or "")
+        if storedMode == "composed" or storedMode == "fluid" then
+            return "computed"
+        end
+        return storedMode ~= "" and storedMode or "unknown"
     end
     local source = type(ItemAuthority.resolveEntrySource) == "function" and ItemAuthority.resolveEntrySource(entry) or nil
     local snapshotMode = type(ItemAuthority.resolveSnapshotMode) == "function"
@@ -142,7 +152,7 @@ end
 
 function ItemAuthority.getDisplayValues(item)
     refreshBindings()
-    local entry, fullType = type(ItemAuthority.getFoodEntry) == "function" and ItemAuthority.getFoodEntry(item) or nil, nil
+    local entry, fullType = nil, nil
     if type(ItemAuthority.getFoodEntry) == "function" then
         entry, fullType = ItemAuthority.getFoodEntry(item)
     end
@@ -167,7 +177,7 @@ end
 
 function ItemAuthority.getConsumedValues(item, fraction)
     refreshBindings()
-    local entry, fullType = type(ItemAuthority.getFoodEntry) == "function" and ItemAuthority.getFoodEntry(item) or nil, nil
+    local entry, fullType = nil, nil
     if type(ItemAuthority.getFoodEntry) == "function" then
         entry, fullType = ItemAuthority.getFoodEntry(item)
     end
@@ -271,7 +281,7 @@ end
 
 function ItemAuthority.getDebugSnapshot(item)
     refreshBindings()
-    local entry, fullType = type(ItemAuthority.getFoodEntry) == "function" and ItemAuthority.getFoodEntry(item) or nil, nil
+    local entry, fullType = nil, nil
     if type(ItemAuthority.getFoodEntry) == "function" then
         entry, fullType = ItemAuthority.getFoodEntry(item)
     end

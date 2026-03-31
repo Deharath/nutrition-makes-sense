@@ -17,6 +17,7 @@ local applySnapshot = ItemAuthority.applySnapshot
 local warnAuthorityOnce = ItemAuthority.warnAuthorityOnce
 local getStaticFoodValueSource = ItemAuthority.getStaticFoodValueSource
 local visitList = CoreUtils.visitList
+local eachKnownPlayer = CoreUtils.eachKnownPlayer
 
 local function refreshBindings()
     ItemAuthority = NutritionMakesSense.ItemAuthority or ItemAuthority
@@ -33,7 +34,7 @@ local function refreshBindings()
     warnAuthorityOnce = ItemAuthority.warnAuthorityOnce
     getStaticFoodValueSource = ItemAuthority.getStaticFoodValueSource
     visitList = CoreUtils.visitList
-    eachKnownPlayer = CoreUtils.eachKnownPlayer
+    eachKnownPlayer = CoreUtils.eachKnownPlayer or eachKnownPlayer
 end
 
 local function summarizeResult(summary, action)
@@ -287,8 +288,6 @@ local function logTraversalSummary(tag, summary, state, mode, reason)
         tonumber(state.vehiclesVisited or 0)
     ))
 end
-
-local eachKnownPlayer = CoreUtils.eachKnownPlayer
 
 local function syncTraversedSurfaces(reason, mode, includeLoadedWorld)
     refreshBindings()

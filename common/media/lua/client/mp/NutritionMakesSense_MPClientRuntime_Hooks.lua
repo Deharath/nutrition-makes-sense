@@ -63,6 +63,35 @@ local function raiseConsumeHardFail(reason, itemOrFullType, fraction, detail)
     ))
 end
 
+local function applyConsumeOrHardFail(kind, character, item, consumedContext, fraction, fullTypeHint, applyConsume, missingReason)
+    if not consumedContext then
+        raiseConsumeHardFail(
+            kind,
+            fullTypeHint or safeCall(item, "getFullType") or item or "unknown",
+            fraction,
+            missingReason or "context-missing"
+        )
+    end
+
+    if type(applyConsume) ~= "function" then
+        raiseConsumeHardFail(
+            kind,
+            fullTypeHint or safeCall(item, "getFullType") or item or "unknown",
+            fraction,
+            "apply-missing"
+        )
+    end
+
+    if applyConsume(character, item, consumedContext, fraction, kind) == false then
+        raiseConsumeHardFail(
+            kind,
+            fullTypeHint or safeCall(item, "getFullType") or item or "unknown",
+            fraction,
+            "apply-failed"
+        )
+    end
+end
+
 local function hasMeaningfulMacroValues(values)
     if type(values) ~= "table" then
         return false
@@ -143,6 +172,24 @@ local function assertConsumeRuntimeReady(where)
     ))
 end
 
+local function assertHandcraftRuntimeReady(where)
+    refreshBindings()
+    local authorityReady = type(ItemAuthority) == "table"
+        and type(ItemAuthority.sumConsumedPayload) == "function"
+        and type(ItemAuthority.seedDynamicOutputs) == "function"
+    if authorityReady then
+        return
+    end
+
+    error(string.format(
+        "[NMS_BOOT_HARD_FAIL] where=%s authority=%s sum=%s seed=%s",
+        tostring(where or "unknown"),
+        tostring(type(ItemAuthority) == "table"),
+        tostring(type(ItemAuthority) == "table" and type(ItemAuthority.sumConsumedPayload) == "function"),
+        tostring(type(ItemAuthority) == "table" and type(ItemAuthority.seedDynamicOutputs) == "function")
+    ))
+end
+
 function MPClient.wrapDrinkFluidAction()
     assertConsumeRuntimeReady("wrap-drink")
     if NutritionMakesSense._drinkFluidWrapped then
@@ -177,16 +224,28 @@ function MPClient.wrapDrinkFluidAction()
         local resolveConsumed = getResolveConsumedContext()
         local applyConsume = getApplyLocalConsume()
         local consumedContext = type(resolveConsumed) == "function" and resolveConsumed(item, consumedFraction, preVisibleHunger) or nil
-        if consumedContext and type(applyConsume) == "function" then
-            applyConsume(character, item, consumedContext, consumedFraction, "drink-fluid")
-        else
+        if type(consumedContext) == "table" and consumedContext.skip == true then
+            return
+        end
+        if not consumedContext then
             raiseConsumeHardFail(
                 "drink-fluid",
                 safeCall(item, "getFullType") or item,
                 consumedFraction,
                 type(resolveConsumed) == "function" and "context-missing" or "resolver-missing"
             )
+            return
         end
+        applyConsumeOrHardFail(
+            "drink-fluid",
+            character,
+            item,
+            consumedContext,
+            consumedFraction,
+            safeCall(item, "getFullType") or item,
+            applyConsume,
+            "context-missing"
+        )
     end
 
     NutritionMakesSense._drinkFluidWrapped = true
@@ -230,14 +289,13 @@ function MPClient.wrapEatFoodAction()
         end
 
         local result = type(originalComplete) == "function" and originalComplete(self) or true
-        if consumedContext and type(applyConsume) == "function" then
-            applyConsume(character, item, consumedContext, fraction, "eat-food")
+        if type(consumedContext) == "table" and consumedContext.skip == true then
+            return result
         end
-
         if not consumedContext then
             local reason = "unknown"
             if fraction <= CONSUME_EPSILON then
-                reason = "fraction-zero"
+                return result
             elseif type(resolveConsumed) ~= "function" then
                 reason = "resolver-missing"
             elseif type(ItemAuthority) ~= "table" then
@@ -246,6 +304,8 @@ function MPClient.wrapEatFoodAction()
                 and type(ItemAuthority.resolveConsumedPayload) ~= "function"
             then
                 reason = "authority-consume-api-missing"
+            else
+                reason = "context-missing"
             end
             raiseConsumeHardFail(
                 "eat-food",
@@ -254,6 +314,17 @@ function MPClient.wrapEatFoodAction()
                 reason
             )
         end
+
+        applyConsumeOrHardFail(
+            "eat-food",
+            character,
+            item,
+            consumedContext,
+            fraction,
+            fullTypeHint,
+            applyConsume,
+            "context-missing"
+        )
         return result
     end
 
@@ -268,6 +339,7 @@ function MPClient.wrapEatFoodAction()
 end
 
 function MPClient.wrapHandcraftAction()
+    assertHandcraftRuntimeReady("wrap-handcraft")
     if NutritionMakesSense._handcraftWrapped then
         return
     end
@@ -350,8 +422,14 @@ function MPClient.wrapAddItemInRecipeAction()
         local afterCurrent = baseItem and afterFullType
             and type(ItemAuthority.readCurrentValuesPrivate) == "function"
             and ItemAuthority.readCurrentValuesPrivate(baseItem, afterFullType, afterEntry) or nil
+        local measureEntry = afterEntry
+        local measureFullType = afterFullType
+        if not measureEntry or not measureFullType then
+            measureEntry = beforeEntry
+            measureFullType = beforeFullType
+        end
         local addedValues = type(ItemAuthority.measureAccumulatedPayload) == "function"
-            and ItemAuthority.measureAccumulatedPayload(afterFullType or beforeFullType, afterEntry or beforeEntry, beforeCurrent, afterCurrent)
+            and ItemAuthority.measureAccumulatedPayload(measureFullType, measureEntry, beforeCurrent, afterCurrent)
             or nil
 
         if addedValues and type(ItemAuthority.accumulateDynamicPayload) == "function" then

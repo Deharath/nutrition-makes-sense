@@ -4,7 +4,7 @@ local ItemAuthority = NutritionMakesSense.ItemAuthority or {}
 NutritionMakesSense.ItemAuthority = ItemAuthority
 local Metabolism = NutritionMakesSense.Metabolism or {}
 
-local CONSUME_EPSILON = 0.0001
+local CONSUME_EPSILON = ItemAuthority.CONSUME_EPSILON or 0.0001
 
 local function resolveStaticAuthoritySource(totalSnapshot, fullType, entry)
     if type(totalSnapshot) == "table" and type(totalSnapshot.nutritionSource) == "string" and totalSnapshot.nutritionSource ~= "" then
@@ -239,7 +239,11 @@ function ItemAuthority.resolveGameplayConsumeContext(itemOrFullType, fraction, p
         and proteins <= CONSUME_EPSILON
         and hunger <= CONSUME_EPSILON
     then
-        return nil
+        return {
+            skip = true,
+            reason = "no-meaningful-nutrition",
+            source = tostring(values.consumeAuthoritySource or "unknown"),
+        }
     end
 
     return {

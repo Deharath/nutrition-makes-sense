@@ -747,6 +747,7 @@ function TooltipOverlay.install()
     patchInventoryTooltip()
     patchItemSlotTooltip()
 
+    -- Retry once at boot in case the UI classes were not available when the client facade loaded.
     if Events and Events.OnGameBoot and type(Events.OnGameBoot.Add) == "function" then
         Events.OnGameBoot.Add(function()
             patchInventoryTooltip()

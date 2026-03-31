@@ -10,7 +10,7 @@ local UI_BORDER_SPACING = 10
 local FONT = UIFont.Small
 local FONT_HGT_MEDIUM = getTextManager():getFontHeight(UIFont.Medium)
 
-local smoothedRate = nil
+local smoothedRateByPlayer = setmetatable({}, { __mode = "k" })
 local SMOOTH_ALPHA = 0.08
 
 local function getState(player)
@@ -26,11 +26,13 @@ local function hookedRender(self)
     if not state then return end
 
     local rawRate = tonumber(state.lastWeightRateKgPerWeek) or 0
+    local smoothedRate = smoothedRateByPlayer[self.char]
     if smoothedRate == nil then
         smoothedRate = rawRate
     else
         smoothedRate = smoothedRate + SMOOTH_ALPHA * (rawRate - smoothedRate)
     end
+    smoothedRateByPlayer[self.char] = smoothedRate
 
     local rate = smoothedRate
     local z = UI_BORDER_SPACING + FONT_HGT_MEDIUM + UI_BORDER_SPACING * 2

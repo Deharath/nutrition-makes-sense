@@ -16,6 +16,7 @@ local SNAPSHOT_KEY = "NutritionMakesSenseItemAuthority"
 local SNAPSHOT_VERSION_KEY = "NutritionMakesSenseItemAuthorityVersion"
 local SNAPSHOT_VERSION = 9
 local EPSILON = 0.001
+local CONSUME_EPSILON = 0.0001
 local HUNGER_TO_RUNTIME_SCALE = 0.01
 local SNAPSHOT_MODE_STATIC = "static"
 local SNAPSHOT_MODE_FLUID = "fluid"
@@ -314,6 +315,8 @@ local function snapshotsMatch(a, b)
     end
 
     return tostring(a.snapshotMode or "") == tostring(b.snapshotMode or "")
+        and tostring(a.nutritionSource or "") == tostring(b.nutritionSource or "")
+        and tostring(a.carbProfile or "") == tostring(b.carbProfile or "")
         and tostring(a.fluidPayloadId or "") == tostring(b.fluidPayloadId or "")
         and numbersClose(a.hunger, b.hunger)
         and numbersClose(a.baseHunger, b.baseHunger)
@@ -1105,6 +1108,7 @@ ItemAuthority.SNAPSHOT_VERSION = SNAPSHOT_VERSION
 ItemAuthority.safeCall = safeCall
 ItemAuthority.log = log
 ItemAuthority.EPSILON = EPSILON
+ItemAuthority.CONSUME_EPSILON = CONSUME_EPSILON
 ItemAuthority.clamp01 = clamp01
 ItemAuthority.getFoodEntry = getFoodEntry
 ItemAuthority.resolveEntrySource = resolveEntrySource
@@ -1130,6 +1134,7 @@ ItemAuthority.snapshotsMatch = snapshotsMatch
 ItemAuthority.warnAuthorityOnce = warnAuthorityOnce
 ItemAuthority.resolveAppliedSnapshot = resolveAppliedSnapshot
 ItemAuthority.getEntrySemanticClass = getEntrySemanticClass
+ItemAuthority.isRuntimeComposedEntry = isRuntimeComposedEntry
 ItemAuthority.visitList = CoreUtils.visitList
 
 local function loadItemAuthorityModule(moduleName, shortName)

@@ -151,6 +151,17 @@ local function onServerCommand(module, command, args)
 
     local incomingSeq = tonumber(args.serverSeq) or nil
     local previousSeq = tonumber(state.lastAcceptedSnapshotSeq) or nil
+    local bootstrapReset = args.bootstrap == true and incomingSeq ~= nil and previousSeq ~= nil and incomingSeq <= previousSeq
+    if bootstrapReset then
+        log(string.format(
+            "[CLIENT_SNAPSHOT_RESET] seq=%s previous=%s reason=%s",
+            tostring(incomingSeq),
+            tostring(previousSeq),
+            tostring(args.reason or "server")
+        ))
+        previousSeq = nil
+        state.lastAcceptedSnapshotSeq = nil
+    end
     if incomingSeq ~= nil and previousSeq ~= nil and incomingSeq <= previousSeq then
         log(string.format(
             "[CLIENT_SNAPSHOT_DROP] seq=%s previous=%s reason=%s",

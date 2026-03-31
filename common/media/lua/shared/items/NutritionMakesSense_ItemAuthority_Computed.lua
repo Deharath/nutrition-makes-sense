@@ -42,6 +42,10 @@ local function isDynamicPayloadEntry(entry)
         return false
     end
 
+    if type(ItemAuthority.isRuntimeComposedEntry) == "function" and ItemAuthority.isRuntimeComposedEntry(entry) then
+        return true
+    end
+
     if resolveEntrySource(entry) == "computed" then
         return true
     end
@@ -50,12 +54,13 @@ local function isDynamicPayloadEntry(entry)
     return semanticClass == "runtime_composed_output"
 end
 
-local function notifySeedEvent(reason, item, values)
+local function notifySeedEvent(reason, item, values, fullType)
     local DebugSupport = NutritionMakesSense.DebugSupport
     if DebugSupport and type(DebugSupport.noteSeedEvent) == "function" then
         DebugSupport.noteSeedEvent({
             reason = reason,
             item = item,
+            fullType = fullType or tostring(item),
             kcal = values.kcal,
             carbs = values.carbs,
             fats = values.fats,
@@ -112,7 +117,7 @@ local function seedComputedPayload(item, values, reason)
     local remainingFraction = resolveRemainingFraction(item, current, total)
     applySnapshot(item, buildAppliedSnapshot(total, remainingFraction))
 
-    notifySeedEvent(reason or "computed-seed", fullType, total)
+    notifySeedEvent(reason or "computed-seed", item, total, fullType)
 
     log(string.format(
         "[ITEM_AUTHORITY_COMPUTED_SEED] reason=%s item=%s kcal=%.1f carbs=%.1f fats=%.1f proteins=%.1f",
@@ -173,7 +178,7 @@ local function accumulateComputedPayload(item, addedValues, reason)
     local remainingFraction = resolveRemainingFraction(item, current, combined)
     applySnapshot(item, buildAppliedSnapshot(combined, remainingFraction))
 
-    notifySeedEvent(reason or "computed-accumulate", fullType, combined)
+    notifySeedEvent(reason or "computed-accumulate", item, combined, fullType)
 
     log(string.format(
         "[ITEM_AUTHORITY_COMPUTED_ACCUMULATE] reason=%s item=%s kcal=%.1f carbs=%.1f fats=%.1f proteins=%.1f",

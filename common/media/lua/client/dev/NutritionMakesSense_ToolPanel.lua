@@ -58,7 +58,9 @@ local PRESETS = {
     },
 }
 
-local SIM_PROFILES = type(SimRunner.getProfiles) == "function" and SimRunner.getProfiles() or {}
+local function getSimProfiles()
+    return type(SimRunner.getProfiles) == "function" and SimRunner.getProfiles() or {}
+end
 
 local FIELDS = {
     { key = "fuel",              label = "Energy",      fmt = "%.0f" },
@@ -249,7 +251,7 @@ function NMS_ToolOverlay:createChildren()
     y = y + 6
     self:drawSectionAt(y, "Sim Profiles")
     y = y + 18
-    for _, profile in ipairs(SIM_PROFILES) do
+    for _, profile in ipairs(getSimProfiles()) do
         local btn = ISButton:new(PAD, y, 112, 20, profile.label, self, NMS_ToolOverlay.onRunSimProfile)
         btn:initialise()
         btn.internal = profile.id

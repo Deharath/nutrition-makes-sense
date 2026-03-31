@@ -152,7 +152,18 @@ function MPClient.applyLocalConsume(playerObj, item, consumedContext, fraction, 
             fraction = tonumber(fraction or 0),
             reason = tostring(reason or "client-consume"),
         }
-        return pcall(sendClientCommand, tostring(MP.NET_MODULE), tostring(MP.CONSUME_ITEM_COMMAND), args)
+        local ok, err = pcall(sendClientCommand, tostring(MP.NET_MODULE), tostring(MP.CONSUME_ITEM_COMMAND), args)
+        if not ok then
+            log(string.format(
+                "[MP_CLIENT_CONSUME_SEND_FAIL] event=%s item=%s reason=%s detail=%s",
+                tostring(eventId),
+                tostring(fullType),
+                tostring(reason or "client-consume"),
+                tostring(err)
+            ))
+            return false
+        end
+        return true
     end
 
     if not isLocalAuthorityRuntime() or not Runtime or type(Runtime.applyAuthoritativeDeposit) ~= "function" then

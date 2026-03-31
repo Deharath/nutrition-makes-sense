@@ -9,6 +9,60 @@ local UIHelpers = NutritionMakesSense.UIHelpers or {}
 local ClientHooks = NutritionMakesSense.ClientHooks or {}
 NutritionMakesSense.ClientHooks = ClientHooks
 
+local nmsMeleePenalty = {}
+
+local function getWallClockSeconds()
+    if type(getTimestampMs) == "function" then
+        local nowMs = tonumber(getTimestampMs())
+        if nowMs ~= nil then
+            return math.floor(nowMs / 1000)
+        end
+    end
+    if type(getTimestamp) == "function" then
+        local nowSecond = tonumber(getTimestamp())
+        if nowSecond ~= nil then
+            return math.floor(nowSecond)
+        end
+    end
+    return 0
+end
+
+local function getWeaponId(weapon)
+    return UIHelpers.safeCall(weapon, "getID") or tostring(weapon)
+end
+
+local function restoreMeleePenalty(weaponId, penalty)
+    if not penalty then
+        return
+    end
+
+    local weapon = penalty.weapon
+    if weapon then
+        UIHelpers.safeCall(weapon, "setMinDamage", penalty.minDmg)
+        UIHelpers.safeCall(weapon, "setMaxDamage", penalty.maxDmg)
+    end
+    nmsMeleePenalty[weaponId] = nil
+end
+
+local function cleanupMeleePenalties(playerObj)
+    if not playerObj then
+        return
+    end
+
+    local activeWeapon = UIHelpers.safeCall(playerObj, "getPrimaryHandItem") or UIHelpers.safeCall(playerObj, "getWeapon")
+    local activeWeaponId = activeWeapon and getWeaponId(activeWeapon) or nil
+    local nowSecond = getWallClockSeconds()
+
+    for weaponId, penalty in pairs(nmsMeleePenalty) do
+        if penalty.player == playerObj then
+            local expired = nowSecond > 0 and tonumber(penalty.appliedAt) ~= nil and (nowSecond - penalty.appliedAt) >= 2
+            if activeWeaponId ~= weaponId or expired then
+                restoreMeleePenalty(weaponId, penalty)
+            end
+        end
+    end
+end
+
 local function onPlayerUpdate(playerObj)
     if not playerObj then
         return
@@ -20,9 +74,8 @@ local function onPlayerUpdate(playerObj)
     if Runtime and type(Runtime.syncVisibleIndicators) == "function" then
         Runtime.syncVisibleIndicators(playerObj, "client-player-update")
     end
+    cleanupMeleePenalties(playerObj)
 end
-
-local nmsMeleePenalty = {}
 
 local function onMeleeAttackStart(character, chargeDelta, weapon)
     if not character or not weapon then
@@ -49,10 +102,16 @@ local function onMeleeAttackStart(character, chargeDelta, weapon)
         return
     end
 
-    local weaponId = UIHelpers.safeCall(weapon, "getID") or tostring(weapon)
+    local weaponId = getWeaponId(weapon)
     local origMin = UIHelpers.safeCall(weapon, "getMinDamage") or 0
     local origMax = UIHelpers.safeCall(weapon, "getMaxDamage") or 0
-    nmsMeleePenalty[weaponId] = { minDmg = origMin, maxDmg = origMax }
+    nmsMeleePenalty[weaponId] = {
+        weapon = weapon,
+        player = character,
+        minDmg = origMin,
+        maxDmg = origMax,
+        appliedAt = getWallClockSeconds(),
+    }
     UIHelpers.safeCall(weapon, "setMinDamage", origMin * mult)
     UIHelpers.safeCall(weapon, "setMaxDamage", origMax * mult)
 end
@@ -62,13 +121,8 @@ local function onMeleeAttackFinished(playerObj, weapon)
         return
     end
 
-    local weaponId = UIHelpers.safeCall(weapon, "getID") or tostring(weapon)
-    local saved = nmsMeleePenalty[weaponId]
-    if saved then
-        UIHelpers.safeCall(weapon, "setMinDamage", saved.minDmg)
-        UIHelpers.safeCall(weapon, "setMaxDamage", saved.maxDmg)
-        nmsMeleePenalty[weaponId] = nil
-    end
+    local weaponId = getWeaponId(weapon)
+    restoreMeleePenalty(weaponId, nmsMeleePenalty[weaponId])
 end
 
 local function install()

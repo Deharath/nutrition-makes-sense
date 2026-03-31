@@ -27,18 +27,7 @@ function DebugSupport.isDebugLaunch()
 end
 
 function DebugSupport.canUseDevTools()
-    if isDebugLaunch() then
-        return true
-    end
-
-    if type(isClient) == "function" and isClient() and type(getAccessLevel) == "function" then
-        local ok, accessLevel = pcall(getAccessLevel)
-        if ok and (accessLevel == "admin" or accessLevel == "moderator") then
-            return true
-        end
-    end
-
-    return false
+    return isDebugLaunch()
 end
 
 local function normalizeSink(sink)
@@ -91,7 +80,12 @@ local function dispatchEvent(methodName, event)
     for _, sink in pairs(eventSinks) do
         local handler = sink and sink[methodName] or nil
         if type(handler) == "function" then
-            pcall(handler, sink, event)
+            local info = debug and debug.getinfo and debug.getinfo(handler, "u") or nil
+            if info and tonumber(info.nparams) == 1 and info.isvararg ~= true then
+                pcall(handler, event)
+            else
+                pcall(handler, sink, event)
+            end
         end
     end
 end

@@ -178,7 +178,7 @@ Client options:
 
 - `client/dev/NutritionMakesSense_DevPanel.lua` — main in-game development panel
 - `client/dev/NutritionMakesSense_ToolPanel.lua` — targeted tool panel for item and state operations
-- `client/dev/NutritionMakesSense_TestPanel.lua` — quick in-game test utilities
+- `client/dev/NutritionMakesSense_TestPanel.lua` — live scenario runner control surface for time acceleration, scripted intake, and result review
 - `client/dev/NutritionMakesSense_SimRunner.lua` — simulation runner entry point
 - `client/dev/NutritionMakesSense_LiveScenarioRunner.lua` — live scenario orchestration, recording, and assertion runtime
 - `client/dev/NutritionMakesSense_LiveScenarioRunnerUtils.lua` — shared helpers for live runner assertions and state comparison

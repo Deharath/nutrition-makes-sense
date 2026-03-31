@@ -12,6 +12,7 @@ require "NutritionMakesSense_WeightDisplayHook"
 require "bootstrap/NutritionMakesSense_ClientBootstrap"
 require "hooks/NutritionMakesSense_ClientHooks"
 
+-- Install MP projection before client-facing UI hooks so HUD surfaces read fresh snapshot state.
 if NutritionMakesSense.MPClientRuntime and type(NutritionMakesSense.MPClientRuntime.install) == "function" then
     NutritionMakesSense.MPClientRuntime.install()
 end
@@ -36,6 +37,7 @@ end
 if NutritionMakesSense.ClientBootstrap and type(NutritionMakesSense.ClientBootstrap.install) == "function" then
     NutritionMakesSense.ClientBootstrap.install()
 end
+-- ClientHooks depends on the projection/UI runtime already being installed this tick.
 if NutritionMakesSense.ClientHooks and type(NutritionMakesSense.ClientHooks.install) == "function" then
     NutritionMakesSense.ClientHooks.install()
 end

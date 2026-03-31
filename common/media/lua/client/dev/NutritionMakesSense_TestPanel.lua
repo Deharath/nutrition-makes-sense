@@ -22,6 +22,7 @@ local FONT_S = UIFont.NewSmall
 local FONT_M = UIFont.Medium
 local CONTROL_ROW_H = 22
 local CONTROL_LABEL_OFFSET = 12
+local FUEL_MAX = tonumber(Metabolism.FUEL_MAX) or 2000
 
 local BG    = { r = 0.05, g = 0.06, b = 0.08, a = 0.96 }
 local BORD  = { r = 0.25, g = 0.40, b = 0.48, a = 0.6 }
@@ -437,7 +438,7 @@ function NMS_TestOverlay:renderIdle(state, startY)
     if not state then
         return drawKV(self, y, "State", "unavailable", DIM)
     end
-    y = drawStateRow(self, y, "Energy", state.fuel, "%.0f", state.lastZone, colorForZone(state.lastZone), (state.fuel or 0) / 2000, colorForZone(state.lastZone))
+    y = drawStateRow(self, y, "Energy", state.fuel, "%.0f", state.lastZone, colorForZone(state.lastZone), (state.fuel or 0) / FUEL_MAX, colorForZone(state.lastZone))
     y = drawStateRow(self, y, "Hunger", state.visibleHunger, "%.3f", state.lastHungerBand, colorForBand(state.lastHungerBand), state.visibleHunger, colorForBand(state.lastHungerBand))
     y = drawStateRow(self, y, "Depriv", state.deprivation, "%.3f", nil, nil, state.deprivation, colorForDepriv(state.deprivation))
     y = drawStateRow(self, y, "Satiety", state.satietyBuffer, "%.3f", nil, nil, (state.satietyBuffer or 0) / 1.5, HEAD)
@@ -571,7 +572,7 @@ function NMS_TestOverlay:renderRunning(s, startY)
     -- Player State
     y = drawSection(self, y, "Player State")
     local zc = colorForZone(s.zone)
-    y = drawStateRow(self, y, "Energy", s.fuel, "%.0f", s.zone, zc, (s.fuel or 0) / 2000, zc)
+    y = drawStateRow(self, y, "Energy", s.fuel, "%.0f", s.zone, zc, (s.fuel or 0) / FUEL_MAX, zc)
     local hc = colorForBand(s.hungerBand)
     y = drawStateRow(self, y, "Hunger", s.hunger, "%.3f", s.hungerBand, hc, s.hunger, hc)
     local dc = colorForDepriv(s.deprivation)
@@ -721,7 +722,16 @@ function TestPanel.isVisible()
     return panelInstance ~= nil and panelInstance:isVisible()
 end
 
-function TestPanel.abortActive() end
-function TestPanel.onEveryOneMinute() end
+function TestPanel.abortActive()
+    if type(LiveRunner.abort) == "function" then
+        LiveRunner.abort("test-panel-abort")
+    end
+end
+
+function TestPanel.onEveryOneMinute()
+    if panelInstance and panelInstance.loadValues then
+        panelInstance:loadValues()
+    end
+end
 
 return TestPanel
