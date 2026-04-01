@@ -20,6 +20,12 @@ local setStatValue = Runtime.setStatValue
 local safeCall = Runtime.safeCall
 local normalizeReportedWorkloadSample = Runtime.normalizeReportedWorkloadSample
 local REPORTED_WORKLOAD_WINDOW_HOURS = Runtime.REPORTED_WORKLOAD_WINDOW_HOURS or (4 / 3600)
+local isCompatEnduranceActive = Runtime.isCompatEnduranceActive or function()
+    return false
+end
+local isCompatFatigueActive = Runtime.isCompatFatigueActive or function()
+    return false
+end
 
 local function pruneReportedWorkloadSamples(samples, nowHours)
     if type(samples) ~= "table" then
@@ -99,7 +105,7 @@ local function accumulateWorkloadSample(playerObj, state, cache, live, nowHours)
     if state and stats then
         local endurance = getCharacterStatValue(stats, "ENDURANCE", "getEndurance")
         local previous = state.lastEnduranceObserved
-        if endurance ~= nil then
+        if endurance ~= nil and not isCompatEnduranceActive() then
             local controlled = endurance
             local regenScale = 1.0
             local deprivDrain = 0
@@ -130,7 +136,7 @@ local function accumulateWorkloadSample(playerObj, state, cache, live, nowHours)
         end
 
         local fatigueAccel = Metabolism.getFatigueAccelFactor(state.deprivation)
-        if fatigueAccel > 1.0 and not live.sleepObserved then
+        if (not isCompatFatigueActive()) and fatigueAccel > 1.0 and not live.sleepObserved then
             local vanillaFatiguePerHour = 0.042
             local extraFatigue = vanillaFatiguePerHour * (fatigueAccel - 1.0) * deltaHours
             if extraFatigue > 0 then

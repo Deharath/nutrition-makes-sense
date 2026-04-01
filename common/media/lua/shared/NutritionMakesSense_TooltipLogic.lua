@@ -353,10 +353,10 @@ function TooltipLogic.getDominantMacroDescriptor(values)
 
     local top = ranked[1]
     local second = ranked[2]
-    if top.share < 0.55 then
+    if top.share < 0.52 then
         return nil
     end
-    if (top.share - second.share) < 0.15 then
+    if (top.share - second.share) < 0.09 then
         return nil
     end
     return top.label

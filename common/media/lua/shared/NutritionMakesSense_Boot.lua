@@ -41,6 +41,7 @@ end
 NutritionMakesSense.log = NutritionMakesSense.log or log
 
 require "NutritionMakesSense_MPCompat"
+require "NutritionMakesSense_Compat"
 require "NutritionMakesSense_DebugSupport"
 require "NutritionMakesSense_StablePatcher"
 require "NutritionMakesSense_StableItemRuntime"

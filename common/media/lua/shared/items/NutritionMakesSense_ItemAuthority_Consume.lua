@@ -6,6 +6,13 @@ local Metabolism = NutritionMakesSense.Metabolism or {}
 
 local CONSUME_EPSILON = ItemAuthority.CONSUME_EPSILON or 0.0001
 
+local function refreshBindings()
+    ItemAuthority = NutritionMakesSense.ItemAuthority or ItemAuthority
+    NutritionMakesSense.ItemAuthority = ItemAuthority
+    Metabolism = NutritionMakesSense.Metabolism or Metabolism
+    CONSUME_EPSILON = ItemAuthority.CONSUME_EPSILON or CONSUME_EPSILON
+end
+
 local function resolveStaticAuthoritySource(totalSnapshot, fullType, entry)
     if type(totalSnapshot) == "table" and type(totalSnapshot.nutritionSource) == "string" and totalSnapshot.nutritionSource ~= "" then
         return totalSnapshot.nutritionSource
@@ -77,6 +84,7 @@ local function isLiveItem(itemOrFullType)
 end
 
 local function buildImmediateHunger(values, preVisibleHunger)
+    refreshBindings()
     if type(values) ~= "table" or type(Metabolism.getImmediateHungerDrop) ~= "function" then
         return nil
     end
@@ -101,8 +109,10 @@ local function annotateConsumedValues(values, entry, authoritySource)
         return nil
     end
 
-    values.semanticClass = type(ItemAuthority.getEntrySemanticClass) == "function"
-        and (ItemAuthority.getEntrySemanticClass(entry) or values.semanticClass) or values.semanticClass or "unknown"
+    values.authorityKind = type(ItemAuthority.getEntryAuthorityKind) == "function"
+        and (ItemAuthority.getEntryAuthorityKind(entry) or values.authorityKind) or values.authorityKind or "unknown"
+    values.portionKind = type(ItemAuthority.getEntryPortionKind) == "function"
+        and (ItemAuthority.getEntryPortionKind(entry) or values.portionKind) or values.portionKind or "unknown"
     values.consumeAuthoritySource = authoritySource or values.consumeAuthoritySource
     return values
 end
@@ -223,6 +233,7 @@ function ItemAuthority.resolveGameplayConsumedValues(itemOrFullType, fraction, h
 end
 
 function ItemAuthority.resolveGameplayConsumeContext(itemOrFullType, fraction, preVisibleHunger, hintedFullType)
+    refreshBindings()
     local values = ItemAuthority.resolveGameplayConsumedValues(itemOrFullType, fraction, hintedFullType)
     if type(values) ~= "table" then
         return nil

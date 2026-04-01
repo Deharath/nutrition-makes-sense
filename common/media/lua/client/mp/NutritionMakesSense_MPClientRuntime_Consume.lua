@@ -30,6 +30,38 @@ local function refreshBindings()
     makeEventId = MPClient.makeEventId or makeEventId
 end
 
+local function copyConsumeValues(values)
+    if type(values) ~= "table" then
+        return nil
+    end
+
+    return {
+        fullType = values.fullType,
+        authorityTarget = values.authorityTarget,
+        authorityKind = values.authorityKind,
+        portionKind = values.portionKind,
+        hunger = tonumber(values.hunger) or 0,
+        kcal = tonumber(values.kcal) or 0,
+        carbs = tonumber(values.carbs) or 0,
+        fats = tonumber(values.fats) or 0,
+        proteins = tonumber(values.proteins) or 0,
+        consumeAuthoritySource = values.consumeAuthoritySource,
+    }
+end
+
+local function copyImmediateHunger(immediateHunger)
+    if type(immediateHunger) ~= "table" then
+        return nil
+    end
+
+    return {
+        drop = tonumber(immediateHunger.drop) or 0,
+        preVisibleHunger = tonumber(immediateHunger.preVisibleHunger) or 0,
+        targetVisibleHunger = tonumber(immediateHunger.targetVisibleHunger) or 0,
+        mechanical = tonumber(immediateHunger.mechanical) or 0,
+    }
+end
+
 function MPClient.getVisibleHunger(playerObj)
     refreshBindings()
     local stats = playerObj and safeCall(playerObj, "getStats") or nil
@@ -143,6 +175,27 @@ function MPClient.applyLocalConsume(playerObj, item, consumedContext, fraction, 
     local fullType = safeCall(item, "getFullType") or item and (item.fullType or item.id) or "unknown"
     local itemId = ItemAuthority.getItemId and ItemAuthority.getItemId(item) or tonumber(safeCall(item, "getID") or item and item.id or nil)
     local eventId = makeEventId(playerObj, itemId, reason)
+    local DebugSupport = NutritionMakesSense.DebugSupport
+
+    local function noteDebugConsumeEvent()
+        if not (DebugSupport and type(DebugSupport.noteConsumeEvent) == "function") then
+            return
+        end
+        DebugSupport.noteConsumeEvent({
+            reason = reason or "local-consume",
+            item = fullType,
+            consume_source = consumeSource,
+            fraction = fraction,
+            kcal = consumedValues.kcal,
+            carbs = consumedValues.carbs,
+            fats = consumedValues.fats,
+            proteins = consumedValues.proteins,
+            immediate_hunger_drop = immediateHunger and immediateHunger.drop or nil,
+            immediate_hunger_mechanical = immediateHunger and immediateHunger.mechanical or nil,
+            pre_visible_hunger = immediateHunger and immediateHunger.preVisibleHunger or nil,
+            target_visible_hunger = immediateHunger and immediateHunger.targetVisibleHunger or nil,
+        })
+    end
 
     if isClientRuntime() and type(sendClientCommand) == "function" then
         local args = {
@@ -151,6 +204,9 @@ function MPClient.applyLocalConsume(playerObj, item, consumedContext, fraction, 
             fullType = tostring(fullType),
             fraction = tonumber(fraction or 0),
             reason = tostring(reason or "client-consume"),
+            consumeSource = consumeSource and tostring(consumeSource) or nil,
+            consumed = copyConsumeValues(consumedValues),
+            immediateHunger = copyImmediateHunger(immediateHunger),
         }
         local ok, err = pcall(sendClientCommand, tostring(MP.NET_MODULE), tostring(MP.CONSUME_ITEM_COMMAND), args)
         if not ok then
@@ -163,6 +219,10 @@ function MPClient.applyLocalConsume(playerObj, item, consumedContext, fraction, 
             ))
             return false
         end
+        if immediateHunger and type(Runtime.applyVisibleHungerTarget) == "function" then
+            Runtime.applyVisibleHungerTarget(playerObj, immediateHunger.targetVisibleHunger, (reason or "client-consume") .. "-hunger")
+        end
+        noteDebugConsumeEvent()
         return true
     end
 
@@ -180,23 +240,7 @@ function MPClient.applyLocalConsume(playerObj, item, consumedContext, fraction, 
         Runtime.applyVisibleHungerTarget(playerObj, immediateHunger.targetVisibleHunger, (reason or "local-consume") .. "-hunger")
     end
 
-    local DebugSupport = NutritionMakesSense.DebugSupport
-    if DebugSupport and type(DebugSupport.noteConsumeEvent) == "function" then
-        DebugSupport.noteConsumeEvent({
-            reason = reason or "local-consume",
-            item = fullType,
-            consume_source = consumeSource,
-            fraction = fraction,
-            kcal = consumedValues.kcal,
-            carbs = consumedValues.carbs,
-            fats = consumedValues.fats,
-            proteins = consumedValues.proteins,
-            immediate_hunger_drop = immediateHunger and immediateHunger.drop or nil,
-            immediate_hunger_mechanical = immediateHunger and immediateHunger.mechanical or nil,
-            pre_visible_hunger = immediateHunger and immediateHunger.preVisibleHunger or nil,
-            target_visible_hunger = immediateHunger and immediateHunger.targetVisibleHunger or nil,
-        })
-    end
+    noteDebugConsumeEvent()
 
     log(string.format(
         "[NMS_CONSUME] item=%s source=%s reason=%s fraction=%.3f",

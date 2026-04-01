@@ -115,7 +115,7 @@ Tooltip presentation:
 
 Character and health presentation:
 - [NutritionMakesSense_WeightDisplayHook.lua](../common/media/lua/client/NutritionMakesSense_WeightDisplayHook.lua) adds a smoothed `kg/wk` trend readout to the character screen
-- [NutritionMakesSense_HealthPanelHook.lua](../common/media/lua/client/NutritionMakesSense_HealthPanelHook.lua) displays deprivation and low-protein warnings in the health panel
+- [NutritionMakesSense_HealthPanelHook.lua](../common/media/lua/client/NutritionMakesSense_HealthPanelHook.lua) displays deprivation and low-protein warnings in the health panel and can host CMS's caffeine line in stacked mode
 - [NutritionMakesSense_MalnourishedMoodle.lua](../common/media/lua/client/NutritionMakesSense_MalnourishedMoodle.lua) registers and drives the malnourishment moodle surface
 
 Client options:
@@ -137,18 +137,22 @@ Client options:
 - `shared/NutritionMakesSense_StablePatcher.lua` — authored-food patcher and validation report builder
 - `shared/NutritionMakesSense_StableItemRuntime.lua` — stable patch repair hooks
 - `shared/NutritionMakesSense_DebugSupport.lua` — debug-launch and development-environment helpers
+- `shared/NutritionMakesSense_Compat.lua` — cross-mod compat registry bootstrap
+- `shared/NutritionMakesSense_HealthPanelCompat.lua` — health-panel compat helper that advertises NMS as coordinator and prepends hosted external lines
 - `shared/NutritionMakesSense_Metabolism.lua` — metabolism formulas, thresholds, normalization, and gameplay-effect math
 - `shared/NutritionMakesSense_MetabolismRuntime.lua` — authoritative metabolism facade, deposit handling, shell anchoring, and state IO
 - `shared/runtime/NutritionMakesSense_MetabolismRuntime_Lifecycle.lua` — runtime installation and event lifecycle orchestration
 - `shared/runtime/NutritionMakesSense_MetabolismRuntime_Authority.lua` — authoritative player-state update path
+- `shared/runtime/NutritionMakesSense_MetabolismRuntime_Compat.lua` — stacked-mode compat provider callbacks for endurance and fatigue
 - `shared/runtime/NutritionMakesSense_MetabolismRuntime_Sync.lua` — snapshot building and visible-shell synchronization
 - `shared/runtime/NutritionMakesSense_MetabolismRuntime_Workload.lua` — MET sampling, smoothing, and reported-workload helpers
+- `shared/dev/NutritionMakesSense_CompatTraceShared.lua` — shared compat-trace row builder and neutral CSV writer for stacked dev verification
 - `shared/NutritionMakesSense_ItemAuthority.lua` — item-authority facade
 - `shared/items/NutritionMakesSense_ItemAuthority_Query.lua` — item lookup and display-value resolution
 - `shared/items/NutritionMakesSense_ItemAuthority_Lifecycle.lua` — snapshot lifecycle management for live items
 - `shared/items/NutritionMakesSense_ItemAuthority_Traversal.lua` — traversal helpers for inventories, world items, containers, and vehicles
 - `shared/items/NutritionMakesSense_ItemAuthority_Computed.lua` — runtime snapshot construction for computed foods
-- `shared/items/NutritionMakesSense_ItemAuthority_Consume.lua` — consumed-value resolution for gameplay deposits
+- `shared/items/NutritionMakesSense_ItemAuthority_Consume.lua` — consumed-value resolution for gameplay deposits and immediate visible-hunger targets on local-authority consume paths
 - `shared/NutritionMakesSense_TooltipLogic.lua` — shared tooltip logic
 - `shared/generated/NutritionMakesSense_FoodValues.lua` — generated nutrition values
 - `shared/generated/NutritionMakesSense_FoodSemantics.lua` — generated semantic metadata
@@ -165,7 +169,7 @@ Client options:
 - `client/hooks/NutritionMakesSense_ClientHooks.lua` — player hooks for shell synchronization and deprivation-driven melee damage adjustment
 - `client/ui/NutritionMakesSense_UIHelpers.lua` — UI helper functions for translation, formatting, and state access
 - `client/NutritionMakesSense_TooltipOverlay.lua` — tooltip patch and layout injection
-- `client/NutritionMakesSense_HealthPanelHook.lua` — health-panel warning integration
+- `client/NutritionMakesSense_HealthPanelHook.lua` — health-panel warning integration and stacked-mode host for compat lines such as CMS caffeine status
 - `client/NutritionMakesSense_WeightDisplayHook.lua` — character-screen weight-trend display
 - `client/NutritionMakesSense_MalnourishedMoodle.lua` — malnourishment moodle integration
 - `client/NutritionMakesSense_ClientOptions.lua` — client mod options
@@ -201,5 +205,14 @@ Client options:
 - NMS, not vanilla nutrition, is the gameplay authority for calories, macros, and related state transitions
 - visible hunger remains capped below the vanilla starvation-damage threshold
 - workload sampling is derived from vanilla thermoregulator MET data and normalized into NMS workload fields
+- on MP clients, successful food consume sends now also apply the same immediate visible-hunger preview and dev consume event locally, while the server remains the long-lived authority and reconciles state through snapshots
+- the MP food seam is `ISEatFoodAction.perform()`, not `complete()`: vanilla MP clients finish timed actions with `perform()` and skip `complete()`, so NMS client eat hooks must ride `perform()` to stay live in dedicated-server play
+- when AMS is present, NMS stops directly rewriting endurance and instead
+  publishes deprivation-based endurance contributions through `MakesSenseCompat`
+- when CMS is present, NMS stops directly rewriting fatigue and instead
+  publishes deprivation-fatigue contributions through `MakesSenseCompat`
+- dev verification can also record one neutral stacked trace under
+  `Zomboid/Lua/makes_sense_compat/`; in MP that file is written on the server
+  host's Lua root rather than the local client-side Windows folder
 - food authority persists across authored foods, partial consumption, open-container routes, and runtime-composed outputs
 - release packaging excludes `common/media/lua/client/dev/` while retaining the gameplay runtime and player-facing UI

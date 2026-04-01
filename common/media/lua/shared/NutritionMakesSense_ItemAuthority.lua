@@ -58,14 +58,26 @@ local function resolveEntrySource(entry)
     return nil
 end
 
-local function getEntrySemanticClass(entry)
+local function getEntryAuthorityKind(entry)
     if type(entry) ~= "table" then
         return nil
     end
 
-    local semanticClass = entry.semantic_class or entry.semanticClass
-    if type(semanticClass) == "string" and semanticClass ~= "" then
-        return semanticClass
+    local authorityKind = entry.authority_kind or entry.authorityKind
+    if type(authorityKind) == "string" and authorityKind ~= "" then
+        return authorityKind
+    end
+    return nil
+end
+
+local function getEntryPortionKind(entry)
+    if type(entry) ~= "table" then
+        return nil
+    end
+
+    local portionKind = entry.portion_kind or entry.portionKind
+    if type(portionKind) == "string" and portionKind ~= "" then
+        return portionKind
     end
     return nil
 end
@@ -86,8 +98,8 @@ local function getEntryCarbProfile(entry)
 end
 
 local function isRuntimeComposedEntry(entry)
-    local semanticClass = getEntrySemanticClass(entry)
-    return semanticClass == "runtime_composed_output" or semanticClass == "carrier_scaffold"
+    local authorityKind = getEntryAuthorityKind(entry)
+    return authorityKind == "runtime_composed" or authorityKind == "scaffold"
 end
 
 local function hasVanillaDynamicValues(item)
@@ -233,7 +245,7 @@ local function normalizeSnapshot(fullType, entry, snapshot)
 
     local inferredMode = tostring(snapshot.snapshotMode or snapshot.snapshot_mode or "")
     if inferredMode == "" then
-        if snapshot.fluidPayloadId ~= nil or getEntrySemanticClass(entry) == "fluid_container" then
+        if snapshot.fluidPayloadId ~= nil or getEntryAuthorityKind(entry) == "fluid" then
             inferredMode = SNAPSHOT_MODE_FLUID
         elseif isRuntimeComposedEntry(entry) then
             inferredMode = SNAPSHOT_MODE_COMPOSED
@@ -340,8 +352,11 @@ local function getFoodEntry(itemOrFullType)
         local embeddedSemantics = loadEmbeddedFoodSemantics()
         entry = embeddedSemantics and embeddedSemantics[fullType] or nil
     end
-    if entry and (isTrackedSource(resolveEntrySource(entry)) or isRuntimeComposedEntry(entry)) then
-        return entry, fullType
+    if type(entry) == "table" then
+        if isTrackedSource(resolveEntrySource(entry)) or isRuntimeComposedEntry(entry) then
+            return entry, fullType
+        end
+        return nil, fullType
     end
 
     local authoredValues = data and data.valuesByItemId and data.valuesByItemId[fullType] or nil
@@ -352,7 +367,8 @@ local function getFoodEntry(itemOrFullType)
     if type(authoredValues) == "table" then
         return {
             item_id = fullType,
-            semantic_class = "direct_food",
+            authority_kind = "static",
+            portion_kind = "single",
             nutrition_source = "authored",
             authority_target = fullType,
             patch_source = fullType,
@@ -1133,7 +1149,8 @@ ItemAuthority.clearStoredSnapshot = clearStoredSnapshot
 ItemAuthority.snapshotsMatch = snapshotsMatch
 ItemAuthority.warnAuthorityOnce = warnAuthorityOnce
 ItemAuthority.resolveAppliedSnapshot = resolveAppliedSnapshot
-ItemAuthority.getEntrySemanticClass = getEntrySemanticClass
+ItemAuthority.getEntryAuthorityKind = getEntryAuthorityKind
+ItemAuthority.getEntryPortionKind = getEntryPortionKind
 ItemAuthority.isRuntimeComposedEntry = isRuntimeComposedEntry
 ItemAuthority.visitList = CoreUtils.visitList
 

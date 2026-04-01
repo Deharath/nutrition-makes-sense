@@ -102,6 +102,30 @@ local function updateProjectedState(playerObj, immediate)
     end
 end
 
+local function isNewerBootstrapSession(args)
+    local previousWall = tonumber(state.lastSnapshotServerWallSeconds) or nil
+    local previousWorld = tonumber(state.lastSnapshotServerWorldHours) or nil
+    local incomingWall = tonumber(args and args.serverWallSeconds) or nil
+    local incomingWorld = tonumber(args and (args.serverWorldHours or args.worldHours)) or nil
+
+    if previousWall == nil and previousWorld == nil then
+        return true
+    end
+    if incomingWall ~= nil and previousWall ~= nil then
+        return incomingWall > previousWall
+    end
+    if incomingWorld ~= nil and previousWorld ~= nil then
+        return incomingWorld > previousWorld
+    end
+    if incomingWall ~= nil and previousWall == nil then
+        return true
+    end
+    if incomingWorld ~= nil and previousWorld == nil then
+        return true
+    end
+    return false
+end
+
 function MPClient.getProjectionMeta()
     if not isClientRuntime() then
         return nil
@@ -151,7 +175,11 @@ local function onServerCommand(module, command, args)
 
     local incomingSeq = tonumber(args.serverSeq) or nil
     local previousSeq = tonumber(state.lastAcceptedSnapshotSeq) or nil
-    local bootstrapReset = args.bootstrap == true and incomingSeq ~= nil and previousSeq ~= nil and incomingSeq <= previousSeq
+    local bootstrapReset = args.bootstrap == true
+        and incomingSeq ~= nil
+        and previousSeq ~= nil
+        and incomingSeq <= previousSeq
+        and isNewerBootstrapSession(args)
     if bootstrapReset then
         log(string.format(
             "[CLIENT_SNAPSHOT_RESET] seq=%s previous=%s reason=%s",

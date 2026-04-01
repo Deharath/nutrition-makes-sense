@@ -50,8 +50,8 @@ local function isDynamicPayloadEntry(entry)
         return true
     end
 
-    local semanticClass = tostring(entry.semantic_class or entry.semanticClass or "")
-    return semanticClass == "runtime_composed_output"
+    local authorityKind = tostring(entry.authority_kind or entry.authorityKind or "")
+    return authorityKind == "runtime_composed"
 end
 
 local function notifySeedEvent(reason, item, values, fullType)

@@ -38,6 +38,8 @@ local function buildLookups(rawData, semanticsByItemId)
     local entriesByItemId = {}
     local runtimeEntriesByItemId = {}
     local sourceByItemId = {}
+    local authorityByItemId = {}
+    local portionByItemId = {}
 
     local function entrySource(entry)
         if type(entry) ~= "table" then
@@ -60,6 +62,8 @@ local function buildLookups(rawData, semanticsByItemId)
             entriesByItemId[itemId] = entry
             runtimeEntriesByItemId[itemId] = entry
             sourceByItemId[itemId] = entrySource(entry)
+            authorityByItemId[itemId] = entry.authority_kind
+            portionByItemId[itemId] = entry.portion_kind
         end
     end
 
@@ -72,7 +76,8 @@ local function buildLookups(rawData, semanticsByItemId)
         stableEntriesByItemId = entriesByItemId,
         runtimeEntriesByItemId = runtimeEntriesByItemId,
         sourceByItemId = sourceByItemId,
-        classByItemId = sourceByItemId,
+        authorityByItemId = authorityByItemId,
+        portionByItemId = portionByItemId,
     }
 end
 

@@ -10,6 +10,7 @@ require "NutritionMakesSense_MPCompat"
 require "NutritionMakesSense_ItemAuthority"
 require "NutritionMakesSense_MetabolismRuntime"
 require "NutritionMakesSense_CoreUtils"
+require "dev/NutritionMakesSense_CompatTraceServer"
 
 local MPServerRuntime = NutritionMakesSense.MPServerRuntime or {}
 NutritionMakesSense.MPServerRuntime = MPServerRuntime
@@ -18,6 +19,7 @@ local MP = NutritionMakesSense.MP or {}
 local Runtime = NutritionMakesSense.MetabolismRuntime or {}
 local ItemAuthority = NutritionMakesSense.ItemAuthority or {}
 local CoreUtils = NutritionMakesSense.CoreUtils or {}
+local CompatTraceServer = NutritionMakesSense.CompatTraceServer or {}
 local serverReadyLogged = false
 local CONSUME_EPSILON = tonumber(ItemAuthority.EPSILON) or 0.001
 local PASSIVE_SNAPSHOT_INTERVAL_SECONDS = 1
@@ -49,6 +51,25 @@ local getPlayerCacheKey = Runtime.getPlayerCacheKey or function(playerObj)
     return tostring(getPlayerLabel(playerObj))
 end
 local sendStateSnapshot
+
+local function sendCompatTraceStatus(playerObj, payload)
+    if not playerObj or type(sendServerCommand) ~= "function" or type(payload) ~= "table" then
+        return false
+    end
+
+    local ok, err = pcall(
+        sendServerCommand,
+        playerObj,
+        tostring(MP.NET_MODULE),
+        tostring(MP.COMPAT_TRACE_STATUS_COMMAND),
+        payload
+    )
+    if not ok then
+        log("[MP_SERVER][ERROR] compat trace status send failed: " .. tostring(err))
+        return false
+    end
+    return true
+end
 
 local function getWallClockSeconds()
     if type(getTimestampMs) == "function" then
@@ -113,12 +134,51 @@ local function buildConsumedSnapshot(values)
     return {
         fullType = tostring(values.fullType or ""),
         authorityTarget = tostring(values.authorityTarget or values.fullType or ""),
-        semanticClass = tostring(values.semanticClass or "unknown"),
+        authorityKind = tostring(values.authorityKind or "unknown"),
+        portionKind = tostring(values.portionKind or "unknown"),
         hunger = tonumber(values.hunger) or 0,
         kcal = tonumber(values.kcal) or 0,
         carbs = tonumber(values.carbs) or 0,
         fats = tonumber(values.fats) or 0,
         proteins = tonumber(values.proteins) or 0,
+    }
+end
+
+local function buildImmediateHungerSnapshot(immediateHunger)
+    if type(immediateHunger) ~= "table" then
+        return nil
+    end
+
+    return {
+        drop = tonumber(immediateHunger.drop) or 0,
+        preVisibleHunger = tonumber(immediateHunger.preVisibleHunger) or 0,
+        targetVisibleHunger = tonumber(immediateHunger.targetVisibleHunger) or 0,
+        mechanical = tonumber(immediateHunger.mechanical) or 0,
+    }
+end
+
+local function buildClientFallbackConsumedContext(args, fullType)
+    local consumed = type(args) == "table" and type(args.consumed) == "table" and args.consumed or nil
+    if type(consumed) ~= "table" then
+        return nil
+    end
+
+    local values = buildConsumedSnapshot(consumed)
+    if type(values) ~= "table" then
+        return nil
+    end
+
+    if (values.fullType == nil or values.fullType == "") and fullType ~= "" then
+        values.fullType = fullType
+    end
+    if (values.authorityTarget == nil or values.authorityTarget == "") then
+        values.authorityTarget = values.fullType or fullType
+    end
+
+    return {
+        values = values,
+        source = tostring(args.consumeSource or consumed.consumeAuthoritySource or "client_fallback"),
+        immediateHunger = buildImmediateHungerSnapshot(args.immediateHunger),
     }
 end
 
@@ -175,7 +235,18 @@ local function rememberConsumeEvent(playerObj, eventId)
     end
 end
 
-local function resolveServerConsumedContext(playerObj, item, fullType, fraction)
+local function resolveServerConsumedContext(playerObj, item, fullType, fraction, args)
+    local fallback = buildClientFallbackConsumedContext(args, fullType)
+    if not item and type(fallback) == "table" and type(fallback.values) == "table" then
+        log(string.format(
+            "[MP_SERVER_CONSUME_FALLBACK] player=%s item=%s source=%s",
+            tostring(getPlayerLabel(playerObj)),
+            tostring(fullType or "unknown"),
+            tostring(fallback.source or "client_fallback")
+        ))
+        return fallback
+    end
+
     local recomputed = nil
     if item and type(ItemAuthority.resolveGameplayConsumeContext) == "function" then
         recomputed = ItemAuthority.resolveGameplayConsumeContext(item, fraction, getVisibleHunger(playerObj), fullType)
@@ -187,6 +258,17 @@ local function resolveServerConsumedContext(playerObj, item, fullType, fraction)
             recomputed = ItemAuthority.resolveGameplayConsumeContext(fullType, fraction, getVisibleHunger(playerObj), fullType)
         elseif type(ItemAuthority.resolveConsumedPayload) == "function" then
             recomputed = ItemAuthority.resolveConsumedPayload(fullType, fraction, getVisibleHunger(playerObj), fullType)
+        end
+    end
+    if type(recomputed) ~= "table" or type(recomputed.values) ~= "table" then
+        if type(fallback) == "table" and type(fallback.values) == "table" then
+            log(string.format(
+                "[MP_SERVER_CONSUME_FALLBACK] player=%s item=%s source=%s",
+                tostring(getPlayerLabel(playerObj)),
+                tostring(fullType or "unknown"),
+                tostring(fallback.source or "client_fallback")
+            ))
+            return fallback
         end
     end
     if type(recomputed) ~= "table" or type(recomputed.values) ~= "table" then
@@ -428,7 +510,8 @@ local function onClientCommand(module, command, playerObj, args)
                 return
             end
 
-            local fraction = CoreUtils.clamp01 and CoreUtils.clamp01(args and args.fraction or 0) or math.max(0, math.min(1, tonumber(args and args.fraction) or 0))
+            local requestedFraction = tonumber(args and args.fraction) or 0
+            local fraction = CoreUtils.clamp01 and CoreUtils.clamp01(requestedFraction) or math.max(0, math.min(1, requestedFraction))
             if fraction <= CONSUME_EPSILON then
                 return
             end
@@ -450,8 +533,17 @@ local function onClientCommand(module, command, playerObj, args)
             end
 
             local consumedContext = nil
-            consumedContext = resolveServerConsumedContext(playerObj, item, fullType, fraction)
+            consumedContext = resolveServerConsumedContext(playerObj, item, fullType, fraction, args)
             if not consumedContext then
+                sendStateSnapshot(playerObj, "consume-reconcile", {
+                    eventId = tostring(eventId),
+                    itemId = itemId,
+                    fullType = fullType ~= "" and fullType or nil,
+                    consumeRejected = true,
+                    requestedFraction = requestedFraction,
+                    appliedFraction = 0,
+                    fractionClamped = requestedFraction ~= fraction,
+                })
                 return
             end
             local reason = tostring(args and args.reason or "client-consume")
@@ -459,6 +551,9 @@ local function onClientCommand(module, command, playerObj, args)
                 snapshotExtra = {
                     eventId = tostring(eventId),
                     itemId = itemId,
+                    requestedFraction = requestedFraction,
+                    appliedFraction = fraction,
+                    fractionClamped = requestedFraction ~= fraction,
                 },
             })
             if applied then
@@ -466,7 +561,46 @@ local function onClientCommand(module, command, playerObj, args)
                 if type(Runtime.enqueuePendingNutritionSuppression) == "function" then
                     Runtime.enqueuePendingNutritionSuppression(playerObj, consumedContext.values, reason)
                 end
+            else
+                sendStateSnapshot(playerObj, "consume-reconcile", {
+                    eventId = tostring(eventId),
+                    itemId = itemId,
+                    fullType = fullType ~= "" and fullType or nil,
+                    consumeRejected = true,
+                    requestedFraction = requestedFraction,
+                    appliedFraction = 0,
+                    fractionClamped = requestedFraction ~= fraction,
+                })
             end
+            return
+        end
+
+        if tostring(command) == tostring(MP.COMPAT_TRACE_START_COMMAND) then
+            local result = CompatTraceServer.startForPlayer and CompatTraceServer.startForPlayer(playerObj, args and args.label or "dev") or {
+                ok = false,
+                error = "trace_server_unavailable",
+            }
+            sendCompatTraceStatus(playerObj, {
+                action = result.ok and "started" or "error",
+                label = tostring(result.label or args and args.label or "dev"),
+                sampleCount = tonumber(result.sampleCount) or 0,
+                error = result.ok and nil or tostring(result.error or "trace_start_failed"),
+            })
+            return
+        end
+
+        if tostring(command) == tostring(MP.COMPAT_TRACE_STOP_COMMAND) then
+            local result = CompatTraceServer.stopForPlayer and CompatTraceServer.stopForPlayer(playerObj) or {
+                ok = false,
+                error = "trace_server_unavailable",
+            }
+            sendCompatTraceStatus(playerObj, {
+                action = result.ok and "stopped" or "error",
+                label = tostring(result.label or args and args.label or "dev"),
+                sampleCount = tonumber(result.sampleCount) or 0,
+                savedPath = tostring(result.savedPath or ""),
+                error = result.ok and nil or tostring(result.error or "trace_stop_failed"),
+            })
             return
         end
 
@@ -515,6 +649,9 @@ local function onEveryOneMinute()
         end
         maybeSendPassiveSnapshot(playerObj, "minute-sync", true)
     end)
+    if CompatTraceServer.sampleAll then
+        CompatTraceServer.sampleAll()
+    end
 end
 
 function MPServerRuntime.install()

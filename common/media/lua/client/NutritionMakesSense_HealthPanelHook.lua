@@ -1,9 +1,11 @@
 NutritionMakesSense = NutritionMakesSense or {}
 
 require "ui/NutritionMakesSense_UIHelpers"
+require "NutritionMakesSense_HealthPanelCompat"
 
 local Metabolism = NutritionMakesSense.Metabolism or {}
 local UIHelpers = NutritionMakesSense.UIHelpers or {}
+local CompatHelpers = NutritionMakesSense.HealthPanelCompat or {}
 local HealthPanelHook = NutritionMakesSense.HealthPanelHook or {}
 NutritionMakesSense.HealthPanelHook = HealthPanelHook
 
@@ -11,11 +13,12 @@ local UI_BORDER_SPACING = 10
 local FONT = UIFont.Small
 local FONT_HGT = nil
 
-local C_HEADER = { r = 0.72, g = 0.78, b = 0.82, a = 1.0 }
+local C_WHITE = { r = 1.0, g = 1.0, b = 1.0, a = 1.0 }
+local C_VALUE = { r = 0.75, g = 0.77, b = 0.80, a = 1.0 }
+local C_MILD = { r = 0.72, g = 0.78, b = 0.82, a = 1.0 }
 local C_GOOD = { r = 0.55, g = 0.80, b = 0.55, a = 1.0 }
 local C_WARN = { r = 0.90, g = 0.75, b = 0.30, a = 1.0 }
 local C_BAD = { r = 0.90, g = 0.35, b = 0.30, a = 1.0 }
-local C_DIM = { r = 0.55, g = 0.58, b = 0.62, a = 0.85 }
 
 local function getState(player)
     return UIHelpers.getStateCopy(player)
@@ -29,7 +32,7 @@ local function getDeprivationSeverity(progress)
     if p >= (1 / 3) then
         return UIHelpers.tr("UI_NMS_Deprivation_Severity_Moderate", "Moderate"), C_WARN
     end
-    return UIHelpers.tr("UI_NMS_Deprivation_Severity_Mild", "Mild"), C_DIM
+    return UIHelpers.tr("UI_NMS_Deprivation_Severity_Mild", "Mild"), C_MILD
 end
 
 local function getDeprivationDirection(state, deprivation)
@@ -47,12 +50,16 @@ local function getDeprivationDirection(state, deprivation)
     return UIHelpers.tr("UI_NMS_Deprivation_Direction_Stable", "Stable")
 end
 
-local function collectLines(state)
+local function collectLines(playerObj, state)
+    local baseLines = {}
+    local compatLines = type(CompatHelpers.collectExternalLines) == "function"
+        and CompatHelpers.collectExternalLines(nil, playerObj)
+        or {}
+
     if not state then
-        return {}
+        return compatLines
     end
 
-    local lines = {}
     local deprivation = tonumber(state.deprivation) or 0
     local weightKg = tonumber(state.weightKg) or Metabolism.DEFAULT_WEIGHT_KG
     local proteins = tonumber(state.proteins) or 0
@@ -66,19 +73,26 @@ local function collectLines(state)
         local progress = Metabolism.getDeprivationPenaltyProgress and Metabolism.getDeprivationPenaltyProgress(deprivation) or 0
         local severityText, severityColor = getDeprivationSeverity(progress)
         local directionText = getDeprivationDirection(state, deprivation)
-        lines[#lines + 1] = { text = UIHelpers.tr("UI_NMS_Deprivation_Header", "Malnourishment"), color = C_HEADER }
-        lines[#lines + 1] = {
+        baseLines[#baseLines + 1] = {
+            text = UIHelpers.tr("UI_NMS_Deprivation_Header", "Malnourishment"),
+            color = C_WHITE,
+        }
+        baseLines[#baseLines + 1] = {
             text = severityText .. " | " .. directionText,
             color = severityColor,
+            indent = 12,
         }
 
         if deprivation >= (Metabolism.DEPRIVATION_ENDURANCE_ONSET or 0.15) then
             local regenScale = Metabolism.getDeprivationRegenScale and Metabolism.getDeprivationRegenScale(deprivation) or 1.0
             local regenPenalty = math.max(0, (1.0 - regenScale) * 100)
             if regenPenalty >= 1 then
-                lines[#lines + 1] = {
-                    text = UIHelpers.tr("UI_NMS_Deprivation_EndurancePenalty", "Stamina Recovery") .. " -" .. UIHelpers.formatPercent(regenPenalty),
-                    color = C_DIM,
+                baseLines[#baseLines + 1] = {
+                    text = UIHelpers.tr("UI_NMS_Deprivation_EndurancePenalty", "Stamina Recovery") .. ": ",
+                    color = C_WHITE,
+                    valueText = "-" .. UIHelpers.formatPercent(regenPenalty),
+                    valueColor = C_VALUE,
+                    indent = 12,
                 }
             end
         end
@@ -86,26 +100,36 @@ local function collectLines(state)
         local fatigueFactor = Metabolism.getFatigueAccelFactor and Metabolism.getFatigueAccelFactor(deprivation) or 1.0
         local fatiguePenalty = math.max(0, (fatigueFactor - 1.0) * 100)
         if fatiguePenalty >= 1 then
-            lines[#lines + 1] = {
-                text = UIHelpers.tr("UI_NMS_Deprivation_FatiguePenalty", "Fatigue Rate") .. " +" .. UIHelpers.formatPercent(fatiguePenalty),
-                color = C_DIM,
+            baseLines[#baseLines + 1] = {
+                text = UIHelpers.tr("UI_NMS_Deprivation_FatiguePenalty", "Fatigue Rate") .. ": ",
+                color = C_WHITE,
+                valueText = "+" .. UIHelpers.formatPercent(fatiguePenalty),
+                valueColor = C_VALUE,
+                indent = 12,
             }
         end
 
         local meleeMultiplier = Metabolism.getMeleeDamageMultiplier and Metabolism.getMeleeDamageMultiplier(deprivation) or 1.0
         local meleePenalty = math.max(0, (1.0 - meleeMultiplier) * 100)
         if meleePenalty >= 1 then
-            lines[#lines + 1] = {
-                text = UIHelpers.tr("UI_NMS_Deprivation_MeleePenalty", "Melee Damage") .. " -" .. UIHelpers.formatPercent(meleePenalty),
-                color = C_DIM,
+            baseLines[#baseLines + 1] = {
+                text = UIHelpers.tr("UI_NMS_Deprivation_MeleePenalty", "Melee Damage") .. ": ",
+                color = C_WHITE,
+                valueText = "-" .. UIHelpers.formatPercent(meleePenalty),
+                valueColor = C_VALUE,
+                indent = 12,
             }
         end
     end
 
     if proteinDef > 0.3 then
         local proteinColor = proteinDef >= 0.7 and C_BAD or C_WARN
-        lines[#lines + 1] = { text = UIHelpers.tr("UI_NMS_Section_Protein", "Protein"), color = C_HEADER }
-        lines[#lines + 1] = { text = UIHelpers.tr("UI_NMS_Protein_Low", "Low"), color = proteinColor }
+        baseLines[#baseLines + 1] = {
+            text = UIHelpers.tr("UI_NMS_Section_Protein", "Protein") .. ": ",
+            color = C_WHITE,
+            valueText = UIHelpers.tr("UI_NMS_Protein_Low", "Low"),
+            valueColor = proteinColor,
+        }
 
         local healingMultiplier = tonumber(state.lastProteinHealingMultiplier)
         if healingMultiplier == nil and Metabolism.getProteinHealingMultiplier then
@@ -114,14 +138,20 @@ local function collectLines(state)
         healingMultiplier = tonumber(healingMultiplier) or 1.0
         local healingPenalty = math.max(0, (1.0 - healingMultiplier) * 100)
         if healingPenalty >= 1 then
-            lines[#lines + 1] = {
-                text = UIHelpers.tr("UI_NMS_Protein_HealingPenalty", "Wound Healing") .. " -" .. UIHelpers.formatPercent(healingPenalty),
-                color = C_DIM,
+            baseLines[#baseLines + 1] = {
+                text = UIHelpers.tr("UI_NMS_Protein_HealingPenalty", "Wound Healing") .. ": ",
+                color = C_WHITE,
+                valueText = "-" .. UIHelpers.formatPercent(healingPenalty),
+                valueColor = C_VALUE,
+                indent = 12,
             }
         end
     end
 
-    return lines
+    if type(CompatHelpers.mergeLines) == "function" then
+        return CompatHelpers.mergeLines(compatLines, baseLines)
+    end
+    return baseLines
 end
 
 local originalRender = nil
@@ -138,13 +168,13 @@ local function hookedUpdate(self)
         return
     end
 
-    local lines = collectLines(getState(patient))
+    local lines = collectLines(patient, getState(patient))
     if #lines == 0 then
         originalUpdate(self)
         return
     end
 
-    local blockHeight = (#lines + 1) * FONT_HGT + 4
+    local blockHeight = #lines * FONT_HGT
     local previousAllTextHeight = self.allTextHeight
     if previousAllTextHeight ~= nil then
         self.allTextHeight = previousAllTextHeight + blockHeight
@@ -167,25 +197,28 @@ local function hookedRender(self)
         return
     end
 
-    local lines = collectLines(getState(patient))
+    local lines = collectLines(patient, getState(patient))
     if #lines == 0 then
         return
     end
 
     local x = self.healthPanel:getRight() + UI_BORDER_SPACING
     local listY = self.listbox:getY()
-    local blockHeight = (#lines + 1) * FONT_HGT + 4
+    local blockHeight = #lines * FONT_HGT
 
     self.listbox:setY(listY + blockHeight)
     self.listbox.vscroll:setHeight(self.listbox:getHeight())
 
     local y = listY
-    self:drawRect(x, y, self.width - x - UI_BORDER_SPACING, 1, 0.25, 0.5, 0.6, 0.7)
-    y = y + 4
-
     for _, line in ipairs(lines) do
-        local color = line.color or C_DIM
-        self:drawText(line.text, x, y, color.r, color.g, color.b, color.a, FONT)
+        local lx = x + (line.indent or 0)
+        local color = line.color or C_WHITE
+        self:drawText(line.text, lx, y, color.r, color.g, color.b, color.a, FONT)
+        if line.valueText then
+            local vx = lx + getTextManager():MeasureStringX(FONT, line.text)
+            local vc = line.valueColor or C_VALUE
+            self:drawText(line.valueText, vx, y, vc.r, vc.g, vc.b, vc.a, FONT)
+        end
         y = y + FONT_HGT
     end
 end
@@ -209,6 +242,9 @@ function HealthPanelHook.install()
         return HealthPanelHook
     end
     HealthPanelHook._installed = true
+    if type(CompatHelpers.registerCoordinator) == "function" then
+        CompatHelpers.registerCoordinator()
+    end
 
     if Events and Events.OnGameStart and type(Events.OnGameStart.Add) == "function" then
         Events.OnGameStart.Add(install)

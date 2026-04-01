@@ -41,6 +41,24 @@ local function getApplyLocalConsume()
     return MPClient.applyLocalConsume or applyLocalConsume
 end
 
+local function resolveDrinkConsumeFraction(action, delta, beforeRatio)
+    refreshBindings()
+
+    local currentRatio = tonumber(beforeRatio)
+    if currentRatio ~= nil and currentRatio > CONSUME_EPSILON then
+        local targetConsumedRatio = tonumber(action and action.targetConsumedRatio)
+        local startRatio = tonumber(action and action.startRatio)
+        if targetConsumedRatio ~= nil and startRatio ~= nil and math.abs(startRatio) > CONSUME_EPSILON then
+            local consumedRatio = startRatio - currentRatio
+            local targetRatio = (tonumber(delta) or 0) * targetConsumedRatio
+            local ratioToConsume = math.max(0, targetRatio - consumedRatio)
+            return clamp01 and clamp01(ratioToConsume / currentRatio) or math.max(0, math.min(1, ratioToConsume / currentRatio))
+        end
+    end
+
+    return clamp01 and clamp01(action and action.percentage or 0) or math.max(0, math.min(1, tonumber(action and action.percentage) or 0))
+end
+
 local function resolveConsumeFullType(item, action)
     refreshBindings()
     local hinted = action and action._nmsConsumeFullType or nil
@@ -208,15 +226,13 @@ function MPClient.wrapDrinkFluidAction()
         local preVisibleHunger = getVisibleHunger(character)
         local fluidContainer = item and safeCall(item, "getFluidContainer") or nil
         local beforeRatio = fluidContainer and tonumber(safeCall(fluidContainer, "getFilledRatio") or 0) or nil
+        local consumedFraction = resolveDrinkConsumeFraction(self, delta, beforeRatio)
 
         originalUpdateEat(self, delta)
 
-        local afterRatio = fluidContainer and tonumber(safeCall(fluidContainer, "getFilledRatio") or 0) or nil
-        if beforeRatio == nil or afterRatio == nil then
+        if beforeRatio == nil then
             return
         end
-
-        local consumedFraction = math.max(0, beforeRatio - afterRatio)
         if consumedFraction <= CONSUME_EPSILON then
             return
         end
@@ -258,8 +274,8 @@ function MPClient.wrapEatFoodAction()
     end
 
     require "TimedActions/ISEatFoodAction"
-    if type(ISEatFoodAction) ~= "table" or type(ISEatFoodAction.complete) ~= "function" then
-        error("[NMS_BOOT_HARD_FAIL] missing TimedActions/ISEatFoodAction.complete")
+    if type(ISEatFoodAction) ~= "table" or type(ISEatFoodAction.perform) ~= "function" then
+        error("[NMS_BOOT_HARD_FAIL] missing TimedActions/ISEatFoodAction.perform")
     end
 
     local originalStart = ISEatFoodAction.start
@@ -273,8 +289,8 @@ function MPClient.wrapEatFoodAction()
         return nil
     end
 
-    local originalComplete = ISEatFoodAction.complete
-    ISEatFoodAction.complete = function(self)
+    local originalPerform = ISEatFoodAction.perform
+    ISEatFoodAction.perform = function(self)
         local item = self and self.item or nil
         local character = self and self.character or nil
         local fullTypeHint = resolveConsumeFullType(item, self)
@@ -288,7 +304,7 @@ function MPClient.wrapEatFoodAction()
             consumedContext = resolveConsumed(item, fraction, preVisibleHunger, fullTypeHint)
         end
 
-        local result = type(originalComplete) == "function" and originalComplete(self) or true
+        local result = type(originalPerform) == "function" and originalPerform(self) or nil
         if type(consumedContext) == "table" and consumedContext.skip == true then
             return result
         end

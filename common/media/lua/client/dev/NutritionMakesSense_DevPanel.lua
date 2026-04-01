@@ -2,10 +2,12 @@ NutritionMakesSense = NutritionMakesSense or {}
 NutritionMakesSense.DevPanel = NutritionMakesSense.DevPanel or {}
 
 require "NutritionMakesSense_DebugSupport"
+require "dev/NutritionMakesSense_CompatTraceClient"
 require "dev/panels/NutritionMakesSense_DevPanelSink"
 require "ui/NutritionMakesSense_UIHelpers"
 
 local DevPanel = NutritionMakesSense.DevPanel
+local CompatTrace = NutritionMakesSense.CompatTraceClient or {}
 local MPClient = NutritionMakesSense.MPClientRuntime or {}
 local Runtime = NutritionMakesSense.MetabolismRuntime or {}
 local Metabolism = NutritionMakesSense.Metabolism or {}
@@ -409,6 +411,11 @@ function NMS_DevOverlay:createChildren()
     self:addChild(self.recordBtn)
     bx = bx + 76
 
+    self.compatBtn = ISButton:new(bx, 4, 72, 22, "Compat", self, NMS_DevOverlay.onToggleCompatTrace)
+    self.compatBtn:initialise()
+    self:addChild(self.compatBtn)
+    bx = bx + 76
+
     self.resetBtn = ISButton:new(bx, 4, 58, 22, "Reset", self, NMS_DevOverlay.onReset)
     self.resetBtn:initialise()
     self:addChild(self.resetBtn)
@@ -422,6 +429,7 @@ function NMS_DevOverlay:createChildren()
     self.closeBtn:initialise()
     self:addChild(self.closeBtn)
     self:updateRecordButton()
+    self:updateCompatTraceButton()
 end
 
 function NMS_DevOverlay:updateRecordButton()
@@ -437,6 +445,21 @@ function NMS_DevOverlay:updateRecordButton()
     end
 end
 
+function NMS_DevOverlay:updateCompatTraceButton()
+    if not self.compatBtn then return end
+    local status = CompatTrace.getStatus and CompatTrace.getStatus() or { active = false }
+    if status.active then
+        local label = status.mode == "mp" and "Compat MP" or "Compat SP"
+        self.compatBtn:setTitle(label)
+        self.compatBtn.backgroundColor = { r = 0.10, g = 0.36, b = 0.18, a = 0.92 }
+        self.compatBtn.textColor = { r = 1, g = 1, b = 1, a = 1 }
+    else
+        self.compatBtn:setTitle("Compat")
+        self.compatBtn.backgroundColor = { r = 0.14, g = 0.14, b = 0.18, a = 0.92 }
+        self.compatBtn.textColor = { r = 0.8, g = 0.8, b = 0.8, a = 1 }
+    end
+end
+
 function NMS_DevOverlay:onToggleRecord()
     if recording then
         local path, count = DevPanel.stopRecording()
@@ -445,6 +468,24 @@ function NMS_DevOverlay:onToggleRecord()
         DevPanel.startRecording("dev")
     end
     self:updateRecordButton()
+end
+
+function NMS_DevOverlay:onToggleCompatTrace()
+    local status = CompatTrace.getStatus and CompatTrace.getStatus() or { active = false }
+    if status.active then
+        local path, count, err = CompatTrace.stop and CompatTrace.stop()
+        if path then
+            print(string.format("[NutritionMakesSense] compat trace saved: %s (%d samples)", path, count or 0))
+        elseif err and err ~= "mp" then
+            print("[NutritionMakesSense] compat trace stop error: " .. tostring(err))
+        end
+    else
+        local ok, modeOrErr = CompatTrace.start and CompatTrace.start("dev")
+        if not ok then
+            print("[NutritionMakesSense] compat trace start error: " .. tostring(modeOrErr))
+        end
+    end
+    self:updateCompatTraceButton()
 end
 
 function NMS_DevOverlay:onReset()
@@ -463,6 +504,7 @@ end
 
 function NMS_DevOverlay:onClose()
     if recording then DevPanel.stopRecording() end
+    if CompatTrace.isRecording and CompatTrace.isRecording() then CompatTrace.stop() end
     DevPanel.hide()
 end
 
@@ -479,6 +521,15 @@ function NMS_DevOverlay:render()
         self:drawText(
             string.format("REC  %d samples  %.0fm", #recordBuffer, elapsed),
             PAD + 88, y, C.rec.r, C.rec.g, C.rec.b, C.rec.a, FONT_S)
+        y = y + LINE_H
+    end
+
+    local compatStatus = CompatTrace.getStatus and CompatTrace.getStatus() or nil
+    if compatStatus and compatStatus.active then
+        local traceText = compatStatus.mode == "mp"
+            and string.format("TRACE MP  %s", compatStatus.pending and "pending" or "active")
+            or string.format("TRACE SP  %d samples", tonumber(compatStatus.sampleCount) or 0)
+        self:drawText(traceText, PAD + 88, y, C.good.r, C.good.g, C.good.b, C.good.a, FONT_S)
         y = y + LINE_H
     end
 
@@ -645,7 +696,9 @@ end
 function NMS_DevOverlay:update()
     ISPanel.update(self)
     self:updateRecordButton()
+    self:updateCompatTraceButton()
     DevPanel.sampleTick(false)
+    if CompatTrace.sampleTick then CompatTrace.sampleTick(false) end
 end
 
 function NMS_DevOverlay:onMouseDown(x, y) self.moving = true; return true end
@@ -702,6 +755,9 @@ end
 local function onTickSampler()
     if recording then
         DevPanel.sampleTick(false)
+    end
+    if CompatTrace.sampleTick then
+        CompatTrace.sampleTick(false)
     end
 end
 

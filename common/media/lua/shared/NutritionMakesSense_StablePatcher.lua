@@ -179,14 +179,17 @@ end
 
 local function buildRuntimeReport(data, context)
     local entries = {}
-    local stableClassTotals = {}
+    local stableAuthorityTotals = {}
+    local stablePortionTotals = {}
     local actionTotals = {}
     for _, entry in pairs(data.runtimeEntriesByItemId or {}) do
         if type(entry) == "table" and entry.item_id then
             entries[#entries + 1] = entry
-            local semanticClass = tostring(entry.semantic_class or "unknown")
+            local authorityKind = tostring(entry.authority_kind or "unknown")
+            local portionKind = tostring(entry.portion_kind or "unknown")
             local action = tostring(entry.action or "unknown")
-            stableClassTotals[semanticClass] = (tonumber(stableClassTotals[semanticClass]) or 0) + 1
+            stableAuthorityTotals[authorityKind] = (tonumber(stableAuthorityTotals[authorityKind]) or 0) + 1
+            stablePortionTotals[portionKind] = (tonumber(stablePortionTotals[portionKind]) or 0) + 1
             actionTotals[action] = (tonumber(actionTotals[action]) or 0) + 1
         end
     end
@@ -198,9 +201,10 @@ local function buildRuntimeReport(data, context)
         modId = data.baseModId or data.modId,
         activeModId = data.modId,
         context = context,
-        stableClassTotals = stableClassTotals,
+        stableAuthorityTotals = stableAuthorityTotals,
+        stablePortionTotals = stablePortionTotals,
         actionTotals = actionTotals,
-        directFoodValidation = {},
+        staticAuthorityValidation = {},
         deferredRuntimeRows = {},
         explicitRouteExceptions = {},
         entries = entries,
@@ -317,7 +321,7 @@ function StablePatcher.ensurePatched(context)
     NutritionMakesSense.stablePatchReport = runtimeReport
 
     log(string.format(
-        "[STABLE_PATCH_REPORT] mod=%s active=%s context=%s curated=%s patched=%d skipped=%d deferred=%d runtime=%d explicit=%d direct=%s whole=%s open=%s composed=%s",
+        "[STABLE_PATCH_REPORT] mod=%s active=%s context=%s curated=%s patched=%d skipped=%d deferred=%d runtime=%d explicit=%d static=%s opened=%s composed=%s fluid=%s whole_divisible=%s reservoir=%s",
         tostring(runtimeReport.modId),
         tostring(runtimeReport.activeModId),
         tostring(runtimeReport.context),
@@ -327,10 +331,12 @@ function StablePatcher.ensurePatched(context)
         runtimeReport.deferredProbeRows,
         tonumber(runtimeReport.actionTotals and runtimeReport.actionTotals.authored_runtime or 0),
         runtimeReport.explicitExceptionRows,
-        tostring(runtimeReport.stableClassTotals.direct_food or 0),
-        tostring(runtimeReport.stableClassTotals.whole_multiportion or 0),
-        tostring(runtimeReport.stableClassTotals.open_edible_container or 0),
-        tostring(runtimeReport.stableClassTotals.runtime_composed_output or 0)
+        tostring(runtimeReport.stableAuthorityTotals.static or 0),
+        tostring(runtimeReport.stableAuthorityTotals.opened_state or 0),
+        tostring(runtimeReport.stableAuthorityTotals.runtime_composed or 0),
+        tostring(runtimeReport.stableAuthorityTotals.fluid or 0),
+        tostring(runtimeReport.stablePortionTotals.whole_divisible or 0),
+        tostring(runtimeReport.stablePortionTotals.reservoir or 0)
     ))
 
     if hasErrors then

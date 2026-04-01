@@ -895,6 +895,7 @@ Runtime.removeEndurance = removeEndurance
 Runtime.consumeWorkloadSummary = consumeWorkloadSummary
 Runtime.eachKnownPlayer = eachKnownPlayer
 
+require "runtime/NutritionMakesSense_MetabolismRuntime_Compat"
 require "runtime/NutritionMakesSense_MetabolismRuntime_Workload"
 require "runtime/NutritionMakesSense_MetabolismRuntime_Sync"
 require "runtime/NutritionMakesSense_MetabolismRuntime_Authority"
