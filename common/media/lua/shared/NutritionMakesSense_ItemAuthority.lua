@@ -881,6 +881,34 @@ local function resolveComputedDisplaySnapshot(item, fullType, entry, allowCurren
     return buildAppliedSnapshot(stored, remainingFraction)
 end
 
+local function resolveDisplaySnapshot(item, fullType, entry)
+    if not item or type(fullType) ~= "string" or fullType == "" or type(entry) ~= "table" then
+        return nil, nil, nil, nil
+    end
+
+    local current = readCurrentValues(item, fullType, entry)
+    local expectedMode = getExpectedSnapshotMode(item, fullType, entry)
+
+    if expectedMode == SNAPSHOT_MODE_STATIC then
+        if snapshotHasNutrition(current) then
+            return current, current, nil, expectedMode
+        end
+        return getDefaultValues(fullType, entry), current, nil, expectedMode
+    end
+
+    local stored = readStoredSnapshot(item, fullType, entry)
+    if type(stored) == "table" then
+        local remainingFraction = resolveRemainingFraction(item, current, stored)
+        return buildAppliedSnapshot(stored, remainingFraction), current, stored, expectedMode
+    end
+
+    if snapshotHasNutrition(current) then
+        return current, current, nil, expectedMode
+    end
+
+    return nil, current, nil, expectedMode
+end
+
 resolveRemainingFraction = function(item, current, total)
     if current and current.remainingFraction ~= nil then
         return clamp01(current.remainingFraction)
@@ -1140,6 +1168,50 @@ local function applySnapshot(item, snapshot)
     return true
 end
 
+local function readCurrentValuesPublic(itemOrFullType)
+    local entry, fullType = getFoodEntry(itemOrFullType)
+    if not entry or not fullType or itemOrFullType == nil or type(itemOrFullType) == "string" then
+        return nil
+    end
+    return readCurrentValues(itemOrFullType, fullType, entry)
+end
+
+local function readStoredSnapshotPublic(itemOrFullType)
+    local entry, fullType = getFoodEntry(itemOrFullType)
+    if not entry or not fullType or itemOrFullType == nil or type(itemOrFullType) == "string" then
+        return nil
+    end
+    return readStoredSnapshot(itemOrFullType, fullType, entry)
+end
+
+local function transferItemSnapshot(sourceItem, targetItem, reason)
+    if not sourceItem or not targetItem then
+        return nil
+    end
+
+    local sourceEntry, sourceFullType = getFoodEntry(sourceItem)
+    local targetEntry, targetFullType = getFoodEntry(targetItem)
+    if not sourceEntry or not sourceFullType or not targetEntry or not targetFullType then
+        return nil
+    end
+
+    local sourceStored = readStoredSnapshot(sourceItem, sourceFullType, sourceEntry)
+    local sourceDisplay = resolveDisplaySnapshot(sourceItem, sourceFullType, sourceEntry)
+    if type(sourceDisplay) ~= "table" then
+        return nil
+    end
+
+    applySnapshot(targetItem, sourceDisplay)
+
+    if type(sourceStored) == "table" then
+        writeStoredSnapshot(targetItem, sourceStored, targetFullType, targetEntry)
+    else
+        clearStoredSnapshot(targetItem)
+    end
+
+    return sourceStored or sourceDisplay
+end
+
 ItemAuthority.SNAPSHOT_KEY = SNAPSHOT_KEY
 ItemAuthority.SNAPSHOT_VERSION = SNAPSHOT_VERSION
 
@@ -1157,6 +1229,7 @@ ItemAuthority.readStoredSnapshotPrivate = readStoredSnapshot
 ItemAuthority.resolveSnapshotMode = getExpectedSnapshotMode
 ItemAuthority.ensureSnapshot = ensureSnapshot
 ItemAuthority.resolveComputedDisplaySnapshot = resolveComputedDisplaySnapshot
+ItemAuthority.resolveDisplaySnapshot = resolveDisplaySnapshot
 ItemAuthority.getDefaultValues = getDefaultValues
 ItemAuthority.scaleConsumedSnapshot = scaleConsumedSnapshot
 ItemAuthority.getBurntNutritionMultiplier = getBurntNutritionMultiplier
@@ -1164,6 +1237,9 @@ ItemAuthority.normalizeSnapshot = normalizeSnapshot
 ItemAuthority.writeStoredSnapshot = writeStoredSnapshot
 ItemAuthority.resolveRemainingFraction = resolveRemainingFraction
 ItemAuthority.applySnapshot = applySnapshot
+ItemAuthority.readCurrentValues = readCurrentValuesPublic
+ItemAuthority.readStoredSnapshot = readStoredSnapshotPublic
+ItemAuthority.transferItemSnapshot = transferItemSnapshot
 ItemAuthority.buildAppliedSnapshot = buildAppliedSnapshot
 ItemAuthority.addPayloadSnapshots = addPayloadSnapshots
 ItemAuthority.measureAccumulatedPayload = measureAccumulatedPayload

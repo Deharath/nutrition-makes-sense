@@ -44,13 +44,9 @@ require "NutritionMakesSense_MPCompat"
 require "NutritionMakesSense_Compat"
 require "NutritionMakesSense_DebugSupport"
 require "NutritionMakesSense_StablePatcher"
-require "NutritionMakesSense_StableItemRuntime"
 require "NutritionMakesSense_ItemAuthority"
 require "NutritionMakesSense_MetabolismRuntime"
 
-if NutritionMakesSense.StableItemRuntime and type(NutritionMakesSense.StableItemRuntime.install) == "function" then
-    NutritionMakesSense.StableItemRuntime.install()
-end
 if NutritionMakesSense.ItemAuthority and type(NutritionMakesSense.ItemAuthority.install) == "function" then
     NutritionMakesSense.ItemAuthority.install()
 end

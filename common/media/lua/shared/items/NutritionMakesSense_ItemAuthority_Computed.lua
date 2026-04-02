@@ -283,5 +283,8 @@ end
 ItemAuthority.seedDynamicPayload = seedComputedPayload
 ItemAuthority.accumulateDynamicPayload = accumulateComputedPayload
 ItemAuthority.seedDynamicOutputs = seedComputedOutputs
+ItemAuthority.seedComputedPayload = seedComputedPayload
+ItemAuthority.accumulateComputedPayload = accumulateComputedPayload
+ItemAuthority.seedComputedOutputs = seedComputedOutputs
 
 return ItemAuthority

@@ -282,8 +282,8 @@ do
         local fullType = resolveFullTypeHint(item)
         local entry = fullType and type(ItemAuthority.getFoodEntry) == "function"
             and select(1, ItemAuthority.getFoodEntry(fullType)) or nil
-        if item and entry and type(ItemAuthority.resolveAppliedSnapshot) == "function" then
-            local applied = select(1, ItemAuthority.resolveAppliedSnapshot(item, fullType, entry))
+        if item and entry and type(ItemAuthority.resolveDisplaySnapshot) == "function" then
+            local applied = select(1, ItemAuthority.resolveDisplaySnapshot(item, fullType, entry))
             if type(applied) == "table" then
                 return applied
             end

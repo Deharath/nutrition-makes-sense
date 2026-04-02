@@ -402,6 +402,10 @@ function ItemAuthority.restoreItem(item, reason)
     return syncItem(item, "restore", reason or "restore")
 end
 
+function ItemAuthority.captureItem(item, reason)
+    return syncItem(item, "capture", reason or "capture")
+end
+
 function ItemAuthority.syncPersistenceSurfaces(reason, mode)
     return syncTraversedSurfaces(reason, mode, true)
 end

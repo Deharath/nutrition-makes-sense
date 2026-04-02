@@ -159,8 +159,9 @@ function ItemAuthority.getDisplayValues(item)
     if not entry or not fullType then
         return nil
     end
-    if type(ItemAuthority.resolveAppliedSnapshot) == "function" then
-        local applied = select(1, ItemAuthority.resolveAppliedSnapshot(item, fullType, entry))
+
+    if type(ItemAuthority.resolveDisplaySnapshot) == "function" then
+        local applied = select(1, ItemAuthority.resolveDisplaySnapshot(item, fullType, entry))
         if type(applied) == "table" then
             return applied
         end
@@ -289,9 +290,9 @@ function ItemAuthority.getDebugSnapshot(item)
         return nil
     end
 
-    local applied, currentResolved, storedResolved, _, resolvedMode = nil, nil, nil, nil, nil
-    if type(ItemAuthority.resolveAppliedSnapshot) == "function" then
-        applied, currentResolved, storedResolved, _, resolvedMode = ItemAuthority.resolveAppliedSnapshot(item, fullType, entry)
+    local applied, currentResolved, storedResolved, resolvedMode = nil, nil, nil, nil
+    if type(ItemAuthority.resolveDisplaySnapshot) == "function" then
+        applied, currentResolved, storedResolved, resolvedMode = ItemAuthority.resolveDisplaySnapshot(item, fullType, entry)
     end
     local expectedMode = type(ItemAuthority.resolveSnapshotMode) == "function"
         and ItemAuthority.resolveSnapshotMode(item, fullType, entry) or nil
