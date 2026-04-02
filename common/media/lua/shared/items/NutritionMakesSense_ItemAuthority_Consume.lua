@@ -109,10 +109,10 @@ local function annotateConsumedValues(values, entry, authoritySource)
         return nil
     end
 
-    values.authorityKind = type(ItemAuthority.getEntryAuthorityKind) == "function"
-        and (ItemAuthority.getEntryAuthorityKind(entry) or values.authorityKind) or values.authorityKind or "unknown"
-    values.portionKind = type(ItemAuthority.getEntryPortionKind) == "function"
-        and (ItemAuthority.getEntryPortionKind(entry) or values.portionKind) or values.portionKind or "unknown"
+    values.snapshotMode = type(ItemAuthority.getEntrySnapshotMode) == "function"
+        and (ItemAuthority.getEntrySnapshotMode(entry) or values.snapshotMode) or values.snapshotMode or "unknown"
+    values.entryAction = type(ItemAuthority.getEntryAction) == "function"
+        and (ItemAuthority.getEntryAction(entry) or values.entryAction) or values.entryAction or "unknown"
     values.consumeAuthoritySource = authoritySource or values.consumeAuthoritySource
     return values
 end

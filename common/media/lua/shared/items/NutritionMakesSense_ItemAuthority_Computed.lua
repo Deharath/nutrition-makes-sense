@@ -42,7 +42,7 @@ local function isDynamicPayloadEntry(entry)
         return false
     end
 
-    if type(ItemAuthority.isRuntimeComposedEntry) == "function" and ItemAuthority.isRuntimeComposedEntry(entry) then
+    if type(ItemAuthority.usesComposedSnapshots) == "function" and ItemAuthority.usesComposedSnapshots(entry) then
         return true
     end
 
@@ -50,8 +50,8 @@ local function isDynamicPayloadEntry(entry)
         return true
     end
 
-    local authorityKind = tostring(entry.authority_kind or entry.authorityKind or "")
-    return authorityKind == "runtime_composed"
+    local snapshotMode = tostring(entry.snapshot_mode or entry.snapshotMode or "")
+    return snapshotMode == "composed"
 end
 
 local function notifySeedEvent(reason, item, values, fullType)

@@ -12,6 +12,8 @@ local isLocalAuthorityRuntime = MPClient.isLocalAuthorityRuntime
 local resolveEatFraction = MPClient.resolveEatFraction
 local getVisibleHunger = MPClient.getVisibleHunger
 local resolveConsumedContext = MPClient.resolveConsumedContext
+local captureCurrentConsumeValues = MPClient.captureCurrentConsumeValues
+local buildMeasuredConsumeContext = MPClient.buildMeasuredConsumeContext
 local collectItems = MPClient.collectItems
 local applyLocalConsume = MPClient.applyLocalConsume
 
@@ -27,6 +29,8 @@ local function refreshBindings()
     resolveEatFraction = MPClient.resolveEatFraction or resolveEatFraction
     getVisibleHunger = MPClient.getVisibleHunger or getVisibleHunger
     resolveConsumedContext = MPClient.resolveConsumedContext or resolveConsumedContext
+    captureCurrentConsumeValues = MPClient.captureCurrentConsumeValues or captureCurrentConsumeValues
+    buildMeasuredConsumeContext = MPClient.buildMeasuredConsumeContext or buildMeasuredConsumeContext
     collectItems = MPClient.collectItems or collectItems
     applyLocalConsume = MPClient.applyLocalConsume or applyLocalConsume
 end
@@ -39,6 +43,16 @@ end
 local function getApplyLocalConsume()
     refreshBindings()
     return MPClient.applyLocalConsume or applyLocalConsume
+end
+
+local function getCaptureCurrentConsumeValues()
+    refreshBindings()
+    return MPClient.captureCurrentConsumeValues or captureCurrentConsumeValues
+end
+
+local function getBuildMeasuredConsumeContext()
+    refreshBindings()
+    return MPClient.buildMeasuredConsumeContext or buildMeasuredConsumeContext
 end
 
 local function resolveDrinkConsumeFraction(action, delta, beforeRatio)
@@ -69,6 +83,37 @@ local function resolveConsumeFullType(item, action)
         return MPClient.resolveConsumeFullType(item)
     end
     return tostring(safeCall(item, "getFullType") or "")
+end
+
+local function resolveEatRequestedPercentage(action, progress)
+    local requested = tonumber(action and action.percentage or 1) or 1
+    if progress == nil then
+        return requested
+    end
+
+    local scaledProgress = tonumber(progress) or 0
+    if scaledProgress > 0.95 then
+        scaledProgress = 1.0
+    end
+    return requested * scaledProgress
+end
+
+local function resolveConsumeMissingReason(fraction, resolveConsumed)
+    if fraction <= CONSUME_EPSILON then
+        return nil
+    end
+    if type(resolveConsumed) ~= "function" then
+        return "resolver-missing"
+    end
+    if type(ItemAuthority) ~= "table" then
+        return "authority-missing"
+    end
+    if type(ItemAuthority.resolveGameplayConsumeContext) ~= "function"
+        and type(ItemAuthority.resolveConsumedPayload) ~= "function"
+    then
+        return "authority-consume-api-missing"
+    end
+    return "context-missing"
 end
 
 local function raiseConsumeHardFail(reason, itemOrFullType, fraction, detail)
@@ -108,6 +153,93 @@ local function applyConsumeOrHardFail(kind, character, item, consumedContext, fr
             "apply-failed"
         )
     end
+end
+
+local function resolveFallbackConsumeContext(item, fraction, preVisibleHunger, fullTypeHint)
+    local resolveConsumed = getResolveConsumedContext()
+    if fraction <= CONSUME_EPSILON or type(resolveConsumed) ~= "function" then
+        return nil, resolveConsumed
+    end
+
+    local consumedContext = resolveConsumed(item, fraction, preVisibleHunger, fullTypeHint)
+    if type(consumedContext) == "table" then
+        consumedContext.measured = false
+    end
+    return consumedContext, resolveConsumed
+end
+
+local function applyMeasuredConsume(kind, item, character, fraction, fullTypeHint, originalCall, options)
+    options = type(options) == "table" and options or {}
+
+    local preVisibleHunger = type(getVisibleHunger) == "function" and getVisibleHunger(character) or 0
+    local applyConsume = getApplyLocalConsume()
+    local captureCurrent = getCaptureCurrentConsumeValues()
+    local buildMeasured = getBuildMeasuredConsumeContext()
+    local beforeValues = nil
+    local usedMeasuredPath = false
+
+    if type(captureCurrent) == "function" and item then
+        beforeValues = select(1, captureCurrent(item, fullTypeHint))
+    end
+
+    local result = originalCall()
+    if fraction <= CONSUME_EPSILON then
+        return result
+    end
+
+    local afterValues = nil
+    if type(captureCurrent) == "function" and item then
+        afterValues = select(1, captureCurrent(item, fullTypeHint))
+    end
+
+    local consumedContext = nil
+    if type(buildMeasured) == "function" and beforeValues ~= nil then
+        usedMeasuredPath = true
+        consumedContext = buildMeasured(item, beforeValues, afterValues, preVisibleHunger, fullTypeHint)
+        if type(consumedContext) == "table" then
+            consumedContext.measured = true
+        end
+    end
+
+    local resolveConsumed = nil
+    if not consumedContext and options.allowPredictiveFallback == true then
+        consumedContext, resolveConsumed = resolveFallbackConsumeContext(item, fraction, preVisibleHunger, fullTypeHint)
+    end
+
+    if type(consumedContext) == "table" and consumedContext.skip == true then
+        return result
+    end
+    if not consumedContext then
+        if usedMeasuredPath and options.returnOnMeasuredMiss == true then
+            return result
+        end
+        raiseConsumeHardFail(
+            kind,
+            fullTypeHint or safeCall(item, "getFullType") or item or "unknown",
+            fraction,
+            resolveConsumeMissingReason(fraction, resolveConsumed)
+        )
+    end
+
+    applyConsumeOrHardFail(
+        kind,
+        character,
+        item,
+        consumedContext,
+        fraction,
+        fullTypeHint,
+        applyConsume,
+        "context-missing"
+    )
+    return result
+end
+
+local function applyMeasuredEatConsume(kind, self, requestedPercentage, originalCall, options)
+    local item = self and self.item or nil
+    local character = self and self.character or nil
+    local fullTypeHint = resolveConsumeFullType(item, self)
+    local fraction = item and resolveEatFraction(item, requestedPercentage) or 0
+    return applyMeasuredConsume(kind, item, character, fraction, fullTypeHint, originalCall, options)
 end
 
 local function hasMeaningfulMacroValues(values)
@@ -176,17 +308,21 @@ local function assertConsumeRuntimeReady(where)
     local authorityReady = type(ItemAuthority) == "table"
         and (type(ItemAuthority.resolveGameplayConsumeContext) == "function"
             or type(ItemAuthority.resolveConsumedPayload) == "function")
-    if resolverReady and authorityReady then
+    local measuredReady = type(getCaptureCurrentConsumeValues()) == "function"
+        and type(getBuildMeasuredConsumeContext()) == "function"
+    if resolverReady and authorityReady and measuredReady then
         return
     end
 
     error(string.format(
-        "[NMS_BOOT_HARD_FAIL] where=%s resolver=%s authority=%s gameplay=%s legacy=%s",
+        "[NMS_BOOT_HARD_FAIL] where=%s resolver=%s authority=%s gameplay=%s legacy=%s capture=%s measure=%s",
         tostring(where or "unknown"),
         tostring(resolverReady),
         tostring(type(ItemAuthority) == "table"),
         tostring(type(ItemAuthority) == "table" and type(ItemAuthority.resolveGameplayConsumeContext) == "function"),
-        tostring(type(ItemAuthority) == "table" and type(ItemAuthority.resolveConsumedPayload) == "function")
+        tostring(type(ItemAuthority) == "table" and type(ItemAuthority.resolveConsumedPayload) == "function"),
+        tostring(type(getCaptureCurrentConsumeValues()) == "function"),
+        tostring(type(getBuildMeasuredConsumeContext()) == "function")
     ))
 end
 
@@ -223,44 +359,23 @@ function MPClient.wrapDrinkFluidAction()
     ISDrinkFluidAction.updateEat = function(self, delta)
         local item = self and self.item or nil
         local character = self and self.character or nil
-        local preVisibleHunger = getVisibleHunger(character)
         local fluidContainer = item and safeCall(item, "getFluidContainer") or nil
         local beforeRatio = fluidContainer and tonumber(safeCall(fluidContainer, "getFilledRatio") or 0) or nil
         local consumedFraction = resolveDrinkConsumeFraction(self, delta, beforeRatio)
 
-        originalUpdateEat(self, delta)
-
-        if beforeRatio == nil then
-            return
-        end
-        if consumedFraction <= CONSUME_EPSILON then
-            return
-        end
-
-        local resolveConsumed = getResolveConsumedContext()
-        local applyConsume = getApplyLocalConsume()
-        local consumedContext = type(resolveConsumed) == "function" and resolveConsumed(item, consumedFraction, preVisibleHunger) or nil
-        if type(consumedContext) == "table" and consumedContext.skip == true then
-            return
-        end
-        if not consumedContext then
-            raiseConsumeHardFail(
-                "drink-fluid",
-                safeCall(item, "getFullType") or item,
-                consumedFraction,
-                type(resolveConsumed) == "function" and "context-missing" or "resolver-missing"
-            )
-            return
-        end
-        applyConsumeOrHardFail(
+        return applyMeasuredConsume(
             "drink-fluid",
-            character,
             item,
-            consumedContext,
+            character,
             consumedFraction,
             safeCall(item, "getFullType") or item,
-            applyConsume,
-            "context-missing"
+            function()
+                return originalUpdateEat(self, delta)
+            end,
+            {
+                allowPredictiveFallback = not isLocalAuthorityRuntime(),
+                returnOnMeasuredMiss = isLocalAuthorityRuntime(),
+            }
         )
     end
 
@@ -291,57 +406,75 @@ function MPClient.wrapEatFoodAction()
 
     local originalPerform = ISEatFoodAction.perform
     ISEatFoodAction.perform = function(self)
-        local item = self and self.item or nil
-        local character = self and self.character or nil
-        local fullTypeHint = resolveConsumeFullType(item, self)
-        local preVisibleHunger = type(getVisibleHunger) == "function" and getVisibleHunger(character) or 0
-        local fraction = item and resolveEatFraction(item, self and self.percentage or 1) or 0
-        local consumedContext = nil
-        local resolveConsumed = getResolveConsumedContext()
-        local applyConsume = getApplyLocalConsume()
-
-        if fraction > CONSUME_EPSILON and type(resolveConsumed) == "function" then
-            consumedContext = resolveConsumed(item, fraction, preVisibleHunger, fullTypeHint)
+        if isLocalAuthorityRuntime() then
+            return type(originalPerform) == "function" and originalPerform(self) or nil
         end
 
-        local result = type(originalPerform) == "function" and originalPerform(self) or nil
-        if type(consumedContext) == "table" and consumedContext.skip == true then
-            return result
-        end
-        if not consumedContext then
-            local reason = "unknown"
-            if fraction <= CONSUME_EPSILON then
-                return result
-            elseif type(resolveConsumed) ~= "function" then
-                reason = "resolver-missing"
-            elseif type(ItemAuthority) ~= "table" then
-                reason = "authority-missing"
-            elseif type(ItemAuthority.resolveGameplayConsumeContext) ~= "function"
-                and type(ItemAuthority.resolveConsumedPayload) ~= "function"
-            then
-                reason = "authority-consume-api-missing"
-            else
-                reason = "context-missing"
+        return applyMeasuredEatConsume(
+            "eat-food",
+            self,
+            self and self.percentage or 1,
+            function()
+                return type(originalPerform) == "function" and originalPerform(self) or nil
+            end,
+            {
+                allowPredictiveFallback = true,
+                returnOnMeasuredMiss = false,
+            }
+        )
+    end
+
+    local originalComplete = ISEatFoodAction.complete
+    if type(originalComplete) == "function" then
+        ISEatFoodAction.complete = function(self)
+            if not isLocalAuthorityRuntime() then
+                return originalComplete(self)
             end
-            raiseConsumeHardFail(
+
+            return applyMeasuredEatConsume(
                 "eat-food",
-                fullTypeHint or safeCall(item, "getFullType") or item or "unknown",
-                fraction,
-                reason
+                self,
+                resolveEatRequestedPercentage(self),
+                function()
+                    return originalComplete(self)
+                end,
+                {
+                    allowPredictiveFallback = false,
+                    returnOnMeasuredMiss = true,
+                }
             )
         end
+    end
 
-        applyConsumeOrHardFail(
-            "eat-food",
-            character,
-            item,
-            consumedContext,
-            fraction,
-            fullTypeHint,
-            applyConsume,
-            "context-missing"
-        )
-        return result
+    local originalServerStop = ISEatFoodAction.serverStop
+    if type(originalServerStop) == "function" then
+        ISEatFoodAction.serverStop = function(self)
+            if not isLocalAuthorityRuntime() then
+                return originalServerStop(self)
+            end
+
+            local progress = nil
+            local netAction = self and self.netAction or nil
+            if netAction then
+                progress = safeCall(netAction, "getProgress")
+            end
+            if progress == nil then
+                progress = safeCall(self, "getJobDelta")
+            end
+
+            return applyMeasuredEatConsume(
+                "eat-food",
+                self,
+                resolveEatRequestedPercentage(self, progress),
+                function()
+                    return originalServerStop(self)
+                end,
+                {
+                    allowPredictiveFallback = false,
+                    returnOnMeasuredMiss = true,
+                }
+            )
+        end
     end
 
     NutritionMakesSense._eatFoodWrapped = true

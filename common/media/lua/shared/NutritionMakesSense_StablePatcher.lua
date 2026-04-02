@@ -179,17 +179,14 @@ end
 
 local function buildRuntimeReport(data, context)
     local entries = {}
-    local stableAuthorityTotals = {}
-    local stablePortionTotals = {}
+    local snapshotModeTotals = {}
     local actionTotals = {}
     for _, entry in pairs(data.runtimeEntriesByItemId or {}) do
         if type(entry) == "table" and entry.item_id then
             entries[#entries + 1] = entry
-            local authorityKind = tostring(entry.authority_kind or "unknown")
-            local portionKind = tostring(entry.portion_kind or "unknown")
+            local snapshotMode = tostring(entry.snapshot_mode or entry.snapshotMode or "unknown")
             local action = tostring(entry.action or "unknown")
-            stableAuthorityTotals[authorityKind] = (tonumber(stableAuthorityTotals[authorityKind]) or 0) + 1
-            stablePortionTotals[portionKind] = (tonumber(stablePortionTotals[portionKind]) or 0) + 1
+            snapshotModeTotals[snapshotMode] = (tonumber(snapshotModeTotals[snapshotMode]) or 0) + 1
             actionTotals[action] = (tonumber(actionTotals[action]) or 0) + 1
         end
     end
@@ -201,8 +198,7 @@ local function buildRuntimeReport(data, context)
         modId = data.baseModId or data.modId,
         activeModId = data.modId,
         context = context,
-        stableAuthorityTotals = stableAuthorityTotals,
-        stablePortionTotals = stablePortionTotals,
+        snapshotModeTotals = snapshotModeTotals,
         actionTotals = actionTotals,
         staticAuthorityValidation = {},
         deferredRuntimeRows = {},
@@ -219,7 +215,7 @@ local function buildRuntimeReport(data, context)
         },
         patchedRows = 0,
         routedRows = 0,
-        explicitExceptionRows = 0,
+        ignoredRows = 0,
         deferredProbeRows = 0,
         skippedPatchedRows = 0,
         curatedValuesEnabled = true,
@@ -307,7 +303,7 @@ function StablePatcher.ensurePatched(context)
         elseif entry.action == "routed" then
             runtimeReport.routedRows = runtimeReport.routedRows + 1
         else
-            runtimeReport.explicitExceptionRows = runtimeReport.explicitExceptionRows + 1
+            runtimeReport.ignoredRows = runtimeReport.ignoredRows + 1
         end
     end
 
@@ -321,7 +317,7 @@ function StablePatcher.ensurePatched(context)
     NutritionMakesSense.stablePatchReport = runtimeReport
 
     log(string.format(
-        "[STABLE_PATCH_REPORT] mod=%s active=%s context=%s curated=%s patched=%d skipped=%d deferred=%d runtime=%d explicit=%d static=%s opened=%s composed=%s fluid=%s whole_divisible=%s reservoir=%s",
+        "[STABLE_PATCH_REPORT] mod=%s active=%s context=%s curated=%s patched=%d skipped=%d deferred=%d runtime_only=%d routed=%d ignored=%d static=%s composed=%s fluid=%s",
         tostring(runtimeReport.modId),
         tostring(runtimeReport.activeModId),
         tostring(runtimeReport.context),
@@ -329,14 +325,12 @@ function StablePatcher.ensurePatched(context)
         runtimeReport.patchedRows,
         runtimeReport.skippedPatchedRows,
         runtimeReport.deferredProbeRows,
-        tonumber(runtimeReport.actionTotals and runtimeReport.actionTotals.authored_runtime or 0),
-        runtimeReport.explicitExceptionRows,
-        tostring(runtimeReport.stableAuthorityTotals.static or 0),
-        tostring(runtimeReport.stableAuthorityTotals.opened_state or 0),
-        tostring(runtimeReport.stableAuthorityTotals.runtime_composed or 0),
-        tostring(runtimeReport.stableAuthorityTotals.fluid or 0),
-        tostring(runtimeReport.stablePortionTotals.whole_divisible or 0),
-        tostring(runtimeReport.stablePortionTotals.reservoir or 0)
+        tonumber(runtimeReport.actionTotals and runtimeReport.actionTotals.runtime_only or 0),
+        tonumber(runtimeReport.actionTotals and runtimeReport.actionTotals.routed or 0),
+        tonumber(runtimeReport.actionTotals and runtimeReport.actionTotals.ignored or 0),
+        tostring(runtimeReport.snapshotModeTotals.static or 0),
+        tostring(runtimeReport.snapshotModeTotals.composed or 0),
+        tostring(runtimeReport.snapshotModeTotals.fluid or 0)
     ))
 
     if hasErrors then

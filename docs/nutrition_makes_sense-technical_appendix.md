@@ -29,7 +29,7 @@ Runtime split:
 
 - Mod root (`NutritionMakesSense/`): metadata and art assets (`mod.info`, `42/mod.info`, `poster.png`, `nms_icon.png`)
 - `common/`: source-of-truth Lua, translations, and runtime UI assets
-- `common/media/lua/shared/generated/`: committed generated nutrition values and food-semantics tables
+- `common/media/lua/shared/generated/`: committed generated nutrition values and runtime-routing tables
 - `common/media/lua/client/dev/`: development-only panels, runners, and scenario tooling
 - `42/`: Build 42 override layer containing `42/mod.info`
 - `docs/`: technical documentation bundled with the mod repo
@@ -43,19 +43,22 @@ NMS uses two authority paths for food values:
 - runtime-tracked foods carry per-item snapshots so nutrition survives partial use and stateful transformation
 
 Primary modules:
-- [NutritionMakesSense_Data.lua](../common/media/lua/shared/NutritionMakesSense_Data.lua) — loads embedded food values and semantic metadata
+- [NutritionMakesSense_Data.lua](../common/media/lua/shared/NutritionMakesSense_Data.lua) — loads embedded food values and runtime-routing metadata
 - [NutritionMakesSense_StablePatcher.lua](../common/media/lua/shared/NutritionMakesSense_StablePatcher.lua) — applies stable authored rows to script items and validates the result
 - [NutritionMakesSense_StableItemRuntime.lua](../common/media/lua/shared/NutritionMakesSense_StableItemRuntime.lua) — re-runs patch repair during load, game start, and player creation
 - [NutritionMakesSense_ItemAuthority.lua](../common/media/lua/shared/NutritionMakesSense_ItemAuthority.lua) — runtime authority facade for lookup, snapshot handling, and display resolution
 - [NutritionMakesSense_ItemAuthority_Consume.lua](../common/media/lua/shared/items/NutritionMakesSense_ItemAuthority_Consume.lua) — resolves consumed values for gameplay deposits
 - [NutritionMakesSense_FoodValues.lua](../common/media/lua/shared/generated/NutritionMakesSense_FoodValues.lua) — generated nutrition values keyed by item id
-- [NutritionMakesSense_FoodSemantics.lua](../common/media/lua/shared/generated/NutritionMakesSense_FoodSemantics.lua) — generated semantic metadata used for authority routing
+- [NutritionMakesSense_FoodSemantics.lua](../common/media/lua/shared/generated/NutritionMakesSense_FoodSemantics.lua) — generated runtime routing metadata (`snapshot_mode`, source, patch target, route target)
 
-Authority modes:
-- `authored` — stable items and authored runtime rows
-- `computed` — composed, fluid, and other runtime-derived foods
+Runtime routing model:
+- `nutrition_source=authored` — default values come from the authored table
+- `nutrition_source=computed` — live values come from runtime payload or fluid state
+- `snapshot_mode=static` — normal items use patched defaults and vanilla fraction scaling
+- `snapshot_mode=composed` — dynamic items preserve per-instance nutrition snapshots
+- `snapshot_mode=fluid` — nutrition is read from the fluid payload
 
-This structure preserves nutritional values across partial consumption, opened-container transitions, evolved recipes, and crafted outputs.
+This smaller routing model preserves nutritional values across partial consumption, opened-container transitions, evolved recipes, and crafted outputs without relying on a broad food taxonomy at runtime.
 
 ### Metabolism State
 
@@ -152,18 +155,18 @@ Client options:
 - `shared/items/NutritionMakesSense_ItemAuthority_Lifecycle.lua` — snapshot lifecycle management for live items
 - `shared/items/NutritionMakesSense_ItemAuthority_Traversal.lua` — traversal helpers for inventories, world items, containers, and vehicles
 - `shared/items/NutritionMakesSense_ItemAuthority_Computed.lua` — runtime snapshot construction for computed foods
-- `shared/items/NutritionMakesSense_ItemAuthority_Consume.lua` — consumed-value resolution for gameplay deposits and immediate visible-hunger targets on local-authority consume paths
+- `shared/items/NutritionMakesSense_ItemAuthority_Consume.lua` — consumed-value resolution and measured `before -> after` payload helpers for gameplay deposits
 - `shared/NutritionMakesSense_TooltipLogic.lua` — shared tooltip logic
 - `shared/generated/NutritionMakesSense_FoodValues.lua` — generated nutrition values
-- `shared/generated/NutritionMakesSense_FoodSemantics.lua` — generated semantic metadata
+- `shared/generated/NutritionMakesSense_FoodSemantics.lua` — generated runtime routing metadata
 
 ### Client Runtime And UI
 
 - `client/NutritionMakesSense_MPClientRuntime.lua` — multiplayer client facade
 - `client/mp/NutritionMakesSense_MPClientRuntime_Context.lua` — multiplayer client state and context initialization
 - `client/mp/NutritionMakesSense_MPClientRuntime_Network.lua` — snapshot requests, workload reports, and event ids
-- `client/mp/NutritionMakesSense_MPClientRuntime_Consume.lua` — consume request packaging and dedupe protection
-- `client/mp/NutritionMakesSense_MPClientRuntime_Hooks.lua` — client hook registration for multiplayer runtime surfaces
+- `client/mp/NutritionMakesSense_MPClientRuntime_Consume.lua` — live consume capture, measured payload packaging, and dedupe protection
+- `client/mp/NutritionMakesSense_MPClientRuntime_Hooks.lua` — measured food/drink hook registration for multiplayer runtime surfaces
 - `client/mp/NutritionMakesSense_MPClientRuntime_Lifecycle.lua` — snapshot receive path, projection, stale handling, and readiness logging
 - `client/bootstrap/NutritionMakesSense_ClientBootstrap.lua` — bootstrap actions, hotkeys, inspection helpers, and food debug logging
 - `client/hooks/NutritionMakesSense_ClientHooks.lua` — player hooks for shell synchronization and deprivation-driven melee damage adjustment
@@ -205,8 +208,10 @@ Client options:
 - NMS, not vanilla nutrition, is the gameplay authority for calories, macros, and related state transitions
 - visible hunger remains capped below the vanilla starvation-damage threshold
 - workload sampling is derived from vanilla thermoregulator MET data and normalized into NMS workload fields
-- on MP clients, successful food consume sends now also apply the same immediate visible-hunger preview and dev consume event locally, while the server remains the long-lived authority and reconciles state through snapshots
-- the MP food seam is `ISEatFoodAction.perform()`, not `complete()`: vanilla MP clients finish timed actions with `perform()` and skip `complete()`, so NMS client eat hooks must ride `perform()` to stay live in dedicated-server play
+- MP food and drink consume now use measured `before -> after` item deltas as the primary deposit source; the server prefers the measured client payload and only falls back to recompute when that payload is missing or invalid
+- MP food still has to hook `ISEatFoodAction.perform()` and drink still has to hook `ISDrinkFluidAction.updateEat()`, because those are the seams where dedicated-server clients can observe vanilla’s mutation on the live item
+- remote MP clients no longer apply an immediate visible-hunger preview when they send a consume event; visible hunger and shell state move only after the authoritative server snapshot comes back
+- local-authority eat paths also measure the actual item delta across `ISEatFoodAction.complete()` and `serverStop()`, so partially eaten composed foods cannot reuse a stale pre-eat preview
 - when AMS is present, NMS stops directly rewriting endurance and instead
   publishes deprivation-based endurance contributions through `MakesSenseCompat`
 - when CMS is present, NMS stops directly rewriting fatigue and instead

@@ -3,6 +3,7 @@ NutritionMakesSense = NutritionMakesSense or {}
 local MPClient = NutritionMakesSense.MPClientRuntime or {}
 NutritionMakesSense.MPClientRuntime = MPClient
 local Runtime = MPClient.Runtime or {}
+local Metabolism = MPClient.Metabolism or Runtime.Metabolism or {}
 local ItemAuthority = MPClient.ItemAuthority or {}
 local MP = MPClient.MP or {}
 local CONSUME_EPSILON = MPClient.CONSUME_EPSILON or 0.0001
@@ -18,6 +19,7 @@ local function refreshBindings()
     MPClient = NutritionMakesSense.MPClientRuntime or MPClient
     NutritionMakesSense.MPClientRuntime = MPClient
     Runtime = MPClient.Runtime or NutritionMakesSense.MetabolismRuntime or Runtime
+    Metabolism = MPClient.Metabolism or Runtime.Metabolism or Metabolism
     ItemAuthority = MPClient.ItemAuthority or NutritionMakesSense.ItemAuthority or ItemAuthority
     MP = MPClient.MP or MP
     CONSUME_EPSILON = MPClient.CONSUME_EPSILON or CONSUME_EPSILON
@@ -38,8 +40,8 @@ local function copyConsumeValues(values)
     return {
         fullType = values.fullType,
         authorityTarget = values.authorityTarget,
-        authorityKind = values.authorityKind,
-        portionKind = values.portionKind,
+        snapshotMode = values.snapshotMode,
+        entryAction = values.entryAction,
         hunger = tonumber(values.hunger) or 0,
         kcal = tonumber(values.kcal) or 0,
         carbs = tonumber(values.carbs) or 0,
@@ -124,6 +126,89 @@ function MPClient.resolveConsumedContext(item, fraction, preVisibleHunger, hinte
     return nil
 end
 
+local function buildImmediateHunger(values, preVisibleHunger)
+    if type(values) ~= "table" or type(Metabolism.getImmediateHungerDrop) ~= "function" then
+        return nil
+    end
+
+    local drop = tonumber(Metabolism.getImmediateHungerDrop(values, 1))
+    if drop == nil then
+        return nil
+    end
+
+    local hunger = math.abs(tonumber(values.hunger) or 0)
+    local pre = tonumber(preVisibleHunger) or 0
+    return {
+        drop = drop,
+        preVisibleHunger = pre,
+        targetVisibleHunger = math.max(0, pre - drop),
+        mechanical = hunger,
+    }
+end
+
+local function annotateMeasuredValues(values, entry, fullType, authoritySource)
+    if type(values) ~= "table" then
+        return nil
+    end
+
+    values.fullType = values.fullType or fullType
+    if type(entry) == "table" then
+        values.authorityTarget = values.authorityTarget or entry.authority_target or entry.authorityTarget
+    end
+    if type(ItemAuthority.getEntrySnapshotMode) == "function" then
+        values.snapshotMode = ItemAuthority.getEntrySnapshotMode(entry) or values.snapshotMode or "unknown"
+    end
+    if type(ItemAuthority.getEntryAction) == "function" then
+        values.entryAction = ItemAuthority.getEntryAction(entry) or values.entryAction or "unknown"
+    end
+    values.consumeAuthoritySource = authoritySource or values.consumeAuthoritySource or "unknown"
+    return values
+end
+
+function MPClient.captureCurrentConsumeValues(item, hintedFullType)
+    refreshBindings()
+    if not item
+        or not ItemAuthority
+        or type(ItemAuthority.getFoodEntry) ~= "function"
+        or type(ItemAuthority.readCurrentValuesPrivate) ~= "function"
+    then
+        return nil, nil, hintedFullType or MPClient.resolveConsumeFullType(item)
+    end
+
+    local fullTypeHint = hintedFullType or MPClient.resolveConsumeFullType(item)
+    local entry, fullType = ItemAuthority.getFoodEntry(fullTypeHint or item)
+    if not entry or not fullType then
+        return nil, nil, fullTypeHint
+    end
+
+    return ItemAuthority.readCurrentValuesPrivate(item, fullType, entry), entry, fullType
+end
+
+function MPClient.buildMeasuredConsumeContext(item, beforeValues, afterValues, preVisibleHunger, hintedFullType)
+    refreshBindings()
+    local values = MPClient.measureConsumedPayload(item, beforeValues, afterValues)
+    if type(values) ~= "table" then
+        return nil
+    end
+
+    local authoritySource = nil
+    local entry = nil
+    local fullType = hintedFullType or MPClient.resolveConsumeFullType(item)
+    if ItemAuthority and type(ItemAuthority.resolveGameplayConsumeAuthoritySource) == "function" then
+        authoritySource, entry, fullType = ItemAuthority.resolveGameplayConsumeAuthoritySource(item, fullType)
+    elseif ItemAuthority and type(ItemAuthority.getFoodEntry) == "function" then
+        entry, fullType = ItemAuthority.getFoodEntry(fullType or item)
+    end
+
+    values = annotateMeasuredValues(values, entry, fullType, authoritySource)
+    return {
+        values = values,
+        source = tostring(values.consumeAuthoritySource or authoritySource or "unknown"),
+        immediateHunger = buildImmediateHunger(values, preVisibleHunger),
+        measured = true,
+    }
+end
+
 function MPClient.measureConsumedPayload(item, beforeValues, afterValues)
     refreshBindings()
     if not ItemAuthority or type(ItemAuthority.measureConsumedPayload) ~= "function" then
@@ -206,6 +291,7 @@ function MPClient.applyLocalConsume(playerObj, item, consumedContext, fraction, 
             reason = tostring(reason or "client-consume"),
             consumeSource = consumeSource and tostring(consumeSource) or nil,
             consumed = copyConsumeValues(consumedValues),
+            consumedMeasured = consumedContext.measured == true,
             immediateHunger = copyImmediateHunger(immediateHunger),
         }
         local ok, err = pcall(sendClientCommand, tostring(MP.NET_MODULE), tostring(MP.CONSUME_ITEM_COMMAND), args)
@@ -218,9 +304,6 @@ function MPClient.applyLocalConsume(playerObj, item, consumedContext, fraction, 
                 tostring(err)
             ))
             return false
-        end
-        if immediateHunger and type(Runtime.applyVisibleHungerTarget) == "function" then
-            Runtime.applyVisibleHungerTarget(playerObj, immediateHunger.targetVisibleHunger, (reason or "client-consume") .. "-hunger")
         end
         noteDebugConsumeEvent()
         return true

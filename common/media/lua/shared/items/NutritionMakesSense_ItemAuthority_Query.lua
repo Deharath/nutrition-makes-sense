@@ -303,10 +303,10 @@ function ItemAuthority.getDebugSnapshot(item)
     return {
         fullType = fullType,
         source = type(ItemAuthority.resolveEntrySource) == "function" and ItemAuthority.resolveEntrySource(entry) or nil,
-        authorityKind = type(ItemAuthority.getEntryAuthorityKind) == "function"
-            and ItemAuthority.getEntryAuthorityKind(entry) or nil,
-        portionKind = type(ItemAuthority.getEntryPortionKind) == "function"
-            and ItemAuthority.getEntryPortionKind(entry) or nil,
+        snapshotMode = type(ItemAuthority.getEntrySnapshotMode) == "function"
+            and ItemAuthority.getEntrySnapshotMode(entry) or nil,
+        entryAction = type(ItemAuthority.getEntryAction) == "function"
+            and ItemAuthority.getEntryAction(entry) or nil,
         authorityTarget = entry.authority_target or nil,
         patchSource = entry.patch_source or nil,
         expectedMode = expectedMode,

@@ -134,8 +134,8 @@ local function buildConsumedSnapshot(values)
     return {
         fullType = tostring(values.fullType or ""),
         authorityTarget = tostring(values.authorityTarget or values.fullType or ""),
-        authorityKind = tostring(values.authorityKind or "unknown"),
-        portionKind = tostring(values.portionKind or "unknown"),
+        snapshotMode = tostring(values.snapshotMode or "unknown"),
+        entryAction = tostring(values.entryAction or "unknown"),
         hunger = tonumber(values.hunger) or 0,
         kcal = tonumber(values.kcal) or 0,
         carbs = tonumber(values.carbs) or 0,
@@ -177,7 +177,7 @@ local function buildClientFallbackConsumedContext(args, fullType)
 
     return {
         values = values,
-        source = tostring(args.consumeSource or consumed.consumeAuthoritySource or "client_fallback"),
+        source = tostring(args.consumeSource or consumed.consumeAuthoritySource or (args.consumedMeasured == true and "client_measured" or "client_fallback")),
         immediateHunger = buildImmediateHungerSnapshot(args.immediateHunger),
     }
 end
@@ -236,6 +236,11 @@ local function rememberConsumeEvent(playerObj, eventId)
 end
 
 local function resolveServerConsumedContext(playerObj, item, fullType, fraction, args)
+    local clientMeasured = type(args) == "table" and args.consumedMeasured == true and buildClientFallbackConsumedContext(args, fullType) or nil
+    if type(clientMeasured) == "table" and type(clientMeasured.values) == "table" then
+        return clientMeasured
+    end
+
     local fallback = buildClientFallbackConsumedContext(args, fullType)
     if not item and type(fallback) == "table" and type(fallback.values) == "table" then
         log(string.format(

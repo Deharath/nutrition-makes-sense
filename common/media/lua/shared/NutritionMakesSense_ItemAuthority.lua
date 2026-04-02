@@ -21,6 +21,11 @@ local HUNGER_TO_RUNTIME_SCALE = 0.01
 local SNAPSHOT_MODE_STATIC = "static"
 local SNAPSHOT_MODE_FLUID = "fluid"
 local SNAPSHOT_MODE_COMPOSED = "composed"
+local VALID_SNAPSHOT_MODES = {
+    [SNAPSHOT_MODE_STATIC] = true,
+    [SNAPSHOT_MODE_FLUID] = true,
+    [SNAPSHOT_MODE_COMPOSED] = true,
+}
 local TRACKED_SOURCES = {
     authored = true,
     vanilla = true,
@@ -58,26 +63,26 @@ local function resolveEntrySource(entry)
     return nil
 end
 
-local function getEntryAuthorityKind(entry)
+local function getEntrySnapshotMode(entry)
     if type(entry) ~= "table" then
         return nil
     end
 
-    local authorityKind = entry.authority_kind or entry.authorityKind
-    if type(authorityKind) == "string" and authorityKind ~= "" then
-        return authorityKind
+    local snapshotMode = entry.snapshot_mode or entry.snapshotMode
+    if type(snapshotMode) == "string" and VALID_SNAPSHOT_MODES[snapshotMode] then
+        return snapshotMode
     end
     return nil
 end
 
-local function getEntryPortionKind(entry)
+local function getEntryAction(entry)
     if type(entry) ~= "table" then
         return nil
     end
 
-    local portionKind = entry.portion_kind or entry.portionKind
-    if type(portionKind) == "string" and portionKind ~= "" then
-        return portionKind
+    local action = entry.action
+    if type(action) == "string" and action ~= "" then
+        return action
     end
     return nil
 end
@@ -97,9 +102,8 @@ local function getEntryCarbProfile(entry)
     return normalizeCarbProfile(entry.carb_profile or entry.carbProfile)
 end
 
-local function isRuntimeComposedEntry(entry)
-    local authorityKind = getEntryAuthorityKind(entry)
-    return authorityKind == "runtime_composed" or authorityKind == "scaffold"
+local function usesComposedSnapshots(entry)
+    return getEntrySnapshotMode(entry) == SNAPSHOT_MODE_COMPOSED
 end
 
 local function hasVanillaDynamicValues(item)
@@ -245,9 +249,9 @@ local function normalizeSnapshot(fullType, entry, snapshot)
 
     local inferredMode = tostring(snapshot.snapshotMode or snapshot.snapshot_mode or "")
     if inferredMode == "" then
-        if snapshot.fluidPayloadId ~= nil or getEntryAuthorityKind(entry) == "fluid" then
+        if snapshot.fluidPayloadId ~= nil or getEntrySnapshotMode(entry) == SNAPSHOT_MODE_FLUID then
             inferredMode = SNAPSHOT_MODE_FLUID
-        elseif isRuntimeComposedEntry(entry) then
+        elseif usesComposedSnapshots(entry) then
             inferredMode = SNAPSHOT_MODE_COMPOSED
         else
             inferredMode = SNAPSHOT_MODE_STATIC
@@ -353,7 +357,7 @@ local function getFoodEntry(itemOrFullType)
         entry = embeddedSemantics and embeddedSemantics[fullType] or nil
     end
     if type(entry) == "table" then
-        if isTrackedSource(resolveEntrySource(entry)) or isRuntimeComposedEntry(entry) then
+        if isTrackedSource(resolveEntrySource(entry)) or usesComposedSnapshots(entry) then
             return entry, fullType
         end
         return nil, fullType
@@ -367,8 +371,8 @@ local function getFoodEntry(itemOrFullType)
     if type(authoredValues) == "table" then
         return {
             item_id = fullType,
-            authority_kind = "static",
-            portion_kind = "single",
+            snapshot_mode = SNAPSHOT_MODE_STATIC,
+            action = "patched",
             nutrition_source = "authored",
             authority_target = fullType,
             patch_source = fullType,
@@ -549,7 +553,7 @@ local function readCurrentValues(item, fullType, entry)
 
     return normalizeSnapshot(fullType, entry, {
         fullType = fullType,
-        nutritionSource = isRuntimeComposedEntry(entry) and "computed" or getStaticFoodValueSource(),
+        nutritionSource = usesComposedSnapshots(entry) and "computed" or getStaticFoodValueSource(),
         sourceFullType = fullType,
         provenance = "live",
         seedReason = "current-values",
@@ -607,7 +611,7 @@ local function getExpectedSnapshotMode(item, fullType, entry)
     if item and snapshotHasNutrition(readFluidCurrentValues(item, fullType, entry)) then
         return SNAPSHOT_MODE_FLUID
     end
-    if isRuntimeComposedEntry(entry) then
+    if usesComposedSnapshots(entry) then
         return SNAPSHOT_MODE_COMPOSED
     end
     return SNAPSHOT_MODE_STATIC
@@ -882,6 +886,39 @@ resolveRemainingFraction = function(item, current, total)
         return clamp01(current.remainingFraction)
     end
 
+    local function tryRatio(currentValue, totalValue)
+        local currentNumber = tonumber(currentValue)
+        local totalNumber = tonumber(totalValue)
+        if currentNumber == nil or totalNumber == nil or math.abs(totalNumber) <= EPSILON then
+            return nil
+        end
+        return clamp01(math.abs(currentNumber / totalNumber))
+    end
+
+    local function tryExactSnapshotRatio()
+        if not current or not total then
+            return nil
+        end
+        return tryRatio(current.kcal, total.kcal)
+            or tryRatio(current.carbs, total.carbs)
+            or tryRatio(current.fats, total.fats)
+            or tryRatio(current.proteins, total.proteins)
+            or tryRatio(current.hunger, total.hunger)
+            or tryRatio(current.baseHunger, total.baseHunger)
+    end
+
+    local currentMode = tostring(current and current.snapshotMode or "")
+    local totalMode = tostring(total and total.snapshotMode or "")
+    local exactSnapshotRatio = tryExactSnapshotRatio()
+    if exactSnapshotRatio ~= nil
+        and (currentMode == SNAPSHOT_MODE_COMPOSED
+            or totalMode == SNAPSHOT_MODE_COMPOSED
+            or currentMode == SNAPSHOT_MODE_FLUID
+            or totalMode == SNAPSHOT_MODE_FLUID)
+    then
+        return exactSnapshotRatio
+    end
+
     local currentUses = tonumber(safeCall(item, "getCurrentUses"))
     local maxUses = tonumber(safeCall(item, "getMaxUses"))
     if currentUses ~= nil and maxUses ~= nil and maxUses > 0 then
@@ -894,23 +931,8 @@ resolveRemainingFraction = function(item, current, total)
         return clamp01(math.abs(currentHunger / baseHunger))
     end
 
-    local function tryRatio(currentValue, totalValue)
-        local currentNumber = tonumber(currentValue)
-        local totalNumber = tonumber(totalValue)
-        if currentNumber == nil or totalNumber == nil or math.abs(totalNumber) <= EPSILON then
-            return nil
-        end
-        return clamp01(math.abs(currentNumber / totalNumber))
-    end
-
-    if current and total then
-        local ratio = tryRatio(current.kcal, total.kcal)
-            or tryRatio(current.carbs, total.carbs)
-            or tryRatio(current.fats, total.fats)
-            or tryRatio(current.proteins, total.proteins)
-        if ratio ~= nil then
-            return ratio
-        end
+    if exactSnapshotRatio ~= nil then
+        return exactSnapshotRatio
     end
 
     return 1.0
@@ -1149,9 +1171,9 @@ ItemAuthority.clearStoredSnapshot = clearStoredSnapshot
 ItemAuthority.snapshotsMatch = snapshotsMatch
 ItemAuthority.warnAuthorityOnce = warnAuthorityOnce
 ItemAuthority.resolveAppliedSnapshot = resolveAppliedSnapshot
-ItemAuthority.getEntryAuthorityKind = getEntryAuthorityKind
-ItemAuthority.getEntryPortionKind = getEntryPortionKind
-ItemAuthority.isRuntimeComposedEntry = isRuntimeComposedEntry
+ItemAuthority.getEntrySnapshotMode = getEntrySnapshotMode
+ItemAuthority.getEntryAction = getEntryAction
+ItemAuthority.usesComposedSnapshots = usesComposedSnapshots
 ItemAuthority.visitList = CoreUtils.visitList
 
 local function loadItemAuthorityModule(moduleName, shortName)

@@ -349,8 +349,8 @@ local function logFoodItemDebug(item)
     local stored = debugSnapshot and debugSnapshot.stored or nil
     local resolvedMode = debugSnapshot and debugSnapshot.resolvedMode or nil
     local expectedMode = debugSnapshot and debugSnapshot.expectedMode or nil
-    local authorityKind = debugSnapshot and debugSnapshot.authorityKind or nil
-    local portionKind = debugSnapshot and debugSnapshot.portionKind or nil
+    local snapshotMode = debugSnapshot and debugSnapshot.snapshotMode or nil
+    local entryAction = debugSnapshot and debugSnapshot.entryAction or nil
     local authorityTarget = debugSnapshot and debugSnapshot.authorityTarget or nil
     local patchSource = debugSnapshot and debugSnapshot.patchSource or nil
     local source = debugSnapshot and debugSnapshot.source or nil
@@ -436,8 +436,8 @@ local function logFoodItemDebug(item)
 
     local nutritionParts = {
         "source=" .. tostring(resolvedSource or source or "nil"),
-        "authority=" .. tostring(authorityKind or "nil"),
-        "portion=" .. tostring(portionKind or "nil"),
+        "entryAction=" .. tostring(entryAction or "nil"),
+        "snapshotMode=" .. tostring(snapshotMode or resolvedMode or expectedMode or "nil"),
         "mode=" .. tostring(resolvedMode or expectedMode or "nil"),
         primaryLabel .. "=" .. formatValues(primaryValues),
         "raw=" .. formatValues({
