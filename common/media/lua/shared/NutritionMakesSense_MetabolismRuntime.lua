@@ -899,6 +899,7 @@ require "runtime/NutritionMakesSense_MetabolismRuntime_Compat"
 require "runtime/NutritionMakesSense_MetabolismRuntime_Workload"
 require "runtime/NutritionMakesSense_MetabolismRuntime_Sync"
 require "runtime/NutritionMakesSense_MetabolismRuntime_Authority"
+require "runtime/NutritionMakesSense_MetabolismRuntime_XP"
 require "runtime/NutritionMakesSense_MetabolismRuntime_Lifecycle"
 
 return Runtime

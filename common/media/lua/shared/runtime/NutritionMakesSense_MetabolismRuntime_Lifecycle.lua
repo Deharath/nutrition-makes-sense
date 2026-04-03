@@ -10,6 +10,9 @@ function Runtime.install()
         return Runtime
     end
     Runtime._installed = true
+    if type(Runtime.installProteinXpHooks) == "function" then
+        Runtime.installProteinXpHooks()
+    end
 
     if Events then
         if Events.OnLoad and type(Events.OnLoad.Add) == "function" then

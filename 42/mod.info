@@ -1,6 +1,6 @@
 name=Nutrition Makes Sense
 id=NutritionMakesSense
 author=Deharath
-modversion=1.0.1
+modversion=1.0.2
 versionMin=42.14.0
 description=Build 42 nutrition and weight overhaul with coherent metabolism, trustworthy food values, and readable player cues.

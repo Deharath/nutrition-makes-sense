@@ -72,6 +72,11 @@ Metabolism.PROTEIN_ADEQUACY_DEFAULT_DAYS = 4.0
 Metabolism.PROTEIN_ADEQUACY_MAX_DAYS = 5.0
 Metabolism.PROTEIN_DEFICIENCY_START_DAYS = 2.0
 Metabolism.PROTEIN_HEALING_MAX_PENALTY = 0.12
+Metabolism.PROTEIN_STRENGTH_XP_BONUS_MULTIPLIER = 1.5
+Metabolism.PROTEIN_STRENGTH_XP_PENALTY_MULTIPLIER = 0.7
+Metabolism.PROTEIN_STRENGTH_XP_BONUS_MIN_DAYS = 3.75
+Metabolism.PROTEIN_STRENGTH_XP_BONUS_MAX_DAYS = Metabolism.PROTEIN_ADEQUACY_MAX_DAYS
+Metabolism.PROTEIN_STRENGTH_XP_PENALTY_MAX_DAYS = 1.5
 Metabolism.PROTEIN_MAX = Metabolism.DEFAULT_WEIGHT_KG * Metabolism.PROTEIN_DAILY_NEED_G_PER_KG * Metabolism.PROTEIN_ADEQUACY_MAX_DAYS
 Metabolism.DEFAULT_PROTEIN = Metabolism.DEFAULT_WEIGHT_KG * Metabolism.PROTEIN_DAILY_NEED_G_PER_KG * Metabolism.PROTEIN_ADEQUACY_DEFAULT_DAYS
 
@@ -338,6 +343,26 @@ end
 
 function Metabolism.getProteinRequirementPerHour(weightKg)
     return Metabolism.getProteinNeedPerDay(weightKg) / 24
+end
+
+function Metabolism.getProteinAdequacyDays(proteins, weightKg)
+    local needPerDay = Metabolism.getProteinNeedPerDay(weightKg)
+    if needPerDay <= 0 then
+        return 0
+    end
+    return clampProteinAdequacy(proteins or 0, weightKg) / needPerDay
+end
+
+function Metabolism.getStrengthXpProteinMultiplier(proteins, weightKg)
+    local adequacyDays = Metabolism.getProteinAdequacyDays(proteins, weightKg)
+    if adequacyDays < Metabolism.PROTEIN_STRENGTH_XP_PENALTY_MAX_DAYS then
+        return Metabolism.PROTEIN_STRENGTH_XP_PENALTY_MULTIPLIER
+    end
+    if adequacyDays > Metabolism.PROTEIN_STRENGTH_XP_BONUS_MIN_DAYS
+        and adequacyDays < Metabolism.PROTEIN_STRENGTH_XP_BONUS_MAX_DAYS then
+        return Metabolism.PROTEIN_STRENGTH_XP_BONUS_MULTIPLIER
+    end
+    return 1.0
 end
 
 function Metabolism.getEnduranceDrainPerHourFromMet(workload)
