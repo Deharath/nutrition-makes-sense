@@ -82,7 +82,7 @@ Metabolism.SATIETY_BUFFER_MAX = 1.5
 Metabolism.SATIETY_BUFFER_DECAY_PER_HOUR = 0.08
 Metabolism.SATIETY_RETURN_FACTOR_MIN = 0.55
 Metabolism.SATIETY_FUEL_PIERCE_FLOOR = 0.40
-Metabolism.IMMEDIATE_HUNGER_MAX_DELTA = 0.30
+Metabolism.IMMEDIATE_HUNGER_MAX_DELTA = 1.00
 Metabolism.IMMEDIATE_FULLNESS_MAX_DELTA = Metabolism.IMMEDIATE_HUNGER_MAX_DELTA
 Metabolism.VISIBLE_HUNGER_MIN = 0.0
 Metabolism.VISIBLE_HUNGER_MAX = 1.0
@@ -637,7 +637,7 @@ local function computeImmediateHungerSnapshot(values, fraction)
         fatShare = fatKcal / totalMacroKcal
     end
 
-    local kcalFactor = kcal > 0 and clamp(math.sqrt(kcal / 400), 0, 1) or 0
+    local kcalFactor = kcal > 0 and math.sqrt(kcal / 400) or 0
     local lowCalPenalty = lerp(0.04, 0.00, clamp(kcal / 60, 0, 1))
     local targetHungerDrop = clamp(
         (kcalFactor * 0.22) + (proteinShare * 0.06) + (fatShare * 0.03) - lowCalPenalty,
