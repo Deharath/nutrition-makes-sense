@@ -2,22 +2,18 @@ NutritionMakesSense = NutritionMakesSense or {}
 
 require "NutritionMakesSense_Boot"
 require "NutritionMakesSense_DebugSupport"
-require "NutritionMakesSense_MPClientRuntime"
+require "NutritionMakesSense_MPClientRuntime_Vanilla"
 require "NutritionMakesSense_ClientOptions"
 require "NutritionMakesSense_TooltipOverlay"
-require "NutritionMakesSense_ItemAuthority"
 require "NutritionMakesSense_HealthPanelHook"
 require "NutritionMakesSense_MalnourishedMoodle"
 require "NutritionMakesSense_WeightDisplayHook"
 require "bootstrap/NutritionMakesSense_ClientBootstrap"
 require "hooks/NutritionMakesSense_ClientHooks"
 
--- Install MP projection before client-facing UI hooks so HUD surfaces read fresh snapshot state.
+-- Install thin MP sync before client-facing UI hooks so HUD surfaces can read shared state.
 if NutritionMakesSense.MPClientRuntime and type(NutritionMakesSense.MPClientRuntime.install) == "function" then
     NutritionMakesSense.MPClientRuntime.install()
-end
-if NutritionMakesSense.MPClientRuntime and type(NutritionMakesSense.MPClientRuntime.installHooks) == "function" then
-    NutritionMakesSense.MPClientRuntime.installHooks()
 end
 if NutritionMakesSense.ClientOptions and type(NutritionMakesSense.ClientOptions.install) == "function" then
     NutritionMakesSense.ClientOptions.install()
@@ -37,7 +33,7 @@ end
 if NutritionMakesSense.ClientBootstrap and type(NutritionMakesSense.ClientBootstrap.install) == "function" then
     NutritionMakesSense.ClientBootstrap.install()
 end
--- ClientHooks depends on the projection/UI runtime already being installed this tick.
+-- ClientHooks depends on the runtime/UI state already being installed this tick.
 if NutritionMakesSense.ClientHooks and type(NutritionMakesSense.ClientHooks.install) == "function" then
     NutritionMakesSense.ClientHooks.install()
 end

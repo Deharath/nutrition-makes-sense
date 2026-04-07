@@ -13,6 +13,11 @@ function UIHelpers.safeCall(target, methodName, ...)
 end
 
 function UIHelpers.getStateCopy(playerObj)
+    local authoritative = UIHelpers.getAuthoritativeStateCopy(playerObj)
+    if authoritative then
+        return authoritative
+    end
+
     local MPClient = NutritionMakesSense.MPClientRuntime or {}
     if type(MPClient.getProjectedStateCopy) == "function" then
         local projected = MPClient.getProjectedStateCopy(playerObj)
@@ -20,7 +25,7 @@ function UIHelpers.getStateCopy(playerObj)
             return projected
         end
     end
-    return UIHelpers.getAuthoritativeStateCopy(playerObj)
+    return nil
 end
 
 function UIHelpers.getAuthoritativeStateCopy(playerObj)

@@ -7,8 +7,15 @@ local Metabolism = NutritionMakesSense.Metabolism or {}
 local SIM_DURATION_HOURS = 24
 local SIM_STEP_HOURS = 0.25
 
-local function clamp(value, minValue, maxValue)
-    return Metabolism.clamp(value, minValue, maxValue)
+local clamp = Metabolism.clamp or function(value, minValue, maxValue)
+    local numeric = tonumber(value) or minValue
+    if numeric < minValue then
+        return minValue
+    end
+    if numeric > maxValue then
+        return maxValue
+    end
+    return numeric
 end
 
 local function cloneTable(source)
@@ -33,7 +40,6 @@ local function makeDefaultState()
         deprivation = 0,
         satietyBuffer = 0,
         visibleHunger = 0.03,
-        hunger = 0.03,
     })
 end
 

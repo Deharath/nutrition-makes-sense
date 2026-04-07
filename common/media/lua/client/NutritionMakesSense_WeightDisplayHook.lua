@@ -11,7 +11,7 @@ local FONT = UIFont.Small
 local FONT_HGT_MEDIUM = getTextManager():getFontHeight(UIFont.Medium)
 
 local smoothedRateByPlayer = setmetatable({}, { __mode = "k" })
-local SMOOTH_ALPHA = 0.08
+local SMOOTH_ALPHA = 0.15
 
 local function getState(player)
     return UIHelpers.getStateCopy(player)

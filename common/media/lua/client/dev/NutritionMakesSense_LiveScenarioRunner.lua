@@ -12,7 +12,6 @@ require "NutritionMakesSense_CoreUtils"
 local Runner = NutritionMakesSense.LiveScenarioRunner
 local Runtime = NutritionMakesSense.MetabolismRuntime or {}
 local Metabolism = NutritionMakesSense.Metabolism or {}
-local ItemAuthority = NutritionMakesSense.ItemAuthority or {}
 local ScenarioCatalog = NutritionMakesSense.LiveScenarioCatalog or {}
 local ScenarioAnalysis = NutritionMakesSense.LiveScenarioAnalysis or {}
 local RunnerUtils = NutritionMakesSense.LiveScenarioRunnerUtils or {}
@@ -584,6 +583,23 @@ local function getFluidFilledRatio(item)
         return nil
     end
     return tonumber(safeCall(fluidContainer, "getFilledRatio"))
+end
+
+local function readExpectedNutrition(item)
+    if not item then
+        return nil
+    end
+
+    local expected = {
+        kcal = tonumber(safeCall(item, "getCalories")) or 0,
+        carbs = tonumber(safeCall(item, "getCarbohydrates")) or 0,
+        fats = tonumber(safeCall(item, "getLipids")) or 0,
+        proteins = tonumber(safeCall(item, "getProteins")) or 0,
+    }
+    if expected.kcal <= 0 and expected.carbs <= 0 and expected.fats <= 0 and expected.proteins <= 0 then
+        return nil
+    end
+    return expected
 end
 
 local formatMetricHour = RunnerUtils.formatMetricHour
@@ -1274,12 +1290,12 @@ local function beginMealItem(run, mealRun)
         return false
     end
 
-    local expected = ItemAuthority.getConsumedValues and ItemAuthority.getConsumedValues(item, 1) or nil
+    local expected = readExpectedNutrition(item)
     mealRun.currentItem = {
         label = itemSpec.label or itemSpec.fullType,
         fullType = itemSpec.fullType,
         item = item,
-        itemId = tonumber(ItemAuthority.getItemId and ItemAuthority.getItemId(item) or safeCall(item, "getID") or nil),
+        itemId = tonumber(safeCall(item, "getID") or nil),
         expected = cloneTable(expected),
         queuedWorldHours = getWorldHours(),
         preConsumeSnapshot = snapshotPlayer(run.player),

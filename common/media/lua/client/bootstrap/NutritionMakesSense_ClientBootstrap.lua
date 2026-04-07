@@ -1,7 +1,6 @@
 NutritionMakesSense = NutritionMakesSense or {}
 
 require "NutritionMakesSense_DebugSupport"
-require "NutritionMakesSense_ItemAuthority"
 require "NutritionMakesSense_CoreUtils"
 
 local ClientBootstrap = NutritionMakesSense.ClientBootstrap or {}
@@ -337,24 +336,36 @@ local function makeFoodProbe(fullType)
     return probe
 end
 
+local function readVanillaFoodValues(item)
+    if not item then
+        return nil
+    end
+
+    local hunger = safeCall(item, "getHungerChange")
+    if hunger == nil then
+        hunger = safeCall(item, "getHungChange")
+    end
+
+    local baseHunger = safeCall(item, "getBaseHunger")
+    if baseHunger == nil then
+        baseHunger = hunger
+    end
+
+    return {
+        hunger = math.abs(tonumber(hunger) or 0),
+        baseHunger = math.abs(tonumber(baseHunger) or 0),
+        kcal = math.max(0, tonumber(safeCall(item, "getCalories")) or 0),
+        carbs = math.max(0, tonumber(safeCall(item, "getCarbohydrates")) or 0),
+        fats = math.max(0, tonumber(safeCall(item, "getLipids")) or 0),
+        proteins = math.max(0, tonumber(safeCall(item, "getProteins")) or 0),
+    }
+end
+
 local function logFoodItemDebug(item)
-    local ItemAuthority = NutritionMakesSense.ItemAuthority or {}
     local fullType = safeCall(item, "getFullType") or tostring(item)
-    local itemId = ItemAuthority.getItemId and ItemAuthority.getItemId(item) or tonumber(safeCall(item, "getID"))
+    local itemId = tonumber(safeCall(item, "getID"))
     local displayName = safeCall(item, "getDisplayName") or fullType
-    local display = ItemAuthority.getDisplayValues and ItemAuthority.getDisplayValues(item) or nil
-    local debugSnapshot = ItemAuthority.getDebugSnapshot and ItemAuthority.getDebugSnapshot(item) or nil
-    local applied = debugSnapshot and debugSnapshot.applied or nil
-    local current = debugSnapshot and debugSnapshot.current or nil
-    local stored = debugSnapshot and debugSnapshot.stored or nil
-    local resolvedMode = debugSnapshot and debugSnapshot.resolvedMode or nil
-    local expectedMode = debugSnapshot and debugSnapshot.expectedMode or nil
-    local snapshotMode = debugSnapshot and debugSnapshot.snapshotMode or nil
-    local entryAction = debugSnapshot and debugSnapshot.entryAction or nil
-    local authorityTarget = debugSnapshot and debugSnapshot.authorityTarget or nil
-    local patchSource = debugSnapshot and debugSnapshot.patchSource or nil
-    local source = debugSnapshot and debugSnapshot.source or nil
-    local resolvedSource = ItemAuthority.getResolvedNutritionSource and ItemAuthority.getResolvedNutritionSource(item) or nil
+    local liveValues = readVanillaFoodValues(item)
     local moodBoredom = safeCall(item, "getBoredomChange")
     local moodBoredomUnmodified = safeCall(item, "getBoredomChangeUnmodified")
     local moodUnhappy = safeCall(item, "getUnhappyChange")
@@ -383,6 +394,7 @@ local function logFoodItemDebug(item)
     local scriptMoodBoredom = safeCall(scriptItem, "getBoredomChange")
     local scriptMoodUnhappy = safeCall(scriptItem, "getUnhappyChange")
     local probe = makeFoodProbe(fullType)
+    local scriptValues = readVanillaFoodValues(probe)
     local probeMoodBoredom = safeCall(probe, "getBoredomChange")
     local probeMoodBoredomUnmodified = safeCall(probe, "getBoredomChangeUnmodified")
     local probeMoodUnhappy = safeCall(probe, "getUnhappyChange")
@@ -408,8 +420,6 @@ local function logFoodItemDebug(item)
         goodHot = goodHot,
         heat = heat,
     })
-    local primaryValues, primaryLabel = choosePrimaryValues(display, current, applied, stored)
-    local authorityMismatch = shouldLogAuthorityDump(display, applied, current, stored, expectedMode, resolvedMode)
     local scriptBoredomDelta = nil
     local scriptUnhappyDelta = nil
     if tonumber(moodBoredomUnmodified) ~= nil and tonumber(scriptMoodBoredom) ~= nil then
@@ -435,11 +445,9 @@ local function logFoodItemDebug(item)
     ))
 
     local nutritionParts = {
-        "source=" .. tostring(resolvedSource or source or "nil"),
-        "entryAction=" .. tostring(entryAction or "nil"),
-        "snapshotMode=" .. tostring(snapshotMode or resolvedMode or expectedMode or "nil"),
-        "mode=" .. tostring(resolvedMode or expectedMode or "nil"),
-        primaryLabel .. "=" .. formatValues(primaryValues),
+        "source=vanilla_item",
+        "live=" .. formatValues(liveValues),
+        "script=" .. formatValues(scriptValues),
         "raw=" .. formatValues({
             hunger = safeCall(item, "getHungChange") or safeCall(item, "getHungerChange"),
             kcal = safeCall(item, "getCalories"),
@@ -449,19 +457,7 @@ local function logFoodItemDebug(item)
         }),
         "thirst=" .. formatNumber(thirst, 3),
     }
-    if type(primaryValues) == "table" and type(current) == "table" and valuesDiffer(primaryValues, current) then
-        nutritionParts[#nutritionParts + 1] = "live=" .. formatValues(current)
-    end
     log("[FOOD_DEBUG] nutrition " .. joinParts(nutritionParts))
-
-    local authorityParts = {
-        "status=" .. (authorityMismatch and "mismatch" or "aligned"),
-        "expected=" .. tostring(expectedMode or "nil"),
-        "resolved=" .. tostring(resolvedMode or "nil"),
-        "patch=" .. tostring(patchSource or "nil"),
-        "target=" .. tostring(authorityTarget or "nil"),
-    }
-    log("[FOOD_DEBUG] authority " .. joinParts(authorityParts))
 
     log(string.format(
         "[FOOD_DEBUG] mood current boredom=%s unhappy=%s | unmodified boredom=%s unhappy=%s | script boredom=%s unhappy=%s",
@@ -487,19 +483,6 @@ local function logFoodItemDebug(item)
         "chef=" .. chef,
     }
     log("[FOOD_DEBUG] composition " .. joinParts(compositionParts))
-
-    if not authorityMismatch then
-        return
-    end
-
-    log("[FOOD_DEBUG] display " .. formatValues(display))
-    log("[FOOD_DEBUG] applied " .. formatValues(applied))
-    log("[FOOD_DEBUG] current " .. formatValues(current))
-    log("[FOOD_DEBUG] stored  " .. formatValues(stored))
-    log("[FOOD_DEBUG] meta display " .. formatSnapshotMeta(display))
-    log("[FOOD_DEBUG] meta applied " .. formatSnapshotMeta(applied))
-    log("[FOOD_DEBUG] meta current " .. formatSnapshotMeta(current))
-    log("[FOOD_DEBUG] meta stored  " .. formatSnapshotMeta(stored))
     log(string.format(
         "[FOOD_DEBUG] mood baselines probeBoredom=%s probeBoredomUnmod=%s probeUnhappy=%s probeUnhappyUnmod=%s scriptThirst=%s probeThirst=%s probeThirstUnmod=%s canBeFrozen=%s freezingTime=%s badCold=%s goodHot=%s",
         formatNumber(probeMoodBoredom, 3),
@@ -514,9 +497,6 @@ local function logFoodItemDebug(item)
         formatBool(badCold),
         formatBool(goodHot)
     ))
-    log("[FOOD_DEBUG] delta current-stored " .. formatDeltaLine(current, stored))
-    log("[FOOD_DEBUG] delta current-applied " .. formatDeltaLine(current, applied))
-    log("[FOOD_DEBUG] delta applied-stored " .. formatDeltaLine(applied, stored))
 end
 
 local function tryLoadDevModule(globalKey, requirePath, label)

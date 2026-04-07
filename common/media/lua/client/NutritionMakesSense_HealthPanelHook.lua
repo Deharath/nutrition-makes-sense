@@ -157,10 +157,28 @@ end
 local originalRender = nil
 local originalUpdate = nil
 
-local function hookedUpdate(self)
-    if not FONT_HGT then
-        FONT_HGT = getTextManager():getFontHeight(FONT)
+local function getTextManagerSafe()
+    if type(getTextManager) == "function" then
+        local manager = getTextManager()
+        if manager then
+            return manager
+        end
     end
+    return _G.TextManager and TextManager.instance or nil
+end
+
+local function getFontHeight()
+    if FONT_HGT then
+        return FONT_HGT
+    end
+    local manager = getTextManagerSafe()
+    local height = tonumber(manager and manager.getFontHeight and manager:getFontHeight(FONT) or nil)
+    FONT_HGT = (height and height > 0) and height or 12
+    return FONT_HGT
+end
+
+local function hookedUpdate(self)
+    local fontHeight = getFontHeight()
 
     local patient = self.getPatient and self:getPatient() or nil
     if not patient or (self.otherPlayer and self.otherPlayer ~= patient) then
@@ -174,7 +192,7 @@ local function hookedUpdate(self)
         return
     end
 
-    local blockHeight = #lines * FONT_HGT
+    local blockHeight = #lines * fontHeight
     local previousAllTextHeight = self.allTextHeight
     if previousAllTextHeight ~= nil then
         self.allTextHeight = previousAllTextHeight + blockHeight
@@ -186,9 +204,8 @@ local function hookedUpdate(self)
 end
 
 local function hookedRender(self)
-    if not FONT_HGT then
-        FONT_HGT = getTextManager():getFontHeight(FONT)
-    end
+    local fontHeight = getFontHeight()
+    local textManager = getTextManagerSafe()
 
     originalRender(self)
 
@@ -204,7 +221,7 @@ local function hookedRender(self)
 
     local x = self.healthPanel:getRight() + UI_BORDER_SPACING
     local listY = self.listbox:getY()
-    local blockHeight = #lines * FONT_HGT
+    local blockHeight = #lines * fontHeight
 
     self.listbox:setY(listY + blockHeight)
     self.listbox.vscroll:setHeight(self.listbox:getHeight())
@@ -215,11 +232,12 @@ local function hookedRender(self)
         local color = line.color or C_WHITE
         self:drawText(line.text, lx, y, color.r, color.g, color.b, color.a, FONT)
         if line.valueText then
-            local vx = lx + getTextManager():MeasureStringX(FONT, line.text)
+            local measuredWidth = tonumber(textManager and textManager.MeasureStringX and textManager:MeasureStringX(FONT, line.text) or nil) or 0
+            local vx = lx + measuredWidth
             local vc = line.valueColor or C_VALUE
             self:drawText(line.valueText, vx, y, vc.r, vc.g, vc.b, vc.a, FONT)
         end
-        y = y + FONT_HGT
+        y = y + fontHeight
     end
 end
 

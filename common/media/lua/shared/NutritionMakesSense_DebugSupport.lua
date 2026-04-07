@@ -68,14 +68,6 @@ function DebugSupport.unregisterEventSink(name)
     return existed
 end
 
-function DebugSupport.getEventSinkCount()
-    local count = 0
-    for _, _ in pairs(eventSinks) do
-        count = count + 1
-    end
-    return count
-end
-
 local function dispatchEvent(methodName, event)
     for _, sink in pairs(eventSinks) do
         local handler = sink and sink[methodName] or nil

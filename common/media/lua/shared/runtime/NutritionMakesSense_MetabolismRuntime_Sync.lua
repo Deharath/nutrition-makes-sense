@@ -103,7 +103,6 @@ function Runtime.applyVisibleHungerTarget(playerObj, targetHunger, reason)
 
     local desired = clamp(numeric, Metabolism.VISIBLE_HUNGER_MIN, Metabolism.VISIBLE_HUNGER_MAX)
     state.visibleHunger = desired
-    state.hunger = desired
     state.lastSyncedHunger = desired
     return setVisibleHunger(stats, desired)
 end

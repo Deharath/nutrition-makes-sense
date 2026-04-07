@@ -904,7 +904,8 @@ function Metabolism.ensureState(state)
     state.lastVeryHeavyHours = math.max(0, tonumber(state.lastVeryHeavyHours) or 0)
     state.lastBurnKcal = tonumber(state.lastBurnKcal) or 0
     state.lastDepositKcal = tonumber(state.lastDepositKcal) or 0
-    state.visibleHunger = clamp(state.visibleHunger or state.hunger or 0, Metabolism.VISIBLE_HUNGER_MIN, Metabolism.VISIBLE_HUNGER_MAX)
+    state.visibleHunger = clamp(state.visibleHunger or 0, Metabolism.VISIBLE_HUNGER_MIN, Metabolism.VISIBLE_HUNGER_MAX)
+    state.hunger = nil
     state.lastSyncedHunger = tonumber(state.lastSyncedHunger) or nil
     state.lastBaseHungerGain = tonumber(state.lastBaseHungerGain) or 0
     state.lastPassiveHungerGain = tonumber(state.lastPassiveHungerGain) or state.lastBaseHungerGain
@@ -1253,8 +1254,6 @@ function Metabolism.advanceState(state, elapsedHours, workload, options)
     state.lastZone = report.endZone
     state.lastTraceReason = report.reason
     state.lastSatietyReturnFactor = report.satietyReturnFactor
-    state.hunger = state.visibleHunger
-
     return report
 end
 

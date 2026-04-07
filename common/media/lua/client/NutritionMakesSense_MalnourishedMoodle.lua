@@ -55,10 +55,25 @@ local VANILLA_MOODLE_TYPES = {
     "FOOD_EATEN",
 }
 
-local function clamp(value, minValue, maxValue)
-    if value < minValue then return minValue end
-    if value > maxValue then return maxValue end
-    return value
+local clamp = Metabolism.clamp or function(value, minValue, maxValue)
+    local numeric = tonumber(value) or minValue
+    if numeric < minValue then
+        return minValue
+    end
+    if numeric > maxValue then
+        return maxValue
+    end
+    return numeric
+end
+
+local function getTextManagerSafe()
+    if type(getTextManager) == "function" then
+        local manager = getTextManager()
+        if manager then
+            return manager
+        end
+    end
+    return _G.TextManager and TextManager.instance or nil
 end
 
 local function getPlayerState(player)
@@ -235,7 +250,10 @@ function NMSMalnourishedMoodle:updateOscillator()
 end
 
 function NMSMalnourishedMoodle:getPosition()
-    local playerNum = self.player and self.player.getPlayerNum and self.player:getPlayerNum() or 0
+    if not self.player or not self.player.getPlayerNum then
+        return self:getX(), self:getY()
+    end
+    local playerNum = self.player:getPlayerNum()
     local size = getMoodleSize()
     self:updateTextures(size)
 
@@ -293,13 +311,18 @@ function NMSMalnourishedMoodle:renderTooltip()
 
     clearVanillaMoodleTooltip(self.player)
 
+    local textManager = getTextManagerSafe()
+    if not textManager then
+        return
+    end
+
     local title = self:getTitle()
     local description = self:getDescription()
-    local titleWidth = getTextManager():MeasureStringX(UIFont.Small, title)
-    local descWidth = getTextManager():MeasureStringX(UIFont.Small, description)
+    local titleWidth = textManager:MeasureStringX(UIFont.Small, title)
+    local descWidth = textManager:MeasureStringX(UIFont.Small, description)
     local textWidth = math.max(titleWidth, descWidth)
-    local titleHeight = getTextManager():MeasureStringY(UIFont.Small, title)
-    local descHeight = getTextManager():MeasureStringY(UIFont.Small, description)
+    local titleHeight = textManager:MeasureStringY(UIFont.Small, title)
+    local descHeight = textManager:MeasureStringY(UIFont.Small, description)
     local tooltipWidth = textWidth + (TOOLTIP_PADDING * 2)
     local tooltipHeight = titleHeight + descHeight + (TOOLTIP_PADDING * 3)
     local tooltipX = -tooltipWidth - TOOLTIP_MARGIN
@@ -334,7 +357,9 @@ function NMSMalnourishedMoodle:render()
         self:drawTextureScaled(self.iconTexture, offset, 0, self.size, self.size, 1, 1, 1, 1)
     else
         self:drawRectBorder(offset, 0, self.size, self.size, 1, 1, 1, 1)
-        self:drawTextCentre("N", offset + (self.size / 2), math.max(0, (self.size - getTextManager():getFontHeight(UIFont.Medium)) / 2), C_TEXT.r, C_TEXT.g, C_TEXT.b, C_TEXT.a, UIFont.Medium)
+        local textManager = getTextManagerSafe()
+        local fontHeight = tonumber(textManager and textManager.getFontHeight and textManager:getFontHeight(UIFont.Medium) or nil) or 16
+        self:drawTextCentre("N", offset + (self.size / 2), math.max(0, (self.size - fontHeight) / 2), C_TEXT.r, C_TEXT.g, C_TEXT.b, C_TEXT.a, UIFont.Medium)
     end
 
     if self.borderTexture then

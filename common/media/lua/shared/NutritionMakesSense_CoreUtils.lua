@@ -174,24 +174,6 @@ local function resolveInventoryItemById(playerObj, itemId)
     return safeCall(inventory, "getItemWithIDRecursiv", itemId)
 end
 
-local function tryMethod(target, methodName, ...)
-    if not target then
-        return false, nil
-    end
-
-    local method = target[methodName]
-    if type(method) ~= "function" then
-        return false, nil
-    end
-
-    local ok, result = pcall(method, target, ...)
-    if not ok then
-        return false, nil
-    end
-
-    return true, result
-end
-
 local function rawLookup(tableLike, key)
     if not tableLike then
         return nil
@@ -352,7 +334,7 @@ function CoreUtils.resolveInventoryItemById(playerObj, itemId)
 end
 
 function CoreUtils.tryMethod(target, methodName, ...)
-    return tryMethod(target, methodName, ...)
+    return safeInvoke(target, methodName, ...)
 end
 
 function CoreUtils.rawLookup(tableLike, key)

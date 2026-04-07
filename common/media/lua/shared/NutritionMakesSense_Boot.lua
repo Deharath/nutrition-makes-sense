@@ -43,26 +43,17 @@ NutritionMakesSense.log = NutritionMakesSense.log or log
 require "NutritionMakesSense_MPCompat"
 require "NutritionMakesSense_Compat"
 require "NutritionMakesSense_DebugSupport"
-require "NutritionMakesSense_StablePatcher"
-require "NutritionMakesSense_ItemAuthority"
 require "NutritionMakesSense_MetabolismRuntime"
 
-if NutritionMakesSense.ItemAuthority and type(NutritionMakesSense.ItemAuthority.install) == "function" then
-    NutritionMakesSense.ItemAuthority.install()
-end
 if NutritionMakesSense.MetabolismRuntime and type(NutritionMakesSense.MetabolismRuntime.install) == "function" then
     NutritionMakesSense.MetabolismRuntime.install()
 end
 
 local function onGameBoot()
-    local report = NutritionMakesSense.StablePatcher.ensurePatched("game-boot")
     log(string.format(
-        "[BOOT] version=%s module=%s patched=%d routed=%d explicit=%d",
+        "[BOOT] version=%s module=%s mode=vanilla-first",
         tostring(NutritionMakesSense.MP and NutritionMakesSense.MP.SCRIPT_VERSION or "1.0.0"),
-        tostring(NutritionMakesSense.MP and NutritionMakesSense.MP.NET_MODULE or "NutritionMakesSenseRuntime"),
-        tonumber(report and report.patchedRows or 0),
-        tonumber(report and report.routedRows or 0),
-        tonumber(report and report.explicitExceptionRows or 0)
+        tostring(NutritionMakesSense.MP and NutritionMakesSense.MP.NET_MODULE or "NutritionMakesSenseRuntime")
     ))
 end
 

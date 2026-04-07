@@ -14,9 +14,10 @@ local STATE_KEY = tostring(MP.MOD_STATE_KEY or "NutritionMakesSenseState")
 local ANCHOR = Metabolism.VANILLA_NUTRITION_ANCHOR
 local DEPOSIT_EPSILON = 0.001
 local SYNC_EPSILON = 0.0001
+local VISIBLE_HUNGER_IMPORT_EPSILON = 0.0005
 local DEFAULT_WORKLOAD_SOURCE = "fallback_rest"
-local REPORTED_ACTIVITY_TTL_HOURS = 0.08
-local REPORTED_WORKLOAD_WINDOW_HOURS = 4 / 3600
+local REPORTED_ACTIVITY_TTL_HOURS = 0.10
+local REPORTED_WORKLOAD_WINDOW_HOURS = 8 / 3600
 local activityCacheByPlayerKey = {}
 local scriptedWorkloadOverrideByPlayerKey = {}
 
@@ -779,6 +780,39 @@ local function refreshDerivedState(state, reason)
     return state
 end
 
+local function importLiveVisibleHungerDrop(state, stats)
+    if not state or not stats then
+        return 0
+    end
+
+    local liveHunger = clamp(
+        getVisibleHungerValue(stats) or state.visibleHunger or 0,
+        Metabolism.VISIBLE_HUNGER_MIN,
+        Metabolism.VISIBLE_HUNGER_MAX
+    )
+    local modeledHunger = clamp(
+        state.visibleHunger or 0,
+        Metabolism.VISIBLE_HUNGER_MIN,
+        Metabolism.VISIBLE_HUNGER_MAX
+    )
+    local importedDrop = modeledHunger - liveHunger
+    if importedDrop <= VISIBLE_HUNGER_IMPORT_EPSILON then
+        return 0
+    end
+
+    -- Vanilla applies immediate visible-hunger drops while eating. Import those drops
+    -- into NMS state before sync so client-frame shell sync doesn't erase the feedback.
+    state.visibleHunger = liveHunger
+    state.lastSyncedHunger = liveHunger
+    state.lastHungerBand = Metabolism.getVisibleHungerBand(liveHunger)
+    state.lastImmediateHungerDrop = importedDrop
+    state.lastImmediateHungerMechanical = importedDrop
+    state.lastImmediateFillTarget = importedDrop
+    state.lastImmediateFillVanilla = importedDrop
+    state.lastImmediateFillCorrection = 0
+    return importedDrop
+end
+
 local function syncVisibleHunger(playerObj, state, reason)
     if not playerObj or not state then
         return false
@@ -791,6 +825,10 @@ local function syncVisibleHunger(playerObj, state, reason)
 
     local desired = clamp(state.visibleHunger or 0, Metabolism.VISIBLE_HUNGER_MIN, Metabolism.VISIBLE_HUNGER_MAX)
     local current = getVisibleHungerValue(stats) or desired
+
+    if importLiveVisibleHungerDrop(state, stats) > 0 then
+        return false
+    end
 
     if math.abs(current - desired) <= SYNC_EPSILON then
         return false
@@ -888,6 +926,7 @@ Runtime.syncVisibleWeight = syncVisibleWeight
 Runtime.syncProteinHealing = syncProteinHealing
 Runtime.suppressFoodEatenTimer = suppressFoodEatenTimer
 Runtime.refreshDerivedState = refreshDerivedState
+Runtime.importLiveVisibleHungerDrop = importLiveVisibleHungerDrop
 Runtime.seedHealthFromFood = seedHealthFromFood
 Runtime.setStatValue = setStatValue
 Runtime.normalizeDeposit = normalizeDeposit

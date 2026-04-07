@@ -1,6 +1,5 @@
 NutritionMakesSense = NutritionMakesSense or {}
 
-require "NutritionMakesSense_ItemAuthority"
 require "NutritionMakesSense_Metabolism"
 require "NutritionMakesSense_CoreUtils"
 
@@ -13,6 +12,8 @@ local TT_LABEL_DEFAULT = { 1.0, 1.0, 0.8, 1.0 }
 local TT_VALUE_DEFAULT = { 1.0, 1.0, 1.0, 1.0 }
 
 local safeCall = CoreUtils.safeCall
+local rawLookup = CoreUtils.rawLookup
+local hasTrait = CoreUtils.hasTrait
 
 local function getTooltipPadding(tooltip)
     local padLeft = tonumber(tooltip and tooltip.padLeft)
@@ -54,37 +55,11 @@ local function addLayoutRow(layout, payload)
     return layoutItem
 end
 
-local function rawLookup(tableLike, key)
-    if not tableLike then
-        return nil
-    end
-    if type(tableLike.rawget) == "function" then
-        local ok, value = pcall(tableLike.rawget, tableLike, key)
-        if ok then
-            return value
-        end
-    end
-    if type(tableLike) == "table" then
-        return tableLike[key]
-    end
-    return nil
-end
-
 local function getModData(item)
     if not item then
         return nil
     end
     return safeCall(item, "getModData") or item.modData
-end
-
-local function hasTrait(character, traitName, traitEnum)
-    if not character then
-        return false
-    end
-    if traitEnum and _G.CharacterTrait and CharacterTrait[traitEnum] ~= nil then
-        return safeCall(character, "hasTrait", CharacterTrait[traitEnum]) == true
-    end
-    return safeCall(character, "hasTrait", traitName) == true
 end
 
 local function normalizeHungerValue(rawHunger)
@@ -95,24 +70,7 @@ local function normalizeHungerValue(rawHunger)
     return hunger
 end
 
-local function normalizeAuthorityHungerValue(rawHunger)
-    return math.abs(tonumber(rawHunger) or 0)
-end
-
 local function readFoodValues(item)
-    local authorityValues = NutritionMakesSense.ItemAuthority
-        and NutritionMakesSense.ItemAuthority.getDisplayValues
-        and NutritionMakesSense.ItemAuthority.getDisplayValues(item)
-    if authorityValues then
-        return {
-            hunger = normalizeAuthorityHungerValue(authorityValues.hunger),
-            kcal = math.max(0, tonumber(authorityValues.kcal) or 0),
-            carbs = math.max(0, tonumber(authorityValues.carbs) or 0),
-            fats = math.max(0, tonumber(authorityValues.fats) or 0),
-            proteins = math.max(0, tonumber(authorityValues.proteins) or 0),
-        }
-    end
-
     local hunger = safeCall(item, "getHungerChange")
     if hunger == nil then
         hunger = safeCall(item, "getHungChange")

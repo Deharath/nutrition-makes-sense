@@ -11,7 +11,6 @@ local CompatTrace = NutritionMakesSense.CompatTraceClient or {}
 local MPClient = NutritionMakesSense.MPClientRuntime or {}
 local Runtime = NutritionMakesSense.MetabolismRuntime or {}
 local Metabolism = NutritionMakesSense.Metabolism or {}
-local ItemAuthority = NutritionMakesSense.ItemAuthority or {}
 local UIHelpers = NutritionMakesSense.UIHelpers or {}
 
 local panelInstance = nil
@@ -78,7 +77,7 @@ local BAND_LABELS = {
 
 local safeCall = UIHelpers.safeCall
 
-local function clamp(v, lo, hi)
+local clamp = Metabolism.clamp or function(v, lo, hi)
     local n = tonumber(v) or lo
     if n < lo then return lo end
     if n > hi then return hi end
