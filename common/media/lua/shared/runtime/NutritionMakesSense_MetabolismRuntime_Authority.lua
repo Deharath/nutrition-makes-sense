@@ -29,8 +29,10 @@ local getWorldHours = Runtime.getWorldHours
 local consumeWorkloadSummary = Runtime.consumeWorkloadSummary
 local removeEndurance = Runtime.removeEndurance
 local eachKnownPlayer = Runtime.eachKnownPlayer
+local DebugSupport = NutritionMakesSense.DebugSupport or {}
 local SUPPRESSION_EPSILON = 0.01
 local SUPPRESSION_TTL_HOURS = 10 / 3600
+local FALLBACK_VISIBLE_HUNGER_EPSILON = 0.001
 
 local function copySuppressionValues(values)
     local normalized = normalizeDeposit(values)
@@ -464,23 +466,77 @@ function Runtime.updatePlayer(playerObj, reason)
     local playerLabel = getPlayerLabel(playerObj)
     local nutrition = getPlayerNutrition(playerObj)
     local observedDelta = samplePositiveNutritionDelta(nutrition)
+    local observedDeltaDetected = hasMeaningfulDeposit(observedDelta)
     local netObservedDelta = observedDelta
-    if hasMeaningfulDeposit(observedDelta) and type(Runtime.consumePendingNutritionSuppressions) == "function" then
-        netObservedDelta = Runtime.consumePendingNutritionSuppressions(playerObj, observedDelta, reason or "vanilla-nutrition-delta")
+    local absorbedSuppression = nil
+    if observedDeltaDetected and type(Runtime.consumePendingNutritionSuppressions) == "function" then
+        netObservedDelta, absorbedSuppression = Runtime.consumePendingNutritionSuppressions(playerObj, observedDelta, reason or "vanilla-nutrition-delta")
     end
 
     local playerStats = getPlayerStats(playerObj)
-    if type(importLiveVisibleHungerDrop) == "function" then
-        importLiveVisibleHungerDrop(state, playerStats)
+    local preVisibleHunger = tonumber(state.visibleHunger) or 0
+    local importedDrop = 0
+    if observedDeltaDetected and type(importLiveVisibleHungerDrop) == "function" then
+        importedDrop = tonumber(importLiveVisibleHungerDrop(state, playerStats)) or 0
     end
 
     -- Apply observed vanilla nutrition deltas anywhere we are running authoritative updates.
     -- Dedicated servers, listen servers, and solo runtimes must all credit the same intake path.
     if hasMeaningfulDeposit(netObservedDelta) then
-        Runtime.applyAuthoritativeDeposit(playerObj, netObservedDelta, "vanilla-nutrition-delta", {
+        local fallbackApplied = false
+        local depositReport = Runtime.applyAuthoritativeDeposit(playerObj, netObservedDelta, "vanilla-nutrition-delta", {
             item = "vanilla-drift",
         })
+        local reportedDrop = tonumber(depositReport and depositReport.immediateHungerDrop) or 0
+        local fallbackNeeded = importedDrop <= SUPPRESSION_EPSILON
+            and reportedDrop > SUPPRESSION_EPSILON
+            and preVisibleHunger > FALLBACK_VISIBLE_HUNGER_EPSILON
+        if fallbackNeeded and Runtime.applyVisibleHungerTarget then
+            fallbackApplied = Runtime.applyVisibleHungerTarget(
+                playerObj,
+                preVisibleHunger - reportedDrop,
+                "vanilla-hunger-fallback"
+            ) == true
+            if fallbackApplied then
+                log(string.format(
+                    "[MP_SERVER_HUNGER_FALLBACK] player=%s reason=%s imported=%.4f fallback=%.4f pre=%.4f",
+                    tostring(playerLabel),
+                    tostring(reason or "vanilla-nutrition-delta"),
+                    importedDrop,
+                    reportedDrop,
+                    preVisibleHunger
+                ))
+            end
+        end
+        if type(DebugSupport.noteConsumeEvent) == "function" then
+            DebugSupport.noteConsumeEvent({
+                reason = tostring(reason or "vanilla-nutrition-delta"),
+                item = "vanilla-observed-delta",
+                consume_source = "runtime-observed-delta",
+                fraction = 1,
+                pre_visible_hunger = preVisibleHunger,
+                target_visible_hunger = tonumber(state.visibleHunger) or preVisibleHunger,
+                kcal = tonumber(netObservedDelta and netObservedDelta.kcal) or 0,
+                carbs = tonumber(netObservedDelta and netObservedDelta.carbs) or 0,
+                fats = tonumber(netObservedDelta and netObservedDelta.fats) or 0,
+                proteins = tonumber(netObservedDelta and netObservedDelta.proteins) or 0,
+                imported_drop = importedDrop,
+                modeled_drop = reportedDrop,
+                fallback_applied = fallbackApplied,
+                suppressed_kcal = tonumber(absorbedSuppression and absorbedSuppression.kcal) or 0,
+                suppressed_carbs = tonumber(absorbedSuppression and absorbedSuppression.carbs) or 0,
+                suppressed_fats = tonumber(absorbedSuppression and absorbedSuppression.fats) or 0,
+                suppressed_proteins = tonumber(absorbedSuppression and absorbedSuppression.proteins) or 0,
+            })
+        end
     end
+
+    if observedDeltaDetected and type(setNutritionAnchor) == "function" then
+        -- Reset vanilla nutrition only after we've had a chance to sample and process the intake delta.
+        -- This avoids erasing late-frame consume writes before the next authoritative update can read them.
+        setNutritionAnchor(nutrition)
+    end
+
     local zoneBefore = Metabolism.getFuelZone(state.fuel)
 
     local nowHours = getWorldHours()

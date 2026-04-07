@@ -15,11 +15,13 @@ local ANCHOR = Metabolism.VANILLA_NUTRITION_ANCHOR
 local DEPOSIT_EPSILON = 0.001
 local SYNC_EPSILON = 0.0001
 local VISIBLE_HUNGER_IMPORT_EPSILON = 0.0005
+local MANUAL_VISIBLE_HUNGER_IMPORT_EPSILON = 0.01
 local DEFAULT_WORKLOAD_SOURCE = "fallback_rest"
 local REPORTED_ACTIVITY_TTL_HOURS = 0.10
 local REPORTED_WORKLOAD_WINDOW_HOURS = 8 / 3600
 local activityCacheByPlayerKey = {}
 local scriptedWorkloadOverrideByPlayerKey = {}
+local DebugSupport = NutritionMakesSense.DebugSupport or {}
 
 local function log(msg)
     if NutritionMakesSense.log then
@@ -780,11 +782,34 @@ local function refreshDerivedState(state, reason)
     return state
 end
 
-local function importLiveVisibleHungerDrop(state, stats)
+local function shouldAdoptManualVisibleHunger(playerObj, reason)
+    if safeCall(playerObj, "isGodMod") == true then
+        return true
+    end
+
+    local reasonText = string.lower(tostring(reason or ""))
+    if string.find(reasonText, "debug", 1, true)
+        or string.find(reasonText, "dev", 1, true)
+        or string.find(reasonText, "tool", 1, true)
+        or string.find(reasonText, "cheat", 1, true) then
+        return true
+    end
+
+    if type(DebugSupport.isDebugLaunch) == "function" and DebugSupport.isDebugLaunch() then
+        return true
+    end
+
+    return false
+end
+
+local function importLiveVisibleHungerDrop(state, stats, options)
     if not state or not stats then
         return 0
     end
 
+    local opts = type(options) == "table" and options or nil
+    local allowRise = opts and opts.allowRise == true
+    local riseEpsilon = tonumber(opts and opts.riseEpsilon) or MANUAL_VISIBLE_HUNGER_IMPORT_EPSILON
     local liveHunger = clamp(
         getVisibleHungerValue(stats) or state.visibleHunger or 0,
         Metabolism.VISIBLE_HUNGER_MIN,
@@ -796,21 +821,24 @@ local function importLiveVisibleHungerDrop(state, stats)
         Metabolism.VISIBLE_HUNGER_MAX
     )
     local importedDrop = modeledHunger - liveHunger
-    if importedDrop <= VISIBLE_HUNGER_IMPORT_EPSILON then
+    local importedRise = liveHunger - modeledHunger
+    local hasDrop = importedDrop > VISIBLE_HUNGER_IMPORT_EPSILON
+    local hasRise = allowRise and importedRise > riseEpsilon
+    if not hasDrop and not hasRise then
         return 0
     end
 
-    -- Vanilla applies immediate visible-hunger drops while eating. Import those drops
-    -- into NMS state before sync so client-frame shell sync doesn't erase the feedback.
+    -- Import live hunger edits before shell sync to avoid snapping vanilla/UI debug writes
+    -- back to stale modeled state.
     state.visibleHunger = liveHunger
     state.lastSyncedHunger = liveHunger
     state.lastHungerBand = Metabolism.getVisibleHungerBand(liveHunger)
-    state.lastImmediateHungerDrop = importedDrop
-    state.lastImmediateHungerMechanical = importedDrop
-    state.lastImmediateFillTarget = importedDrop
-    state.lastImmediateFillVanilla = importedDrop
+    state.lastImmediateHungerDrop = hasDrop and importedDrop or 0
+    state.lastImmediateHungerMechanical = hasDrop and importedDrop or 0
+    state.lastImmediateFillTarget = hasDrop and importedDrop or 0
+    state.lastImmediateFillVanilla = hasDrop and importedDrop or 0
     state.lastImmediateFillCorrection = 0
-    return importedDrop
+    return hasDrop and importedDrop or 0
 end
 
 local function syncVisibleHunger(playerObj, state, reason)
@@ -823,12 +851,16 @@ local function syncVisibleHunger(playerObj, state, reason)
         return false
     end
 
-    local desired = clamp(state.visibleHunger or 0, Metabolism.VISIBLE_HUNGER_MIN, Metabolism.VISIBLE_HUNGER_MAX)
-    local current = getVisibleHungerValue(stats) or desired
-
-    if importLiveVisibleHungerDrop(state, stats) > 0 then
+    local allowManualImport = shouldAdoptManualVisibleHunger(playerObj, reason)
+    if importLiveVisibleHungerDrop(state, stats, {
+        allowRise = allowManualImport,
+        riseEpsilon = MANUAL_VISIBLE_HUNGER_IMPORT_EPSILON,
+    }) > 0 then
         return false
     end
+
+    local desired = clamp(state.visibleHunger or 0, Metabolism.VISIBLE_HUNGER_MIN, Metabolism.VISIBLE_HUNGER_MAX)
+    local current = getVisibleHungerValue(stats) or desired
 
     if math.abs(current - desired) <= SYNC_EPSILON then
         return false

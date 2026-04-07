@@ -214,7 +214,9 @@ local CSV_HEADER = table.concat({
     "event_reason", "event_item", "event_fraction",
     "event_pre_hunger", "event_target_hunger",
     "event_kcal", "event_carbs", "event_fats", "event_proteins",
-    "event_consume_source",
+    "event_consume_source", "event_imported_drop", "event_modeled_drop",
+    "event_fallback_applied", "event_suppressed_kcal", "event_suppressed_carbs",
+    "event_suppressed_fats", "event_suppressed_proteins",
 }, ",")
 
 local function csvEscape(v)
@@ -287,11 +289,47 @@ local function recordSample(snap)
         tostring(ev and ev.fats or ""),
         tostring(ev and ev.proteins or ""),
         tostring(ev and ev.consume_source or ""),
+        tostring(ev and ev.imported_drop or ""),
+        tostring(ev and ev.modeled_drop or ""),
+        tostring(ev and ev.fallback_applied or ""),
+        tostring(ev and ev.suppressed_kcal or ""),
+        tostring(ev and ev.suppressed_carbs or ""),
+        tostring(ev and ev.suppressed_fats or ""),
+        tostring(ev and ev.suppressed_proteins or ""),
     }
 
     for i = 1, #row do row[i] = csvEscape(row[i]) end
     recordBuffer[#recordBuffer + 1] = table.concat(row, ",")
     pendingRecordEvent = nil
+end
+
+local function captureAndRecordEvent(event)
+    if type(event) ~= "table" then
+        return
+    end
+    pendingRecordEvent = {
+        reason = tostring(event.reason or ""),
+        item = tostring(event.item or ""),
+        consume_source = tostring(event.consume_source or ""),
+        fraction = tonumber(event.fraction) or "",
+        pre_visible_hunger = tonumber(event.pre_visible_hunger) or "",
+        target_visible_hunger = tonumber(event.target_visible_hunger) or "",
+        kcal = tonumber(event.kcal) or "",
+        carbs = tonumber(event.carbs) or "",
+        fats = tonumber(event.fats) or "",
+        proteins = tonumber(event.proteins) or "",
+        imported_drop = tonumber(event.imported_drop) or "",
+        modeled_drop = tonumber(event.modeled_drop) or "",
+        fallback_applied = event.fallback_applied == true and "true" or "",
+        suppressed_kcal = tonumber(event.suppressed_kcal) or "",
+        suppressed_carbs = tonumber(event.suppressed_carbs) or "",
+        suppressed_fats = tonumber(event.suppressed_fats) or "",
+        suppressed_proteins = tonumber(event.suppressed_proteins) or "",
+    }
+    if recording then
+        lastSampleGameMinute = getWorldAgeMinutes()
+        recordSample(computeSnapshot())
+    end
 end
 
 local function writeRecordingToFile()
@@ -347,29 +385,11 @@ end
 function DevPanel.isRecording() return recording end
 
 function DevPanel.noteConsumeEvent(_self, event)
-    if type(event) ~= "table" then return end
-    pendingRecordEvent = {
-        reason = tostring(event.reason or ""),
-        item = tostring(event.item or ""),
-        consume_source = tostring(event.consume_source or ""),
-        fraction = tonumber(event.fraction) or "",
-        pre_visible_hunger = tonumber(event.pre_visible_hunger) or "",
-        target_visible_hunger = tonumber(event.target_visible_hunger) or "",
-        kcal = tonumber(event.kcal) or "",
-        carbs = tonumber(event.carbs) or "",
-        fats = tonumber(event.fats) or "",
-        proteins = tonumber(event.proteins) or "",
-    }
-    if recording then
-        lastSampleGameMinute = getWorldAgeMinutes()
-        recordSample(computeSnapshot())
-    end
+    captureAndRecordEvent(event)
 end
 
 function DevPanel.noteSeedEvent(_self, event)
-    if type(event) ~= "table" or not recording then return end
-    lastSampleGameMinute = getWorldAgeMinutes()
-    recordSample(computeSnapshot())
+    captureAndRecordEvent(event)
 end
 
 if NutritionMakesSense.DevPanelSink and type(NutritionMakesSense.DevPanelSink.attach) == "function" then

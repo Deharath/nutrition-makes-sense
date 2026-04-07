@@ -15,7 +15,6 @@ local syncVisibleWeight = Runtime.syncVisibleWeight
 local syncProteinHealing = Runtime.syncProteinHealing
 local suppressFoodEatenTimer = Runtime.suppressFoodEatenTimer
 local log = Runtime.log
-local setNutritionAnchor = Runtime.setNutritionAnchor
 local getPlayerStats = Runtime.getPlayerStats
 local getVisibleHungerValue = Runtime.getVisibleHungerValue
 local clamp = Runtime.clamp
@@ -79,8 +78,6 @@ function Runtime.syncVisibleShell(playerObj, reason)
         return nil
     end
 
-    local nutrition = getPlayerNutrition(playerObj)
-    setNutritionAnchor(nutrition)
     state.lastTraceReason = tostring(reason or state.lastTraceReason or "sync-visible-shell")
     return state
 end
