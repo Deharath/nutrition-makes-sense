@@ -364,8 +364,13 @@ local function onCreatePlayer(_, playerObj)
         return
     end
 
-    if Runtime.ensureStateForPlayer then
-        Runtime.ensureStateForPlayer(playerObj)
+    if Runtime.bootstrapPlayer then
+        Runtime.bootstrapPlayer(playerObj, "bootstrap-create-player")
+    elseif Runtime.ensureStateForPlayer then
+        local state = Runtime.ensureStateForPlayer(playerObj)
+        if state then
+            state.lastWorldHours = getWorldHours() or state.lastWorldHours
+        end
     end
     sendStateSnapshot(playerObj, "bootstrap-create-player", {
         bootstrap = true,

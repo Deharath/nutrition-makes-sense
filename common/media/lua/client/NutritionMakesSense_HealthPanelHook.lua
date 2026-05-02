@@ -2,6 +2,7 @@ NutritionMakesSense = NutritionMakesSense or {}
 
 require "ui/NutritionMakesSense_UIHelpers"
 require "NutritionMakesSense_HealthPanelCompat"
+require "NutritionMakesSense_PlayerStatusPanel"
 
 local Metabolism = NutritionMakesSense.Metabolism or {}
 local UIHelpers = NutritionMakesSense.UIHelpers or {}
@@ -156,6 +157,36 @@ end
 
 local originalRender = nil
 local originalUpdate = nil
+local originalCreateChildren = nil
+
+local NMS_BUTTON_W = 42
+local NMS_BUTTON_GAP = 6
+
+local function isActiveHealthPanel(self)
+    return self and type(self.isReallyVisible) == "function" and self:isReallyVisible()
+end
+
+local function hideNmsStatusButton(self)
+    if self and self.nmsStatusButton then
+        self.nmsStatusButton:setVisible(false)
+    end
+end
+
+local function positionNmsStatusButton(self)
+    if not self.nmsStatusButton or not self.fitness then
+        return
+    end
+    if not isActiveHealthPanel(self) then
+        hideNmsStatusButton(self)
+        return
+    end
+
+    self.nmsStatusButton:setX(self.fitness:getRight() + NMS_BUTTON_GAP)
+    self.nmsStatusButton:setY(self.fitness:getY())
+    self.nmsStatusButton:setVisible(self.fitness:isVisible())
+    local width = math.max(self:getWidth(), self.nmsStatusButton:getRight() + UI_BORDER_SPACING + 1)
+    self:setWidthAndParentWidth(width)
+end
 
 local function getTextManagerSafe()
     if type(getTextManager) == "function" then
@@ -183,12 +214,14 @@ local function hookedUpdate(self)
     local patient = self.getPatient and self:getPatient() or nil
     if not patient or (self.otherPlayer and self.otherPlayer ~= patient) then
         originalUpdate(self)
+        hideNmsStatusButton(self)
         return
     end
 
     local lines = collectLines(patient, getState(patient))
     if #lines == 0 then
         originalUpdate(self)
+        positionNmsStatusButton(self)
         return
     end
 
@@ -201,6 +234,7 @@ local function hookedUpdate(self)
     originalUpdate(self)
 
     self.allTextHeight = previousAllTextHeight
+    positionNmsStatusButton(self)
 end
 
 local function hookedRender(self)
@@ -208,9 +242,11 @@ local function hookedRender(self)
     local textManager = getTextManagerSafe()
 
     originalRender(self)
+    positionNmsStatusButton(self)
 
     local patient = self:getPatient()
     if not patient or (self.otherPlayer and self.otherPlayer ~= patient) then
+        hideNmsStatusButton(self)
         return
     end
 
@@ -241,16 +277,58 @@ local function hookedRender(self)
     end
 end
 
-local function install()
-    if not ISHealthPanel or type(ISHealthPanel.render) ~= "function" or type(ISHealthPanel.update) ~= "function" then
-        return
+local function onNmsStatusButton()
+    local panel = NutritionMakesSense.PlayerStatusPanel
+    if panel and type(panel.toggle) == "function" then
+        panel.toggle()
     end
-    if originalRender or originalUpdate then
+end
+
+local function ensureNmsStatusButton(self)
+    if self.nmsStatusButton or not self.fitness then
         return
     end
 
+    local label = UIHelpers.tr("UI_NMS_StatusPanel_Button", "NMS")
+    self.nmsStatusButton = ISButton:new(
+        self.fitness:getRight() + NMS_BUTTON_GAP,
+        self.fitness:getY(),
+        NMS_BUTTON_W,
+        self.fitness:getHeight(),
+        label,
+        self,
+        onNmsStatusButton
+    )
+    self.nmsStatusButton.anchorTop = false
+    self.nmsStatusButton.anchorBottom = true
+    self.nmsStatusButton:initialise()
+    self.nmsStatusButton:instantiate()
+    self:addChild(self.nmsStatusButton)
+    if getCore():getGameMode() == "Tutorial" then
+        self.nmsStatusButton:setVisible(false)
+    end
+end
+
+local function hookedCreateChildren(self)
+    originalCreateChildren(self)
+    ensureNmsStatusButton(self)
+end
+
+local function install()
+    if not ISHealthPanel
+        or type(ISHealthPanel.render) ~= "function"
+        or type(ISHealthPanel.update) ~= "function"
+        or type(ISHealthPanel.createChildren) ~= "function" then
+        return
+    end
+    if originalRender or originalUpdate or originalCreateChildren then
+        return
+    end
+
+    originalCreateChildren = ISHealthPanel.createChildren
     originalUpdate = ISHealthPanel.update
     originalRender = ISHealthPanel.render
+    ISHealthPanel.createChildren = hookedCreateChildren
     ISHealthPanel.update = hookedUpdate
     ISHealthPanel.render = hookedRender
 end

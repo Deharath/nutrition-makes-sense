@@ -15,5 +15,12 @@
     "UI_NMS_ModOptions_Title": "Nutrition Makes Sense",
     "UI_NMS_ModOptions_Debug_Title": "Debug",
     "UI_NMS_ModOptions_DebugTooltips": "Show Debug Food Tooltips",
-    "UI_NMS_ModOptions_DebugTooltips_Tooltip": "Toggle NMS debug food tooltip numbers while the game is running with -debug."
+    "UI_NMS_ModOptions_DebugTooltips_Tooltip": "Toggle NMS debug food tooltip numbers while the game is running with -debug.",
+    "UI_NMS_StatusPanel_Title": "Nutrition Status",
+    "UI_NMS_StatusPanel_Waiting": "Waiting for nutrition data...",
+    "UI_NMS_StatusPanel_Button": "NMS",
+    "UI_NMS_StatusPanel_Energy": "Energy",
+    "UI_NMS_StatusPanel_Hunger": "Hunger",
+    "UI_NMS_StatusPanel_Satiety": "Meal Satiety",
+    "UI_NMS_StatusPanel_Protein": "Protein Adequacy"
 }

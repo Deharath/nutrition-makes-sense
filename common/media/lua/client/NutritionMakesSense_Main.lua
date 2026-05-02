@@ -8,6 +8,7 @@ require "NutritionMakesSense_TooltipOverlay"
 require "NutritionMakesSense_HealthPanelHook"
 require "NutritionMakesSense_MalnourishedMoodle"
 require "NutritionMakesSense_WeightDisplayHook"
+require "NutritionMakesSense_PlayerStatusPanel"
 require "bootstrap/NutritionMakesSense_ClientBootstrap"
 require "hooks/NutritionMakesSense_ClientHooks"
 
@@ -29,6 +30,9 @@ if NutritionMakesSense.MalnourishedMoodle and type(NutritionMakesSense.Malnouris
 end
 if NutritionMakesSense.WeightDisplayHook and type(NutritionMakesSense.WeightDisplayHook.install) == "function" then
     NutritionMakesSense.WeightDisplayHook.install()
+end
+if NutritionMakesSense.PlayerStatusPanel and type(NutritionMakesSense.PlayerStatusPanel.install) == "function" then
+    NutritionMakesSense.PlayerStatusPanel.install()
 end
 if NutritionMakesSense.ClientBootstrap and type(NutritionMakesSense.ClientBootstrap.install) == "function" then
     NutritionMakesSense.ClientBootstrap.install()

@@ -511,7 +511,9 @@ function Runtime.updatePlayer(playerObj, reason)
         if type(DebugSupport.noteConsumeEvent) == "function" then
             DebugSupport.noteConsumeEvent({
                 reason = tostring(reason or "vanilla-nutrition-delta"),
-                item = "vanilla-observed-delta",
+                item = "",
+                item_known = false,
+                provenance = "observed-nutrition-delta",
                 consume_source = "runtime-observed-delta",
                 fraction = 1,
                 pre_visible_hunger = preVisibleHunger,
@@ -531,9 +533,9 @@ function Runtime.updatePlayer(playerObj, reason)
         end
     end
 
-    if observedDeltaDetected and type(setNutritionAnchor) == "function" then
-        -- Reset vanilla nutrition only after we've had a chance to sample and process the intake delta.
-        -- This avoids erasing late-frame consume writes before the next authoritative update can read them.
+    if type(setNutritionAnchor) == "function" then
+        -- Vanilla nutrition is NMS's transient intake mailbox. Keep it anchored every
+        -- authority pass so vanilla burn cannot push it negative and hide later food.
         setNutritionAnchor(nutrition)
     end
 
@@ -598,6 +600,8 @@ function Runtime.bootstrapPlayer(playerObj, reason)
         return nil
     end
 
+    state.lastWorldHours = getWorldHours() or state.lastWorldHours
+    state.lastTraceReason = tostring(reason or "bootstrap")
     Runtime.syncVisibleShell(playerObj, reason or "bootstrap")
     Runtime.observePlayerWorkload(playerObj, reason or "bootstrap")
     return state

@@ -19,7 +19,6 @@ local recordBuffer = {}
 local recordStartMinute = nil
 local recordLabel = nil
 local lastSampleGameMinute = nil
-local pendingRecordEvent = nil
 local SAMPLE_INTERVAL_MINUTES = 1
 
 local PANEL_W = 440
@@ -196,6 +195,7 @@ end
 -- Recording (CSV)
 
 local CSV_HEADER = table.concat({
+    "row_kind", "row_trigger",
     "elapsed_min", "game_min", "game_speed",
     "auth_work_tier", "auth_met_avg", "auth_met_peak", "auth_met_source",
     "live_work_tier", "live_met_avg", "live_met_peak", "live_met_source",
@@ -212,6 +212,7 @@ local CSV_HEADER = table.concat({
     "nms_exertion_mult",
     "nms_deprivation", "nms_deprivation_target", "nms_deprivation_end", "nms_deprivation_fat", "nms_deprivation_melee",
     "event_reason", "event_item", "event_fraction",
+    "event_item_known", "event_provenance",
     "event_pre_hunger", "event_target_hunger",
     "event_kcal", "event_carbs", "event_fats", "event_proteins",
     "event_consume_source", "event_imported_drop", "event_modeled_drop",
@@ -225,15 +226,68 @@ local function csvEscape(v)
     return t
 end
 
-local function recordSample(snap)
+local function appendRecordingRow(row)
+    for i = 1, #row do
+        row[i] = csvEscape(row[i])
+    end
+    recordBuffer[#recordBuffer + 1] = table.concat(row, ",")
+end
+
+local function normalizeTimelineEvent(kind, trigger, event)
+    if type(event) ~= "table" then
+        return {
+            kind = kind or "event",
+            trigger = trigger or "",
+        }
+    end
+
+    local item = tostring(event.item or "")
+    local itemKnown = event.item_known
+    if itemKnown == nil then
+        itemKnown = item ~= ""
+    end
+
+    local provenance = tostring(event.provenance or "")
+    if provenance == "" then
+        provenance = itemKnown and "explicit-item" or "observed-delta"
+    end
+
+    return {
+        kind = kind or "event",
+        trigger = trigger or "",
+        reason = tostring(event.reason or ""),
+        item = item,
+        fraction = tonumber(event.fraction) or "",
+        item_known = itemKnown == true and "true" or "false",
+        provenance = provenance,
+        pre_visible_hunger = tonumber(event.pre_visible_hunger) or "",
+        target_visible_hunger = tonumber(event.target_visible_hunger) or "",
+        kcal = tonumber(event.kcal) or "",
+        carbs = tonumber(event.carbs) or "",
+        fats = tonumber(event.fats) or "",
+        proteins = tonumber(event.proteins) or "",
+        consume_source = tostring(event.consume_source or ""),
+        imported_drop = tonumber(event.imported_drop) or "",
+        modeled_drop = tonumber(event.modeled_drop) or "",
+        fallback_applied = event.fallback_applied == true and "true" or "",
+        suppressed_kcal = tonumber(event.suppressed_kcal) or "",
+        suppressed_carbs = tonumber(event.suppressed_carbs) or "",
+        suppressed_fats = tonumber(event.suppressed_fats) or "",
+        suppressed_proteins = tonumber(event.suppressed_proteins) or "",
+    }
+end
+
+local function recordTimelineRow(kind, trigger, snap, event)
     if not recording or not snap then return end
     local now = getWorldAgeMinutes()
     local elapsed = now - (recordStartMinute or now)
     local s = snap.state or {}
     local w = snap.workload or {}
-    local ev = pendingRecordEvent
+    local ev = normalizeTimelineEvent(kind, trigger, event)
 
     local row = {
+        tostring(ev.kind or kind or ""),
+        tostring(ev.trigger or trigger or ""),
         string.format("%.1f", elapsed),
         string.format("%.1f", now),
         string.format("%.2f", getGameSpeed()),
@@ -282,6 +336,8 @@ local function recordSample(snap)
         tostring(ev and ev.reason or ""),
         tostring(ev and ev.item or ""),
         tostring(ev and ev.fraction or ""),
+        tostring(ev and ev.item_known or ""),
+        tostring(ev and ev.provenance or ""),
         tostring(ev and ev.pre_visible_hunger or ""),
         tostring(ev and ev.target_visible_hunger or ""),
         tostring(ev and ev.kcal or ""),
@@ -297,39 +353,19 @@ local function recordSample(snap)
         tostring(ev and ev.suppressed_fats or ""),
         tostring(ev and ev.suppressed_proteins or ""),
     }
-
-    for i = 1, #row do row[i] = csvEscape(row[i]) end
-    recordBuffer[#recordBuffer + 1] = table.concat(row, ",")
-    pendingRecordEvent = nil
+    appendRecordingRow(row)
 end
 
-local function captureAndRecordEvent(event)
-    if type(event) ~= "table" then
+local function recordSample(snap, trigger)
+    recordTimelineRow("sample", trigger or "tick", snap, nil)
+end
+
+local function captureAndRecordEvent(kind, trigger, event)
+    if not recording then
         return
     end
-    pendingRecordEvent = {
-        reason = tostring(event.reason or ""),
-        item = tostring(event.item or ""),
-        consume_source = tostring(event.consume_source or ""),
-        fraction = tonumber(event.fraction) or "",
-        pre_visible_hunger = tonumber(event.pre_visible_hunger) or "",
-        target_visible_hunger = tonumber(event.target_visible_hunger) or "",
-        kcal = tonumber(event.kcal) or "",
-        carbs = tonumber(event.carbs) or "",
-        fats = tonumber(event.fats) or "",
-        proteins = tonumber(event.proteins) or "",
-        imported_drop = tonumber(event.imported_drop) or "",
-        modeled_drop = tonumber(event.modeled_drop) or "",
-        fallback_applied = event.fallback_applied == true and "true" or "",
-        suppressed_kcal = tonumber(event.suppressed_kcal) or "",
-        suppressed_carbs = tonumber(event.suppressed_carbs) or "",
-        suppressed_fats = tonumber(event.suppressed_fats) or "",
-        suppressed_proteins = tonumber(event.suppressed_proteins) or "",
-    }
-    if recording then
-        lastSampleGameMinute = getWorldAgeMinutes()
-        recordSample(computeSnapshot())
-    end
+
+    recordTimelineRow(kind, trigger, computeSnapshot(), event)
 end
 
 local function writeRecordingToFile()
@@ -363,14 +399,14 @@ function DevPanel.startRecording(label)
     recordStartMinute = getWorldAgeMinutes()
     lastSampleGameMinute = recordStartMinute
     recordLabel = label or "dev"
-    pendingRecordEvent = nil
     recording = true
-    recordSample(computeSnapshot())
+    recordSample(computeSnapshot(), "start")
     print(string.format("[NutritionMakesSense] recording started (label=%s)", recordLabel))
 end
 
 function DevPanel.stopRecording()
     if not recording then return nil end
+    recordSample(computeSnapshot(), "stop")
     recording = false
     local path = writeRecordingToFile()
     local count = #recordBuffer
@@ -378,18 +414,17 @@ function DevPanel.stopRecording()
     recordStartMinute = nil
     lastSampleGameMinute = nil
     recordLabel = nil
-    pendingRecordEvent = nil
     return path, count
 end
 
 function DevPanel.isRecording() return recording end
 
 function DevPanel.noteConsumeEvent(_self, event)
-    captureAndRecordEvent(event)
+    captureAndRecordEvent("consume", "consume-event", event)
 end
 
 function DevPanel.noteSeedEvent(_self, event)
-    captureAndRecordEvent(event)
+    captureAndRecordEvent("seed", "seed-event", event)
 end
 
 if NutritionMakesSense.DevPanelSink and type(NutritionMakesSense.DevPanelSink.attach) == "function" then
@@ -400,7 +435,7 @@ function DevPanel.sampleTick(force)
     if not recording then return end
     local now = getWorldAgeMinutes()
     if not force and (now - (lastSampleGameMinute or now)) < SAMPLE_INTERVAL_MINUTES then return end
-    recordSample(computeSnapshot())
+    recordSample(computeSnapshot(), force and "forced-sample" or "tick")
     lastSampleGameMinute = now
 end
 
