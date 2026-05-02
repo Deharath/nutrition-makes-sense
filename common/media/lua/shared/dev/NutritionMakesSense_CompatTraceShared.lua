@@ -17,10 +17,11 @@ local TRACE_COLUMNS = {
     "ams_breathing_load", "ams_thermal_contribution", "ams_breathing_contribution", "ams_endurance_env_factor",
     "ams_end_before", "ams_end_after", "ams_end_natural_delta", "ams_end_applied_delta",
     "ams_ams_regen_scale", "ams_nms_regen_scale", "ams_composed_regen_scale",
-    "ams_ams_drain", "ams_nms_drain", "ams_sleep_penalty_fraction",
+    "ams_ams_drain", "ams_nms_drain", "ams_sleep_penalty_fraction", "ams_sleep_wake_adjustment", "ams_sleep_bed_type",
     "cms_real_fatigue", "cms_hidden_fatigue", "cms_last_set_fatigue",
     "cms_last_nms_extra_fatigue", "cms_last_ams_sleep_fatigue", "cms_last_sleep_recovery_fatigue",
-    "cms_peak_stim", "cms_sleep_disruption_score", "cms_sleep_recovery_penalty_fraction", "cms_caffeine_stress",
+    "cms_peak_stim", "cms_sleep_disruption_score", "cms_sleep_recovery_penalty_fraction",
+    "cms_sleep_wake_adjustment", "cms_sleep_bed_type", "cms_caffeine_stress",
 }
 
 local function safeCall(target, methodName, ...)
@@ -183,6 +184,8 @@ function Shared.collectSample(playerObj, traceState, extra)
         ams_ams_drain = ams.ams_drain_applied,
         ams_nms_drain = ams.nms_drain_applied,
         ams_sleep_penalty_fraction = ams.sleep_penalty_fraction,
+        ams_sleep_wake_adjustment = ams.sleep_wake_adjustment,
+        ams_sleep_bed_type = ams.sleep_bed_type,
         cms_real_fatigue = cms.real_fatigue,
         cms_hidden_fatigue = cms.hidden_fatigue,
         cms_last_set_fatigue = cms.last_set_fatigue,
@@ -192,6 +195,8 @@ function Shared.collectSample(playerObj, traceState, extra)
         cms_peak_stim = cms.peak_stim,
         cms_sleep_disruption_score = cms.sleep_disruption_score,
         cms_sleep_recovery_penalty_fraction = cms.sleep_recovery_penalty_fraction,
+        cms_sleep_wake_adjustment = cms.sleep_wake_adjustment,
+        cms_sleep_bed_type = cms.sleep_bed_type,
         cms_caffeine_stress = cms.caffeine_stress,
     }
 end
