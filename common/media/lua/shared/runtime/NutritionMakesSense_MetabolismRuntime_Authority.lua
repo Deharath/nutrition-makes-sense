@@ -33,6 +33,82 @@ local DebugSupport = NutritionMakesSense.DebugSupport or {}
 local SUPPRESSION_EPSILON = 0.01
 local SUPPRESSION_TTL_HOURS = 10 / 3600
 local FALLBACK_VISIBLE_HUNGER_EPSILON = 0.001
+local ACTIVE_ELAPSED_CAP_HOURS = 0.25
+local MP_RESUME_GAP_THRESHOLD_HOURS = 0.50
+
+local function isMultiplayerAuthorityRuntime()
+    if type(isClient) == "function" and isClient() == true then
+        return true
+    end
+    if type(isServer) == "function" and isServer() == true then
+        return true
+    end
+    return false
+end
+
+local function isResumeReason(reason)
+    local reasonText = string.lower(tostring(reason or ""))
+    return string.find(reasonText, "bootstrap", 1, true) ~= nil
+        or string.find(reasonText, "create-player", 1, true) ~= nil
+        or string.find(reasonText, "resume", 1, true) ~= nil
+        or string.find(reasonText, "request", 1, true) ~= nil
+end
+
+local function resolveActiveElapsedHours(state, nowHours, reason)
+    if nowHours == nil then
+        return 0, {
+            rawHours = 0,
+            mode = "missing-clock",
+        }
+    end
+
+    local previousHours = tonumber(state and state.lastWorldHours) or nil
+    if previousHours == nil then
+        return 0, {
+            rawHours = 0,
+            mode = "seed-clock",
+        }
+    end
+
+    local rawElapsed = math.max(0, nowHours - previousHours)
+    if rawElapsed <= 0 then
+        return 0, {
+            rawHours = rawElapsed,
+            mode = "no-elapsed",
+        }
+    end
+
+    local pendingResumeHours = tonumber(state and state.pendingResumeWorldHours) or nil
+    local pendingResumeReason = tostring(state and state.pendingResumeReason or reason or "resume")
+    if pendingResumeHours ~= nil and pendingResumeHours >= previousHours then
+        state.pendingResumeWorldHours = nil
+        state.pendingResumeReason = nil
+        return 0, {
+            rawHours = rawElapsed,
+            mode = "resume-freeze",
+            reason = pendingResumeReason,
+        }
+    end
+
+    if isMultiplayerAuthorityRuntime() and rawElapsed >= MP_RESUME_GAP_THRESHOLD_HOURS then
+        return 0, {
+            rawHours = rawElapsed,
+            mode = "mp-gap-freeze",
+        }
+    end
+
+    if rawElapsed > ACTIVE_ELAPSED_CAP_HOURS then
+        return ACTIVE_ELAPSED_CAP_HOURS, {
+            rawHours = rawElapsed,
+            mode = "runtime-stall-clamp",
+        }
+    end
+
+    return rawElapsed, {
+        rawHours = rawElapsed,
+        mode = "active",
+    }
+end
 
 local function copySuppressionValues(values)
     local normalized = normalizeDeposit(values)
@@ -542,12 +618,37 @@ function Runtime.updatePlayer(playerObj, reason)
     local zoneBefore = Metabolism.getFuelZone(state.fuel)
 
     local nowHours = getWorldHours()
-    local elapsedHours = 0
-    if nowHours and state.lastWorldHours then
-        elapsedHours = math.max(0, nowHours - state.lastWorldHours)
-        elapsedHours = math.min(elapsedHours, 6)
-    end
+    local elapsedHours, elapsedContext = resolveActiveElapsedHours(state, nowHours, reason)
     state.lastWorldHours = nowHours or state.lastWorldHours
+    state.lastActiveElapsedHours = elapsedHours
+    state.lastRawElapsedHours = tonumber(elapsedContext and elapsedContext.rawHours) or elapsedHours
+    state.lastElapsedMode = tostring(elapsedContext and elapsedContext.mode or "active")
+
+    if elapsedContext and elapsedContext.mode == "resume-freeze" then
+        log(string.format(
+            "[MP_RESUME_FREEZE] player=%s skippedHours=%.3f reason=%s resumeReason=%s",
+            tostring(playerLabel),
+            tonumber(elapsedContext.rawHours or 0),
+            tostring(reason or "update"),
+            tostring(elapsedContext.reason or "resume")
+        ))
+    elseif elapsedContext and elapsedContext.mode == "mp-gap-freeze" then
+        log(string.format(
+            "[MP_OFFLINE_GAP_FREEZE] player=%s skippedHours=%.3f reason=%s threshold=%.3f",
+            tostring(playerLabel),
+            tonumber(elapsedContext.rawHours or 0),
+            tostring(reason or "update"),
+            tonumber(MP_RESUME_GAP_THRESHOLD_HOURS)
+        ))
+    elseif elapsedContext and elapsedContext.mode == "runtime-stall-clamp" then
+        log(string.format(
+            "[RUNTIME_STALL_CLAMP] player=%s rawHours=%.3f appliedHours=%.3f reason=%s",
+            tostring(playerLabel),
+            tonumber(elapsedContext.rawHours or 0),
+            tonumber(elapsedHours or 0),
+            tostring(reason or "update")
+        ))
+    end
 
     local workload = consumeWorkloadSummary(playerObj)
     local traitEffects = Runtime.resolveTraitEffects and Runtime.resolveTraitEffects(playerObj) or nil
@@ -590,6 +691,22 @@ function Runtime.updatePlayer(playerObj, reason)
 
 end
 
+function Runtime.markPlayerSessionResumed(playerObj, reason)
+    if not playerObj then
+        return nil
+    end
+
+    local state = Runtime.ensureStateForPlayer(playerObj)
+    if not state then
+        return nil
+    end
+
+    local nowHours = getWorldHours() or state.lastWorldHours
+    state.pendingResumeWorldHours = nowHours
+    state.pendingResumeReason = tostring(reason or "session-resume")
+    return state
+end
+
 function Runtime.bootstrapPlayer(playerObj, reason)
     if not playerObj then
         return nil
@@ -601,6 +718,13 @@ function Runtime.bootstrapPlayer(playerObj, reason)
     end
 
     state.lastWorldHours = getWorldHours() or state.lastWorldHours
+    if isResumeReason(reason) then
+        state.pendingResumeWorldHours = nil
+        state.pendingResumeReason = nil
+        state.lastActiveElapsedHours = 0
+        state.lastRawElapsedHours = 0
+        state.lastElapsedMode = "bootstrap-freeze"
+    end
     state.lastTraceReason = tostring(reason or "bootstrap")
     Runtime.syncVisibleShell(playerObj, reason or "bootstrap")
     Runtime.observePlayerWorkload(playerObj, reason or "bootstrap")

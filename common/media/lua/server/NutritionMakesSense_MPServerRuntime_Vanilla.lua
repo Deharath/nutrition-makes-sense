@@ -205,6 +205,13 @@ local function shouldSendPassiveSnapshot(playerObj, snapshot, force)
     return elapsed >= PASSIVE_SNAPSHOT_KEEPALIVE_SECONDS
 end
 
+local function isResumeRequestReason(reason)
+    local reasonText = string.lower(tostring(reason or ""))
+    return string.find(reasonText, "create-player", 1, true) ~= nil
+        or string.find(reasonText, "bootstrap", 1, true) ~= nil
+        or string.find(reasonText, "resume", 1, true) ~= nil
+end
+
 local function sendStateSnapshot(playerObj, reason, extra, preparedSnapshot)
     if not playerObj or type(sendServerCommand) ~= "function" then
         return nil
@@ -296,6 +303,9 @@ local function onClientCommand(module, command, playerObj, args)
 
     local ok, err = pcall(function()
         if tostring(command) == tostring(MP.REQUEST_SNAPSHOT_COMMAND) then
+            if Runtime.markPlayerSessionResumed and isResumeRequestReason(args and args.reason) then
+                Runtime.markPlayerSessionResumed(playerObj, args and args.reason or "request")
+            end
             sendStateSnapshot(playerObj, args and args.reason or "request", {
                 bootstrap = true,
             })
@@ -364,6 +374,9 @@ local function onCreatePlayer(_, playerObj)
         return
     end
 
+    if Runtime.markPlayerSessionResumed then
+        Runtime.markPlayerSessionResumed(playerObj, "bootstrap-create-player")
+    end
     if Runtime.bootstrapPlayer then
         Runtime.bootstrapPlayer(playerObj, "bootstrap-create-player")
     elseif Runtime.ensureStateForPlayer then
