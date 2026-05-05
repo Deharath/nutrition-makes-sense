@@ -210,7 +210,7 @@ local CSV_HEADER = table.concat({
     "nms_extra_endurance", "nms_end_regen_scale", "nms_end_depriv_drain",
     "nms_protein_def", "nms_protein_heal_mult",
     "nms_exertion_mult",
-    "nms_deprivation", "nms_deprivation_target", "nms_deprivation_end", "nms_deprivation_fat", "nms_deprivation_melee",
+    "nms_deprivation", "nms_deprivation_target", "nms_deprivation_end", "nms_deprivation_fat",
     "event_reason", "event_item", "event_fraction",
     "event_item_known", "event_provenance",
     "event_pre_hunger", "event_target_hunger",
@@ -332,7 +332,6 @@ local function recordTimelineRow(kind, trigger, snap, event)
         tostring(s.lastDeprivationTarget or ""),
         tostring(Metabolism.getExertionPenaltyMultiplier(tonumber(s.deprivation) or 0)),
         tostring(Metabolism.getFatigueAccelFactor(tonumber(s.deprivation) or 0)),
-        tostring(Metabolism.getMeleeDamageMultiplier(tonumber(s.deprivation) or 0)),
         tostring(ev and ev.reason or ""),
         tostring(ev and ev.item or ""),
         tostring(ev and ev.fraction or ""),
@@ -711,7 +710,6 @@ function NMS_DevOverlay:render()
     local depTarget = tonumber(s.lastDeprivationTarget) or 0
     local endPenalty = Metabolism.getExertionPenaltyMultiplier(deprivation)
     local fatAccel = Metabolism.getFatigueAccelFactor(deprivation)
-    local meleeMult = Metabolism.getMeleeDamageMultiplier(deprivation)
     if deprivation > 0.01 or depDebt > 1 or endPenalty > 1.005 then
         y = drawSection(self, y, "Deprivation")
         local depColor = deprivation > 0.5 and C.bad or deprivation > 0.1 and C.warn or C.dim
@@ -722,10 +720,10 @@ function NMS_DevOverlay:render()
                 string.format("%s kcal  target:%s", fmt(depDebt, 0), fmt(depTarget, 3)),
                 C.dim)
         end
-        if endPenalty > 1.005 or fatAccel > 1.005 or meleeMult < 0.995 then
+        if endPenalty > 1.005 or fatAccel > 1.005 then
             y = drawRow(self, y, "Penalties",
-                string.format("end:x%s  fat:x%s  melee:x%s",
-                    fmt(endPenalty, 2), fmt(fatAccel, 2), fmt(meleeMult, 2)),
+                string.format("end:x%s  fat:x%s",
+                    fmt(endPenalty, 2), fmt(fatAccel, 2)),
                 C.warn)
         end
     end

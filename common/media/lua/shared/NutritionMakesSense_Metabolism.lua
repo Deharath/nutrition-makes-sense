@@ -41,7 +41,6 @@ Metabolism.DEPRIVATION_RECOVERY_HOURS = 10
 Metabolism.DEPRIVATION_PENALTY_ONSET = 0.10
 Metabolism.DEPRIVATION_ENDURANCE_MAX = 0.35
 Metabolism.DEPRIVATION_FATIGUE_MAX = 0.25
-Metabolism.DEPRIVATION_MELEE_MAX = 0.15
 
 Metabolism.VANILLA_NUTRITION_ANCHOR = {
     calories = 0,
@@ -833,14 +832,6 @@ function Metabolism.getFatigueAccelFactor(deprivation)
         return 1.0
     end
     return lerp(1.0, 1.0 + Metabolism.DEPRIVATION_FATIGUE_MAX, progress)
-end
-
-function Metabolism.getMeleeDamageMultiplier(deprivation)
-    local progress = Metabolism.getDeprivationPenaltyProgress(deprivation)
-    if progress <= 0 then
-        return 1.0
-    end
-    return lerp(1.0, 1.0 - Metabolism.DEPRIVATION_MELEE_MAX, progress)
 end
 
 function Metabolism.getWeightTrait(weightKg)

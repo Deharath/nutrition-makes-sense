@@ -110,17 +110,6 @@ local function collectLines(playerObj, state)
             }
         end
 
-        local meleeMultiplier = Metabolism.getMeleeDamageMultiplier and Metabolism.getMeleeDamageMultiplier(deprivation) or 1.0
-        local meleePenalty = math.max(0, (1.0 - meleeMultiplier) * 100)
-        if meleePenalty >= 1 then
-            baseLines[#baseLines + 1] = {
-                text = UIHelpers.tr("UI_NMS_Deprivation_MeleePenalty", "Melee Damage") .. ": ",
-                color = C_WHITE,
-                valueText = "-" .. UIHelpers.formatPercent(meleePenalty),
-                valueColor = C_VALUE,
-                indent = 12,
-            }
-        end
     end
 
     if proteinDef > 0.3 then
