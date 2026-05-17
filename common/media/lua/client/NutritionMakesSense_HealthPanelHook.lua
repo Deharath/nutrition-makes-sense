@@ -150,9 +150,75 @@ local originalCreateChildren = nil
 
 local NMS_BUTTON_W = 42
 local NMS_BUTTON_GAP = 6
+local hookInstallLogged = false
+local hookDeferredLogged = false
+
+local function logHook(msg)
+    if NutritionMakesSense.log then
+        NutritionMakesSense.log("[HEALTH_PANEL_HOOK] " .. tostring(msg))
+    else
+        print("[NutritionMakesSense] [HEALTH_PANEL_HOOK] " .. tostring(msg))
+    end
+end
+
+local function requireVanillaHealthPanel()
+    pcall(require, "ISUI/ISButton")
+    pcall(require, "XpSystem/ISUI/ISHealthPanel")
+    return ISHealthPanel
+        and type(ISHealthPanel.render) == "function"
+        and type(ISHealthPanel.update) == "function"
+        and type(ISHealthPanel.createChildren) == "function"
+end
 
 local function isActiveHealthPanel(self)
     return self and type(self.isReallyVisible) == "function" and self:isReallyVisible()
+end
+
+local function isTutorialMode()
+    local core = type(getCore) == "function" and getCore() or nil
+    return core and type(core.getGameMode) == "function" and core:getGameMode() == "Tutorial"
+end
+
+local function isElementVisible(element)
+    if not element then
+        return false
+    end
+    if type(element.isReallyVisible) == "function" then
+        return element:isReallyVisible()
+    end
+    if type(element.isVisible) == "function" then
+        return element:isVisible()
+    end
+    if type(element.getIsVisible) == "function" then
+        return element:getIsVisible()
+    end
+    return element.visible ~= false
+end
+
+local function shouldShowNmsStatusButton(self)
+    return isActiveHealthPanel(self) and not self.otherPlayer and not isTutorialMode()
+end
+
+local function getFitnessAnchor(self)
+    local fallback = self and self.fitness or nil
+    if not self then
+        return fallback
+    end
+
+    local fitnessLabel = type(getText) == "function" and getText("ContextMenu_Fitness") or nil
+    local children = type(self.getChildren) == "function" and self:getChildren() or self.children
+    for _, child in pairs(children or {}) do
+        if child ~= fallback
+            and child ~= self.nmsStatusButton
+            and type(child.getRight) == "function"
+            and isElementVisible(child)
+            and fitnessLabel
+            and child.tabName == fitnessLabel then
+            return child
+        end
+    end
+
+    return fallback
 end
 
 local function hideNmsStatusButton(self)
@@ -165,14 +231,15 @@ local function positionNmsStatusButton(self)
     if not self.nmsStatusButton or not self.fitness then
         return
     end
-    if not isActiveHealthPanel(self) then
+    if not shouldShowNmsStatusButton(self) then
         hideNmsStatusButton(self)
         return
     end
 
-    self.nmsStatusButton:setX(self.fitness:getRight() + NMS_BUTTON_GAP)
-    self.nmsStatusButton:setY(self.fitness:getY())
-    self.nmsStatusButton:setVisible(self.fitness:isVisible())
+    local anchor = getFitnessAnchor(self)
+    self.nmsStatusButton:setX(anchor:getRight() + NMS_BUTTON_GAP)
+    self.nmsStatusButton:setY(anchor:getY())
+    self.nmsStatusButton:setVisible(true)
     local width = math.max(self:getWidth(), self.nmsStatusButton:getRight() + UI_BORDER_SPACING + 1)
     self:setWidthAndParentWidth(width)
 end
@@ -293,8 +360,27 @@ local function ensureNmsStatusButton(self)
     self.nmsStatusButton:initialise()
     self.nmsStatusButton:instantiate()
     self:addChild(self.nmsStatusButton)
-    if getCore():getGameMode() == "Tutorial" then
+    if isTutorialMode() then
         self.nmsStatusButton:setVisible(false)
+    end
+end
+
+local function ensureExistingHealthPanels()
+    if ISHealthPanel and ISHealthPanel.instance then
+        ensureNmsStatusButton(ISHealthPanel.instance)
+        positionNmsStatusButton(ISHealthPanel.instance)
+    end
+
+    if type(getPlayerData) ~= "function" then
+        return
+    end
+    for playerNum = 0, 3 do
+        local pdata = getPlayerData(playerNum)
+        local healthView = pdata and pdata.characterInfo and pdata.characterInfo.healthView or nil
+        if healthView then
+            ensureNmsStatusButton(healthView)
+            positionNmsStatusButton(healthView)
+        end
     end
 end
 
@@ -304,13 +390,15 @@ local function hookedCreateChildren(self)
 end
 
 local function install()
-    if not ISHealthPanel
-        or type(ISHealthPanel.render) ~= "function"
-        or type(ISHealthPanel.update) ~= "function"
-        or type(ISHealthPanel.createChildren) ~= "function" then
+    if not requireVanillaHealthPanel() then
+        if not hookDeferredLogged then
+            hookDeferredLogged = true
+            logHook("deferred: ISHealthPanel unavailable")
+        end
         return
     end
     if originalRender or originalUpdate or originalCreateChildren then
+        ensureExistingHealthPanels()
         return
     end
 
@@ -320,6 +408,18 @@ local function install()
     ISHealthPanel.createChildren = hookedCreateChildren
     ISHealthPanel.update = hookedUpdate
     ISHealthPanel.render = hookedRender
+    if not hookInstallLogged then
+        hookInstallLogged = true
+        logHook("installed")
+    end
+    ensureExistingHealthPanels()
+end
+
+local function retryInstall()
+    install()
+    if originalRender and Events and Events.OnPreUIDraw and type(Events.OnPreUIDraw.Remove) == "function" then
+        Events.OnPreUIDraw.Remove(retryInstall)
+    end
 end
 
 function HealthPanelHook.install()
@@ -333,6 +433,12 @@ function HealthPanelHook.install()
 
     if Events and Events.OnGameStart and type(Events.OnGameStart.Add) == "function" then
         Events.OnGameStart.Add(install)
+    end
+    if Events and Events.OnCreatePlayer and type(Events.OnCreatePlayer.Add) == "function" then
+        Events.OnCreatePlayer.Add(install)
+    end
+    if Events and Events.OnPreUIDraw and type(Events.OnPreUIDraw.Add) == "function" then
+        Events.OnPreUIDraw.Add(retryInstall)
     end
     install()
 
