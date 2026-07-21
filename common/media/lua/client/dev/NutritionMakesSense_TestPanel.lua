@@ -36,9 +36,9 @@ local BAD   = { r = 0.85, g = 0.25, b = 0.20, a = 1.0 }
 local BAR_BG = { r = 0.12, g = 0.14, b = 0.16 }
 
 local COL_LABEL = PAD + 4
-local COL_VAL   = 90
-local COL_TAG   = 160
-local COL_BAR   = 280
+local COL_VAL   = 110
+local COL_TAG   = 180
+local COL_BAR   = 300
 local BAR_W     = W - COL_BAR - PAD - 4
 
 local function getLocalPlayer()
@@ -168,7 +168,7 @@ function NMS_TestOverlay:createChildren()
     self.traitsLabelY = traitsY + 2
 
     local profiles = type(LiveRunner.getProfiles) == "function" and LiveRunner.getProfiles() or {}
-    self.profileCombo = ISComboBox:new(PAD, profileY, 304, CONTROL_ROW_H, self, NMS_TestOverlay.onScenarioChanged)
+    self.profileCombo = ISComboBox:new(PAD, profileY, 292, CONTROL_ROW_H, self, NMS_TestOverlay.onScenarioChanged)
     self.profileCombo:initialise()
     self:addChild(self.profileCombo)
     for _, profile in ipairs(profiles) do
@@ -179,7 +179,7 @@ function NMS_TestOverlay:createChildren()
     end
 
     local triggerModes = type(LiveRunner.getTriggerModes) == "function" and LiveRunner.getTriggerModes() or {}
-    self.actionBtn = ISButton:new(W - PAD - 72, profileY, 72, CONTROL_ROW_H, "Run", self, NMS_TestOverlay.onAction)
+    self.actionBtn = ISButton:new(W - PAD - 88, profileY, 88, CONTROL_ROW_H, "Run Test", self, NMS_TestOverlay.onAction)
     self.actionBtn:initialise()
     self:addChild(self.actionBtn)
 
@@ -389,7 +389,7 @@ function NMS_TestOverlay:updateControls()
         end
     end
     if self.actionBtn then
-        self.actionBtn.title = running and "Abort" or "Run"
+        self.actionBtn.title = running and "Abort" or "Run Test"
         self.actionBtn.tooltip = running and "Abort active live scenario run" or "Start selected live scenario"
     end
 end
@@ -408,7 +408,7 @@ end
 
 function NMS_TestOverlay:render()
     ISPanel.render(self)
-    self:drawText("NMS Scenario Runner", PAD, 6, HEAD.r, HEAD.g, HEAD.b, HEAD.a, FONT_M)
+    self:drawText("NMS Live Tests", PAD, 6, HEAD.r, HEAD.g, HEAD.b, HEAD.a, FONT_M)
 
     local s = type(LiveRunner.getStatus) == "function" and LiveRunner.getStatus() or nil
     local player = getLocalPlayer()
@@ -440,8 +440,8 @@ function NMS_TestOverlay:renderIdle(state, startY)
     end
     y = drawStateRow(self, y, "Energy", state.fuel, "%.0f", state.lastZone, colorForZone(state.lastZone), (state.fuel or 0) / FUEL_MAX, colorForZone(state.lastZone))
     y = drawStateRow(self, y, "Hunger", state.visibleHunger, "%.3f", state.lastHungerBand, colorForBand(state.lastHungerBand), state.visibleHunger, colorForBand(state.lastHungerBand))
-    y = drawStateRow(self, y, "Depriv", state.deprivation, "%.3f", nil, nil, state.deprivation, colorForDepriv(state.deprivation))
-    y = drawStateRow(self, y, "Satiety", state.satietyBuffer, "%.3f", nil, nil, (state.satietyBuffer or 0) / 1.5, HEAD)
+    y = drawStateRow(self, y, "Malnutrition", state.deprivation, "%.3f", nil, nil, state.deprivation, colorForDepriv(state.deprivation))
+    y = drawStateRow(self, y, "Staying Power", state.satietyBuffer, "%.3f", nil, nil, (state.satietyBuffer or 0) / 1.5, HEAD)
     y = drawKV(self, y, "Protein", fmt(state.proteins, "%.0f") .. "g")
     y = drawKV(self, y, "Weight", fmt(state.weightKg, "%.1f") .. " kg   ctrl " .. fmt(state.weightController, "%.3f"))
     y = y + 6
@@ -555,15 +555,9 @@ function NMS_TestOverlay:renderRunning(s, startY)
             if entry.trigger then
                 detail = detail .. string.format("  [%s]", tostring(entry.trigger))
             end
-            if entry.depositKcal and entry.depositKcal > 0 then
-                detail = detail .. string.format("  (+%.0f kcal)", entry.depositKcal)
-            end
-            if entry.fuelAfter then
-                detail = detail .. string.format("  energy->%.0f", entry.fuelAfter)
-            end
-            if entry.hungerAfter then
-                detail = detail .. string.format("  hgr->%.3f", entry.hungerAfter)
-            end
+            if entry.hungerDrop then detail = detail .. string.format("  hunger:%+.3f", -entry.hungerDrop) end
+            if entry.fuelGain then detail = detail .. string.format("  energy:%+.0f", entry.fuelGain) end
+            if entry.satietyGain then detail = detail .. string.format("  stay:%+.2f", entry.satietyGain) end
             self:drawText(detail, COL_LABEL + 8, y, DIM.r, DIM.g, DIM.b, DIM.a, FONT_S)
             y = y + ROW
         end
@@ -576,11 +570,10 @@ function NMS_TestOverlay:renderRunning(s, startY)
     local hc = colorForBand(s.hungerBand)
     y = drawStateRow(self, y, "Hunger", s.hunger, "%.3f", s.hungerBand, hc, s.hunger, hc)
     local dc = colorForDepriv(s.deprivation)
-    y = drawStateRow(self, y, "Depriv", s.deprivation, "%.3f", nil, nil, s.deprivation, dc)
-    y = drawStateRow(self, y, "Satiety", s.satiety, "%.3f", nil, nil, (s.satiety or 0) / 1.5, HEAD)
+    y = drawStateRow(self, y, "Malnutrition", s.deprivation, "%.3f", nil, nil, s.deprivation, dc)
+    y = drawStateRow(self, y, "Staying Power", s.satiety, "%.3f", nil, nil, (s.satiety or 0) / 1.5, HEAD)
     y = drawKV(self, y, "Protein", s.protein and string.format("%.0fg", s.protein) or "--")
     y = drawKV(self, y, "Endurance", fmt(s.endurance, "%.2f"))
-    y = drawKV(self, y, "Fatigue", fmt(s.fatigue, "%.3f"))
     y = drawKV(self, y, "Weight", s.weightKg and string.format("%.1f kg   ctrl %.3f", s.weightKg, s.weightController or 0) or "--")
 
     local summary = s.analysisSummary or {}
@@ -678,6 +671,12 @@ function NMS_TestOverlay:renderResult(s, startY)
             local items = table.concat(entry.items or {}, ", ")
             local line = string.format("%s  %s  -  %s", entry.clock or "--", entry.label or "--", items)
             self:drawText(line, COL_LABEL, y, GOOD.r, GOOD.g, GOOD.b, GOOD.a, FONT_S)
+            y = y + ROW
+            local effects = string.format("hunger %s   energy %s   stay %s",
+                entry.hungerDrop and string.format("%+.3f", -entry.hungerDrop) or "--",
+                entry.fuelGain and string.format("%+.0f", entry.fuelGain) or "--",
+                entry.satietyGain and string.format("%+.2f", entry.satietyGain) or "--")
+            self:drawText(effects, COL_LABEL + 8, y, DIM.r, DIM.g, DIM.b, DIM.a, FONT_S)
             y = y + ROW
         end
     end

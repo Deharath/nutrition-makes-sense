@@ -1,0 +1,133 @@
+local function scriptDir()
+    local source = debug.getinfo(1, "S").source or ""
+    source = source:gsub("^@", "")
+    return source:match("^(.*)/[^/]+$")
+end
+
+local root = scriptDir():gsub("/tests$", "")
+package.path = table.concat({
+    root .. "/common/media/lua/shared/?.lua",
+    root .. "/common/media/lua/client/?.lua",
+    root .. "/common/media/lua/client/ui/?.lua",
+    package.path,
+}, ";")
+
+local Support = require "support"
+
+NutritionMakesSense = NutritionMakesSense or {}
+NutritionMakesSense.log = function() end
+
+function isDebugEnabled()
+    return false
+end
+
+function getCore()
+    return {
+        getDebug = function()
+            return false
+        end,
+    }
+end
+
+function isClient()
+    return true
+end
+
+function getAccessLevel()
+    return "admin"
+end
+
+local DebugSupport = require "NutritionMakesSense_DebugSupport"
+for key in pairs(DebugSupport._eventSinks or {}) do
+    DebugSupport._eventSinks[key] = nil
+end
+
+local capturedEvent = nil
+local sink = {
+    noteConsumeEvent = function(event)
+        capturedEvent = event
+    end,
+}
+
+Support.assertEqual(DebugSupport.registerEventSink("test", sink), true, "debug sink registration")
+DebugSupport.noteConsumeEvent({ reason = "consume" })
+DebugSupport.unregisterEventSink("test")
+Support.assertEqual(capturedEvent and capturedEvent.reason, "consume", "one-argument debug sink payload")
+Support.assertEqual(DebugSupport.canUseDevTools(), false, "admin access must not unlock dev tools")
+
+function isDebugEnabled()
+    return true
+end
+
+Support.assertEqual(DebugSupport.canUseDevTools(), true, "debug launch should unlock dev tools")
+
+UIFont = {
+    Small = "Small",
+    Medium = "Medium",
+}
+
+function getTextManager()
+    return {
+        getFontHeight = function()
+            return 10
+        end,
+        MeasureStringX = function(_, _, text)
+            return #(tostring(text or "")) * 6
+        end,
+    }
+end
+
+function round(value)
+    return math.floor((tonumber(value) or 0) + 0.5)
+end
+
+local stateByPlayer = {}
+NutritionMakesSense.MetabolismRuntime = {
+    getStateCopy = function(playerObj)
+        return stateByPlayer[playerObj]
+    end,
+}
+
+ISCharacterScreen = {
+    render = function() end,
+}
+
+local WeightDisplayHook = require "NutritionMakesSense_WeightDisplayHook"
+WeightDisplayHook.install()
+
+local function makeCharacter(weight)
+    local nutrition = {
+        getWeight = function()
+            return weight
+        end,
+    }
+    return {
+        getNutrition = function()
+            return nutrition
+        end,
+    }
+end
+
+local function renderWeight(character)
+    local texts = {}
+    ISCharacterScreen.render({
+        char = character,
+        xOffset = 0,
+        backgroundColor = { r = 0, g = 0, b = 0 },
+        drawRect = function() end,
+        drawText = function(_, text)
+            texts[#texts + 1] = tostring(text)
+        end,
+    })
+    return texts[#texts]
+end
+
+local gaining = makeCharacter(80)
+local losing = makeCharacter(65)
+stateByPlayer[gaining] = { lastWeightRateKgPerWeek = 1.0 }
+stateByPlayer[losing] = { lastWeightRateKgPerWeek = -1.0 }
+
+Support.assertEqual(renderWeight(gaining), "+1.00 kg/wk", "gaining character weight rate")
+Support.assertEqual(renderWeight(losing), "-1.00 kg/wk", "weight smoothing must not leak between characters")
+
+print("nms client tooling characterization passed")

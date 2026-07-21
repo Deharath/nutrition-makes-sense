@@ -5095,14 +5095,14 @@ module Base
         AnimalFeedType = Seeds,
         Tags = base:isseed,
         HungerChange = -1,
-        EvolvedRecipe = Salad:1;Bread:1;Muffin:1,
-        Spice = true,
-        FoodType = Seed,
-        CantBeFrozen = true,
         Calories = 110,
         Carbohydrates = 6,
         Lipids = 8,
         Proteins = 4,
+        EvolvedRecipe = Salad:1;Bread:1;Muffin:1,
+        Spice = true,
+        FoodType = Seed,
+        CantBeFrozen = true,
     }
 
     item Flour2
@@ -11855,7 +11855,7 @@ module Base
         ItemType = base:food,
         Weight = 0.1,
         Icon = SunflowerSeeds,
-        EvolvedRecipe = Salad:1;Bread:5;Muffin:5,
+        EvolvedRecipe = Salad:5;Bread:5;Muffin:5,
         Spice = true,
         FoodType = Seed,
         CantBeFrozen = true,

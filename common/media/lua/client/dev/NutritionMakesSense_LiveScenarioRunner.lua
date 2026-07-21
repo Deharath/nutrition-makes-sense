@@ -112,6 +112,7 @@ local REPORT_HEADER = table.concat({
     "meal",
     "item",
     "food_eaten_moodle",
+    "hungry_moodle",
     "visible_hunger",
     "endurance",
     "fatigue",
@@ -129,6 +130,7 @@ local REPORT_HEADER = table.concat({
     "state_weight_kg",
     "state_controller",
     "state_last_deposit_kcal",
+    "state_deposit_sequence",
     "state_last_trace_reason",
 }, ",")
 
@@ -169,6 +171,7 @@ local inventoryContainsItem = RunnerUtils.inventoryContainsItem
 local removeInventoryItem = RunnerUtils.removeInventoryItem
 local getFoodEatenMoodle = RunnerUtils.getFoodEatenMoodle
 local getHungryMoodleLevel = RunnerUtils.getHungryMoodleLevel
+local deriveOutcome = RunnerUtils.deriveOutcome
 
 local function cloneSelectedTraitFlags(source)
     local flags = {}
@@ -349,22 +352,13 @@ end
 local function isHungrySignalReady(run, thresholdBand)
     local requiredBand = tostring(thresholdBand or "peckish")
     local hungryMoodle = getHungryMoodleLevel(run and run.player)
-    if hungryMoodle ~= nil then
-        if requiredBand == "hungry" then
-            return hungryMoodle >= 2, hungryMoodle
-        end
-        return hungryMoodle >= 1, hungryMoodle
-    end
-    local snapshot = run and run.player and snapshotPlayer(run.player) or nil
-    local state = snapshot and snapshot.state or nil
-    local hungerBand = state and state.lastHungerBand or nil
-    if hungerBand == nil and Metabolism.getVisibleHungerBand then
-        hungerBand = Metabolism.getVisibleHungerBand(snapshot and snapshot.hunger)
+    if hungryMoodle == nil then
+        return false, nil
     end
     if requiredBand == "hungry" then
-        return hungerBand == "hungry" or hungerBand == "starving", nil
+        return hungryMoodle >= 2, hungryMoodle
     end
-    return hungerBand == "peckish" or hungerBand == "hungry" or hungerBand == "starving", nil
+    return hungryMoodle >= 1, hungryMoodle
 end
 
 local function getPendingCueReason(triggerMode, hungryMoodle)
@@ -504,6 +498,7 @@ snapshotPlayer = function(playerObj)
         healthFromFoodTimer = tonumber(bodyDamage and safeCall(bodyDamage, "getHealthFromFoodTimer")) or 0,
         timedActionInstant = safeCall(playerObj, "isTimedActionInstantCheat") == true,
         foodEatenMoodle = getFoodEatenMoodle(playerObj),
+        hungryMoodle = getHungryMoodleLevel(playerObj),
         scenarioTraits = snapshotScenarioTraits(playerObj),
         thermoTarget = thermo.target,
         thermoReal = thermo.real,
@@ -652,10 +647,13 @@ local function updateDerivedSignals(run)
     local observedDelta = math.max(0, elapsedHours - previousObservedHours)
     analysis.lastObservedElapsedHours = elapsedHours
 
-    if hunger >= (Metabolism.HUNGER_THRESHOLD_PECKISH or 0.16) then
+    if hunger > (Metabolism.HUNGER_THRESHOLD_PECKISH or 0.15) then
         captureAnalysisEvent(run, "firstPeckish", snapshot, elapsedHours)
+        if #(analysis.consumes or {}) > 0 then
+            captureAnalysisEvent(run, "firstPeckishAfterFirstMeal", snapshot, elapsedHours)
+        end
     end
-    if hunger >= (Metabolism.HUNGER_THRESHOLD_HUNGRY or 0.25) then
+    if hunger > (Metabolism.HUNGER_THRESHOLD_HUNGRY or 0.25) then
         captureAnalysisEvent(run, "firstHungry", snapshot, elapsedHours)
     end
     if fuel < 500 then
@@ -715,10 +713,10 @@ local function backfillAnalysisThresholdsFromConsumes(run, analysis)
     if not run or not analysis or analysis.firstPeckish ~= nil then
         return
     end
-    local threshold = tonumber(Metabolism.HUNGER_THRESHOLD_PECKISH or 0.16) or 0.16
+    local threshold = tonumber(Metabolism.HUNGER_THRESHOLD_PECKISH or 0.15) or 0.15
     for _, consume in ipairs(analysis.consumes or {}) do
         local hungerBefore = tonumber(consume and consume.hungerBefore)
-        if hungerBefore ~= nil and hungerBefore >= threshold then
+        if hungerBefore ~= nil and hungerBefore > threshold then
             analysis.firstPeckish = {
                 hour = tonumber(consume.hour),
                 clock = tostring(consume.clock or getScenarioClockLabel(run.profile, tonumber(consume.hour) or 0)),
@@ -801,7 +799,7 @@ recordRow = function(run, severity, code, message, extra)
         tostring(code or ""),
         tostring(message or ""),
         tostring(run.stage or ""),
-        tostring(run.outcome or ""),
+        tostring(deriveOutcome and deriveOutcome(run) or run.outcome or ""),
         tostring(getWorldHours() or ""),
         tostring(elapsedHours or ""),
         getScenarioClockLabel(run.profile, elapsedHours),
@@ -820,6 +818,7 @@ recordRow = function(run, severity, code, message, extra)
         describeMeal(mealRun and mealRun.meal or run.lastMeal),
         describeItem(itemRun),
         tostring(snapshot and snapshot.foodEatenMoodle or ""),
+        tostring(snapshot and snapshot.hungryMoodle or ""),
         tostring(snapshot and snapshot.hunger or ""),
         tostring(snapshot and snapshot.endurance or ""),
         tostring(snapshot and snapshot.fatigue or ""),
@@ -837,6 +836,7 @@ recordRow = function(run, severity, code, message, extra)
         tostring(state and state.weightKg or ""),
         tostring(state and state.weightController or ""),
         tostring(state and state.lastDepositKcal or ""),
+        tostring(state and state.depositSequence or ""),
         tostring(state and state.lastTraceReason or ""),
     }
 
@@ -878,8 +878,6 @@ addFinding = function(run, severity, code, message, extra)
     end
     recordRow(run, severity, code, message, extra)
 end
-
-local deriveOutcome = RunnerUtils.deriveOutcome
 
 local function saveReport(run)
     local relPath = RunnerUtils.saveReport(run, REPORT_HEADER)
@@ -992,6 +990,7 @@ local function setLastStatusFromRun(run)
         fuel = tonumber(state.fuel),
         zone = state.lastZone,
         hunger = snapshot.hunger,
+        hungryMoodle = snapshot.hungryMoodle,
         hungerBand = state.lastHungerBand,
         deprivation = tonumber(state.deprivation),
         satiety = tonumber(state.satietyBuffer),
@@ -1001,6 +1000,7 @@ local function setLastStatusFromRun(run)
         endurance = snapshot.endurance,
         fatigue = snapshot.fatigue,
         lastDepositKcal = tonumber(state.lastDepositKcal),
+        depositSequence = tonumber(state.depositSequence),
         mealLog = run.mealLog or {},
         analysisSummary = run.analysis and (run.analysis.summaryLines
             or (ScenarioAnalysis.buildSummary and ScenarioAnalysis.buildSummary(run, {
@@ -1020,23 +1020,6 @@ local function setLastStatusFromRun(run)
             string.format("Report %s", tostring(run.reportPath or lastReportPath or "--")),
         },
     }
-end
-
-local function setTimedActionInstant(playerObj, enabled)
-    if not playerObj then
-        return false
-    end
-    if not safeInvoke(playerObj, "setTimedActionInstantCheat", enabled == true) then
-        return false
-    end
-    return safeCall(playerObj, "isTimedActionInstantCheat") == (enabled == true)
-end
-
-local function restoreTimedActionInstant(run, enabled)
-    if not run or not run.player then
-        return false
-    end
-    return setTimedActionInstant(run.player, enabled)
 end
 
 local function clearWorkloadOverride(run, reason)
@@ -1303,14 +1286,6 @@ local function beginMealItem(run, mealRun)
     }
     run.lastItem = mealRun.currentItem
 
-    local cheatApplied = restoreTimedActionInstant(run, true)
-    if not cheatApplied then
-        addFinding(run, SEVERITY_WARN, "timed_action_instant_unavailable", "timed-action instant cheat could not be enabled", {
-            meal = meal.label,
-            item = mealRun.currentItem.label,
-        })
-    end
-
     local action, actionKind = buildConsumeAction(run.player, item)
     if not action then
         addFinding(run, SEVERITY_FAIL, "meal_action_unavailable", "no compatible vanilla consume action for scripted item", {
@@ -1333,7 +1308,6 @@ local function beginMealItem(run, mealRun)
 end
 
 local function completeMeal(run, mealRun)
-    restoreTimedActionInstant(run, run.snapshot and run.snapshot.visible and run.snapshot.visible.timedActionInstant == true)
     run.lastMeal = mealRun and mealRun.meal or run.lastMeal
     if mealRun then
         recordRow(run, SEVERITY_PASS, "meal_complete", "completed scripted meal", {
@@ -1347,14 +1321,28 @@ local function completeMeal(run, mealRun)
         for _, itemSpec in ipairs(mealRun.meal and mealRun.meal.items or {}) do
             itemNames[#itemNames + 1] = itemSpec.label or itemSpec.fullType or "?"
         end
+        local preState = mealRun.preMealSnapshot and mealRun.preMealSnapshot.state or {}
+        local hungerBefore = tonumber(mealRun.preMealSnapshot and mealRun.preMealSnapshot.hunger)
+        local hungerAfter = tonumber(snapshot.hunger)
+        local fuelBefore = tonumber(preState.fuel)
+        local fuelAfter = tonumber(state.fuel)
+        local satietyBefore = tonumber(preState.satietyBuffer)
+        local satietyAfter = tonumber(state.satietyBuffer)
         run.mealLog[#run.mealLog + 1] = {
             label = mealRun.meal and mealRun.meal.label or "--",
             clock = getScenarioClockLabel(run.profile, elapsedHours),
             atHour = elapsedHours,
             trigger = mealRun.triggerReason,
             items = itemNames,
-            fuelAfter = tonumber(state.fuel),
-            hungerAfter = snapshot.hunger,
+            fuelBefore = fuelBefore,
+            fuelAfter = fuelAfter,
+            fuelGain = fuelBefore and fuelAfter and (fuelAfter - fuelBefore) or nil,
+            hungerBefore = hungerBefore,
+            hungerAfter = hungerAfter,
+            hungerDrop = hungerBefore and hungerAfter and (hungerBefore - hungerAfter) or nil,
+            satietyBefore = satietyBefore,
+            satietyAfter = satietyAfter,
+            satietyGain = satietyBefore and satietyAfter and (satietyAfter - satietyBefore) or nil,
             depositKcal = tonumber(state.lastDepositKcal),
         }
         local analysis = ensureAnalysis(run)
@@ -1501,19 +1489,21 @@ local function tickMeal(run)
         and currentFluidRatio ~= nil
         and currentFluidRatio < (currentItem.preFluidRatio - 0.01)
 
-    if not itemPresent then
+    if not itemPresent or fluidConsumed then
         local confirmation = measureMealConfirmation(currentItem.preConsumeSnapshot, currentSnapshot, currentItem.expected)
-        currentItem.disappearedWorldHours = currentItem.disappearedWorldHours or (getWorldHours() or 0)
+        currentItem.consumedWorldHours = currentItem.consumedWorldHours or (getWorldHours() or 0)
 
-        if not confirmation.confirmed and (getWorldHours() or 0) < ((currentItem.disappearedWorldHours or 0) + (2 / 60)) then
+        if not confirmation.confirmed and (getWorldHours() or 0) < ((currentItem.consumedWorldHours or 0) + (5 / 60)) then
             return
         end
 
         if not confirmation.confirmed then
             addFinding(run, SEVERITY_FAIL, "deposit_missing_after_meal",
                 string.format(
-                    "item %s vanished without a matching NMS deposit fuelDelta=%.1f proteinDelta=%.1f satietyDelta=%.3f hungerDrop=%.4f lastDeposit=%.1f",
+                    "item %s was consumed without a new NMS deposit sequence=%d->%d fuelDelta=%.1f proteinDelta=%.1f satietyDelta=%.3f hungerDrop=%.4f lastDeposit=%.1f",
                     tostring(currentItem.label),
+                    tonumber(confirmation.preDepositSequence or 0),
+                    tonumber(confirmation.postDepositSequence or 0),
                     tonumber(confirmation.fuelDelta or 0),
                     tonumber(confirmation.proteinDelta or 0),
                     tonumber(confirmation.satietyDelta or 0),
@@ -1524,32 +1514,7 @@ local function tickMeal(run)
             run.failureReason = "deposit missing after meal"
             return
         end
-        if confirmation.expectedKcal > 0 and (tonumber(confirmation.lastDepositKcal or 0) > (confirmation.expectedKcal * 1.5)
-            or tonumber(confirmation.fuelDelta or 0) > (confirmation.expectedKcal * 1.8)) then
-            addFinding(run, SEVERITY_FAIL, "duplicate_deposit_detected",
-                string.format("deposit exceeds expected for %s lastDeposit=%.1f fuelDelta=%.1f expected=%.1f",
-                    tostring(currentItem.label),
-                    tonumber(confirmation.lastDepositKcal or 0),
-                    tonumber(confirmation.fuelDelta or 0),
-                    tonumber(confirmation.expectedKcal or 0)),
-                { meal = mealRun.meal.label, item = currentItem.label })
-            run.failureReason = "duplicate deposit detected"
-            return
-        end
 
-        recordRow(run, SEVERITY_PASS, "meal_item_consumed", "meal item consumed through vanilla path", {
-            meal = mealRun.meal.label,
-            item = currentItem.label,
-        })
-        mealRun.currentItem = nil
-        mealRun.itemIndex = mealRun.itemIndex + 1
-        if mealRun.itemIndex > #(mealRun.meal.items or {}) then
-            completeMeal(run, mealRun)
-        end
-        return
-    end
-
-    if fluidConsumed then
         recordRow(run, SEVERITY_PASS, "meal_item_consumed", "meal item consumed through vanilla path", {
             meal = mealRun.meal.label,
             item = currentItem.label,
@@ -1630,14 +1595,23 @@ local function maintainBoredom(run)
         string.format("restored boredom from %.3f to %.3f", boredom, BOREDOM_TOP_UP_TARGET))
 end
 
+local function refreshAndValidateHungerMoodle(playerObj, expectedLevel)
+    local moodles = playerObj and safeCall(playerObj, "getMoodles") or nil
+    if not moodles or not safeInvoke(moodles, "Update") then
+        return false, nil
+    end
+    local actualLevel = getHungryMoodleLevel(playerObj)
+    if expectedLevel == nil then
+        return actualLevel ~= nil, actualLevel
+    end
+    return actualLevel == tonumber(expectedLevel), actualLevel
+end
+
 local function applyBaseline(run)
     if not run or not run.player then
         return false
     end
 
-    if Runtime.debugClearSuppressions then
-        Runtime.debugClearSuppressions(run.player, "live-runner-baseline")
-    end
     clearWorkloadOverride(run, "live-runner-baseline")
     clearTimedActions(run.player)
 
@@ -1664,6 +1638,16 @@ local function applyBaseline(run)
         Runtime.syncVisibleShell(run.player, "live-runner-baseline")
     end
 
+    local expectedMoodle = tonumber(visible.hungryMoodle)
+    local moodleOk, actualMoodle = refreshAndValidateHungerMoodle(run.player, expectedMoodle)
+    if not moodleOk then
+        addFinding(run, SEVERITY_FAIL, "baseline_hunger_moodle_mismatch",
+            string.format("vanilla hunger moodle did not match baseline hunger (actual=%s expected=%s)",
+                tostring(actualMoodle), tostring(expectedMoodle)))
+        run.failureReason = "baseline hunger moodle mismatch"
+        return false
+    end
+
     local actual = snapshotPlayer(run.player)
     local ok = true
     ok = ok and type(actual.state) == "table"
@@ -1686,7 +1670,8 @@ local function applyBaseline(run)
         return false
     end
 
-    recordRow(run, SEVERITY_PASS, "baseline_applied", "canonical blank-slate baseline applied")
+    recordRow(run, SEVERITY_PASS, "baseline_applied",
+        string.format("canonical blank-slate baseline applied with hunger moodle %d", actualMoodle))
     return true
 end
 
@@ -1702,7 +1687,7 @@ local function captureSnapshot(run)
     end
 
     run.snapshot = {
-        state = Runtime.buildStateSnapshot(run.player, "live-runner-snapshot"),
+        state = Runtime.buildStateSnapshot(run.player, "live-runner-snapshot", true),
         visible = snapshotPlayer(run.player),
         traits = snapshotScenarioTraits(run.player),
         timeMultiplier = getTimeMultiplier(),
@@ -1797,8 +1782,6 @@ local function restoreSnapshot(run)
             addFinding(run, SEVERITY_WARN, "restore_game_speed_mode_failed", "failed to restore pre-run game speed mode")
         end
     end
-    restoreTimedActionInstant(run, run.snapshot.visible and run.snapshot.visible.timedActionInstant == true)
-
     if Runtime.importStateSnapshot then
         local restorePayload = copySnapshotPayload(run.snapshot.state)
         local nowHours = getWorldHours()
@@ -1835,12 +1818,16 @@ local function restoreSnapshot(run)
         Runtime.syncVisibleShell(run.player, "live-runner-restore")
     end
 
+    local expectedHungerMoodle = run.snapshot.visible and run.snapshot.visible.hungryMoodle
+    local hungerMoodleOk, restoredHungerMoodle = refreshAndValidateHungerMoodle(
+        run.player, expectedHungerMoodle)
+
     cleanupSpawnedItems(run)
 
     local restored = snapshotPlayer(run.player)
     local before = run.snapshot.visible or {}
     local beforeState = run.snapshot.state and run.snapshot.state.state or {}
-    local restoreOk = true
+    local restoreOk = hungerMoodleOk
     local multiplierDrift = nil
 
     restoreOk = restoreOk and nearlyEqual(restored.hunger, before.hunger, RESTORE_TOLERANCE.hunger)
@@ -1866,7 +1853,6 @@ local function restoreSnapshot(run)
     if run.snapshot.restoreGameSpeedMode ~= nil and restored.gameSpeedMode ~= nil then
         restoreOk = restoreOk and tonumber(restored.gameSpeedMode) == tonumber(run.snapshot.restoreGameSpeedMode)
     end
-    restoreOk = restoreOk and restored.timedActionInstant == (before.timedActionInstant == true)
     restoreOk = restoreOk and nearlyEqual(restored.state and restored.state.fuel, beforeState.fuel, RESTORE_TOLERANCE.fuel)
     restoreOk = restoreOk and nearlyEqual(restored.state and restored.state.deprivation, beforeState.deprivation, RESTORE_TOLERANCE.deprivation)
     restoreOk = restoreOk and nearlyEqual(restored.state and restored.state.satietyBuffer, beforeState.satietyBuffer, RESTORE_TOLERANCE.satietyBuffer)
@@ -1880,7 +1866,9 @@ local function restoreSnapshot(run)
     end
 
     if not restoreOk then
-        addFinding(run, SEVERITY_FAIL, "restore_state_mismatch", "restored player state does not match pre-run snapshot")
+        addFinding(run, SEVERITY_FAIL, "restore_state_mismatch",
+            string.format("restored player state does not match pre-run snapshot (hungerMoodle=%s expected=%s)",
+                tostring(restoredHungerMoodle), tostring(expectedHungerMoodle)))
     else
         recordRow(run, SEVERITY_PASS, "restore_completed", "player restore completed successfully")
     end
@@ -1897,6 +1885,8 @@ local function restoreSnapshot(run)
     else
         run.stage = "complete"
     end
+    recordRow(run, SEVERITY_PASS, "runner_finalized",
+        string.format("finalized live scenario with outcome %s", tostring(run.outcome)))
     run.reportPath = saveReport(run)
     setLastStatusFromRun(run)
     activeRun = nil
@@ -1956,6 +1946,8 @@ local function startRun(profile)
     if not checkPreflight(run) then
         run.stage = "failed"
         run.outcome = deriveOutcome(run)
+        recordRow(run, SEVERITY_PASS, "runner_finalized",
+            string.format("finalized live scenario with outcome %s", tostring(run.outcome)))
         run.reportPath = saveReport(run)
         setLastStatusFromRun(run)
         return nil

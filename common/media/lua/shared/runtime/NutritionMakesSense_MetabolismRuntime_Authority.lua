@@ -30,9 +30,7 @@ local consumeWorkloadSummary = Runtime.consumeWorkloadSummary
 local removeEndurance = Runtime.removeEndurance
 local eachKnownPlayer = Runtime.eachKnownPlayer
 local DebugSupport = NutritionMakesSense.DebugSupport or {}
-local SUPPRESSION_EPSILON = 0.01
-local SUPPRESSION_TTL_HOURS = 10 / 3600
-local FALLBACK_VISIBLE_HUNGER_EPSILON = 0.001
+local PENDING_HUNGER_MAX_AGE = 2
 local ACTIVE_ELAPSED_CAP_HOURS = 0.25
 local MP_RESUME_GAP_THRESHOLD_HOURS = 0.50
 
@@ -108,173 +106,6 @@ local function resolveActiveElapsedHours(state, nowHours, reason)
         rawHours = rawElapsed,
         mode = "active",
     }
-end
-
-local function copySuppressionValues(values)
-    local normalized = normalizeDeposit(values)
-    return {
-        kcal = math.max(0, tonumber(normalized.kcal) or 0),
-        carbs = math.max(0, tonumber(normalized.carbs) or 0),
-        fats = math.max(0, tonumber(normalized.fats) or 0),
-        proteins = math.max(0, tonumber(normalized.proteins) or 0),
-    }
-end
-
-local function queueHasMeaningfulDelta(values)
-    return math.abs(tonumber(values and values.kcal) or 0) > SUPPRESSION_EPSILON
-        or math.abs(tonumber(values and values.carbs) or 0) > SUPPRESSION_EPSILON
-        or math.abs(tonumber(values and values.fats) or 0) > SUPPRESSION_EPSILON
-        or math.abs(tonumber(values and values.proteins) or 0) > SUPPRESSION_EPSILON
-end
-
-local function formatMacroValues(values)
-    return string.format(
-        "kcal=%.1f carbs=%.1f fats=%.1f proteins=%.1f",
-        tonumber(values and values.kcal) or 0,
-        tonumber(values and values.carbs) or 0,
-        tonumber(values and values.fats) or 0,
-        tonumber(values and values.proteins) or 0
-    )
-end
-
-function Runtime.enqueuePendingNutritionSuppression(playerObj, values, reason)
-    if not playerObj then
-        return nil
-    end
-
-    local state = Runtime.ensureStateForPlayer(playerObj)
-    if not state then
-        return nil
-    end
-
-    local queued = copySuppressionValues(values)
-    if not queueHasMeaningfulDelta(queued) then
-        return nil
-    end
-
-    local suppressions = type(state.pendingNutritionSuppressions) == "table" and state.pendingNutritionSuppressions or {}
-    suppressions[#suppressions + 1] = {
-        kcal = queued.kcal,
-        carbs = queued.carbs,
-        fats = queued.fats,
-        proteins = queued.proteins,
-        reason = tostring(reason or "server-explicit-consume"),
-        worldHours = tonumber(getWorldHours()) or nil,
-    }
-    state.pendingNutritionSuppressions = suppressions
-    return suppressions[#suppressions]
-end
-
-function Runtime.consumePendingNutritionSuppressions(playerObj, observedDelta, reason)
-    local initialObserved = copySuppressionValues(observedDelta)
-    local remaining = copySuppressionValues(observedDelta)
-    if not playerObj then
-        return remaining, nil
-    end
-
-    local state = Runtime.ensureStateForPlayer(playerObj)
-    if not state then
-        return remaining, nil
-    end
-
-    local suppressions = state.pendingNutritionSuppressions
-    if type(suppressions) ~= "table" or #suppressions == 0 then
-        return remaining, nil
-    end
-
-    local nowHours = tonumber(getWorldHours()) or nil
-    local absorbed = {
-        kcal = 0,
-        carbs = 0,
-        fats = 0,
-        proteins = 0,
-    }
-    local queued = {
-        kcal = 0,
-        carbs = 0,
-        fats = 0,
-        proteins = 0,
-    }
-    local remainingQueue = {}
-    local staleDropped = 0
-
-    for _, entry in ipairs(suppressions) do
-        if type(entry) == "table" then
-            queued.kcal = queued.kcal + math.max(0, tonumber(entry.kcal) or 0)
-            queued.carbs = queued.carbs + math.max(0, tonumber(entry.carbs) or 0)
-            queued.fats = queued.fats + math.max(0, tonumber(entry.fats) or 0)
-            queued.proteins = queued.proteins + math.max(0, tonumber(entry.proteins) or 0)
-        end
-        local entryWorldHours = tonumber(entry and entry.worldHours) or nil
-        local isStale = nowHours ~= nil
-            and entryWorldHours ~= nil
-            and (nowHours - entryWorldHours) > SUPPRESSION_TTL_HOURS
-        if not isStale and type(entry) == "table" then
-            local leftover = {
-                kcal = math.max(0, tonumber(entry.kcal) or 0),
-                carbs = math.max(0, tonumber(entry.carbs) or 0),
-                fats = math.max(0, tonumber(entry.fats) or 0),
-                proteins = math.max(0, tonumber(entry.proteins) or 0),
-                reason = tostring(entry.reason or "server-explicit-consume"),
-                worldHours = entryWorldHours,
-            }
-
-            for _, field in ipairs({ "kcal", "carbs", "fats", "proteins" }) do
-                local matched = math.min(tonumber(remaining[field]) or 0, tonumber(leftover[field]) or 0)
-                if matched > SUPPRESSION_EPSILON then
-                    remaining[field] = math.max(0, (tonumber(remaining[field]) or 0) - matched)
-                    leftover[field] = math.max(0, (tonumber(leftover[field]) or 0) - matched)
-                    absorbed[field] = (tonumber(absorbed[field]) or 0) + matched
-                end
-            end
-
-            if queueHasMeaningfulDelta(leftover) then
-                remainingQueue[#remainingQueue + 1] = {
-                    kcal = tonumber(leftover.kcal) or 0,
-                    carbs = tonumber(leftover.carbs) or 0,
-                    fats = tonumber(leftover.fats) or 0,
-                    proteins = tonumber(leftover.proteins) or 0,
-                    reason = tostring(entry.reason or "server-explicit-consume"),
-                    worldHours = entryWorldHours,
-                }
-            end
-        elseif isStale then
-            staleDropped = staleDropped + 1
-        end
-    end
-
-    state.pendingNutritionSuppressions = (#remainingQueue > 0) and remainingQueue or nil
-
-    if queueHasMeaningfulDelta(absorbed) then
-        log(string.format(
-            "[MP_SERVER_DRIFT_SUPPRESS] player=%s reason=%s %s",
-            tostring(getPlayerLabel(playerObj)),
-            tostring(reason or "server-drift-suppress"),
-            formatMacroValues(absorbed)
-        ))
-    end
-    if staleDropped > 0 then
-        log(string.format(
-            "[MP_SERVER_SUPPRESS_STALE] player=%s reason=%s dropped=%d ttlHours=%.6f",
-            tostring(getPlayerLabel(playerObj)),
-            tostring(reason or "server-drift-suppress"),
-            tonumber(staleDropped),
-            tonumber(SUPPRESSION_TTL_HOURS)
-        ))
-    end
-    if queueHasMeaningfulDelta(queued)
-        and queueHasMeaningfulDelta(initialObserved)
-        and not queueHasMeaningfulDelta(absorbed) then
-        log(string.format(
-            "[MP_SERVER_SUPPRESS_MISS] player=%s reason=%s observed={%s} queued={%s}",
-            tostring(getPlayerLabel(playerObj)),
-            tostring(reason or "server-drift-suppress"),
-            formatMacroValues(initialObserved),
-            formatMacroValues(queued)
-        ))
-    end
-
-    return remaining, absorbed
 end
 
 function Runtime.debugSetStateFields(playerObj, updates, reason)
@@ -371,13 +202,13 @@ function Runtime.debugResetState(playerObj, reason)
         lastSatietyQuality = 0,
         lastSatietyContribution = 0,
         lastSatietyReturnFactor = 1.0,
-        lastImmediateHungerDrop = 0,
-        lastImmediateHungerMechanical = 0,
-        lastImmediateFillTarget = 0,
-        lastImmediateFillVanilla = 0,
-        lastImmediateFillCorrection = 0,
+        lastMealHungerDrop = 0,
+        lastMealHungerObserved = false,
+        pendingObservedHungerDrop = 0,
+        pendingObservedHungerAge = 0,
         lastBurnKcal = 0,
         lastDepositKcal = 0,
+        depositSequence = tonumber(previous and previous.depositSequence) or 0,
         lastBaseHungerGain = 0,
         lastPassiveHungerGain = 0,
         lastCorrectionGain = 0,
@@ -388,10 +219,8 @@ function Runtime.debugResetState(playerObj, reason)
         lastDeprivationTarget = 0,
         lastWeightBalanceKcal = 0,
         lastWeightControllerTarget = 0,
-        lastExertionMultiplier = 1.0,
         lastTraceReason = tostring(reason or "debug-reset"),
         baseHealthFromFood = tonumber(previous and previous.baseHealthFromFood) or seedHealthFromFood(bodyDamage),
-        pendingNutritionSuppressions = nil,
     })
     state = refreshDerivedState(state, reason or "debug-reset")
     modData[STATE_KEY] = state
@@ -411,35 +240,6 @@ function Runtime.debugResetState(playerObj, reason)
     ))
 
     return Metabolism.copyState(state)
-end
-
-function Runtime.debugClearSuppressions(playerObj, reason)
-    if not playerObj then
-        return nil
-    end
-
-    local state = Runtime.ensureStateForPlayer(playerObj)
-    if not state then
-        return nil
-    end
-
-    local cleared = state.pendingNutritionSuppressions and #state.pendingNutritionSuppressions or 0
-    state.pendingNutritionSuppressions = nil
-    state = refreshDerivedState(state, reason or "debug-clear-suppressions")
-
-    local modData = getModData(playerObj)
-    if modData then
-        modData[STATE_KEY] = state
-    end
-
-    log(string.format(
-        "[NMS_DEV_CLEAR] player=%s queue=%d reason=%s",
-        tostring(getPlayerLabel(playerObj)),
-        tonumber(cleared or 0),
-        tostring(reason or "debug-clear-suppressions")
-    ))
-
-    return Metabolism.copyState(state), cleared
 end
 
 function Runtime.debugSetVisibleBaselines(playerObj, fields, reason)
@@ -543,47 +343,24 @@ function Runtime.updatePlayer(playerObj, reason)
     local nutrition = getPlayerNutrition(playerObj)
     local observedDelta = samplePositiveNutritionDelta(nutrition)
     local observedDeltaDetected = hasMeaningfulDeposit(observedDelta)
-    local netObservedDelta = observedDelta
-    local absorbedSuppression = nil
-    if observedDeltaDetected and type(Runtime.consumePendingNutritionSuppressions) == "function" then
-        netObservedDelta, absorbedSuppression = Runtime.consumePendingNutritionSuppressions(playerObj, observedDelta, reason or "vanilla-nutrition-delta")
-    end
 
     local playerStats = getPlayerStats(playerObj)
     local preVisibleHunger = tonumber(state.visibleHunger) or 0
-    local importedDrop = 0
     if observedDeltaDetected and type(importLiveVisibleHungerDrop) == "function" then
-        importedDrop = tonumber(importLiveVisibleHungerDrop(state, playerStats)) or 0
+        importLiveVisibleHungerDrop(state, playerStats)
     end
 
     -- Apply observed vanilla nutrition deltas anywhere we are running authoritative updates.
     -- Dedicated servers, listen servers, and solo runtimes must all credit the same intake path.
-    if hasMeaningfulDeposit(netObservedDelta) then
-        local fallbackApplied = false
-        local depositReport = Runtime.applyAuthoritativeDeposit(playerObj, netObservedDelta, "vanilla-nutrition-delta", {
-            item = "vanilla-drift",
-        })
-        local reportedDrop = tonumber(depositReport and depositReport.immediateHungerDrop) or 0
-        local fallbackNeeded = importedDrop <= SUPPRESSION_EPSILON
-            and reportedDrop > SUPPRESSION_EPSILON
-            and preVisibleHunger > FALLBACK_VISIBLE_HUNGER_EPSILON
-        if fallbackNeeded and Runtime.applyVisibleHungerTarget then
-            fallbackApplied = Runtime.applyVisibleHungerTarget(
-                playerObj,
-                preVisibleHunger - reportedDrop,
-                "vanilla-hunger-fallback"
-            ) == true
-            if fallbackApplied then
-                log(string.format(
-                    "[MP_SERVER_HUNGER_FALLBACK] player=%s reason=%s imported=%.4f fallback=%.4f pre=%.4f",
-                    tostring(playerLabel),
-                    tostring(reason or "vanilla-nutrition-delta"),
-                    importedDrop,
-                    reportedDrop,
-                    preVisibleHunger
-                ))
-            end
-        end
+    if observedDeltaDetected then
+        local observedHungerDrop = clamp(tonumber(state.pendingObservedHungerDrop) or 0, 0, 1)
+        local hungerObserved = observedHungerDrop > 0
+        state.pendingObservedHungerDrop = 0
+        state.pendingObservedHungerAge = 0
+        state.lastMealHungerDrop = observedHungerDrop
+        state.lastMealHungerObserved = hungerObserved
+
+        Runtime.applyAuthoritativeDeposit(playerObj, observedDelta, "vanilla-nutrition-delta")
         if type(DebugSupport.noteConsumeEvent) == "function" then
             DebugSupport.noteConsumeEvent({
                 reason = tostring(reason or "vanilla-nutrition-delta"),
@@ -594,18 +371,22 @@ function Runtime.updatePlayer(playerObj, reason)
                 fraction = 1,
                 pre_visible_hunger = preVisibleHunger,
                 target_visible_hunger = tonumber(state.visibleHunger) or preVisibleHunger,
-                kcal = tonumber(netObservedDelta and netObservedDelta.kcal) or 0,
-                carbs = tonumber(netObservedDelta and netObservedDelta.carbs) or 0,
-                fats = tonumber(netObservedDelta and netObservedDelta.fats) or 0,
-                proteins = tonumber(netObservedDelta and netObservedDelta.proteins) or 0,
-                imported_drop = importedDrop,
-                modeled_drop = reportedDrop,
-                fallback_applied = fallbackApplied,
-                suppressed_kcal = tonumber(absorbedSuppression and absorbedSuppression.kcal) or 0,
-                suppressed_carbs = tonumber(absorbedSuppression and absorbedSuppression.carbs) or 0,
-                suppressed_fats = tonumber(absorbedSuppression and absorbedSuppression.fats) or 0,
-                suppressed_proteins = tonumber(absorbedSuppression and absorbedSuppression.proteins) or 0,
+                kcal = tonumber(observedDelta and observedDelta.kcal) or 0,
+                carbs = tonumber(observedDelta and observedDelta.carbs) or 0,
+                fats = tonumber(observedDelta and observedDelta.fats) or 0,
+                proteins = tonumber(observedDelta and observedDelta.proteins) or 0,
+                observed_hunger_drop = observedHungerDrop,
+                hunger_observed = hungerObserved,
             })
+        end
+    else
+        local pendingDrop = tonumber(state.pendingObservedHungerDrop) or 0
+        if pendingDrop > 0 then
+            state.pendingObservedHungerAge = (tonumber(state.pendingObservedHungerAge) or 0) + 1
+            if state.pendingObservedHungerAge > PENDING_HUNGER_MAX_AGE then
+                state.pendingObservedHungerDrop = 0
+                state.pendingObservedHungerAge = 0
+            end
         end
     end
 

@@ -4,6 +4,7 @@ local Runtime = NutritionMakesSense.MetabolismRuntime or {}
 
 local Metabolism = Runtime.Metabolism or {}
 local MP = Runtime.MP or {}
+local MPSnapshot = Runtime.MPSnapshot or {}
 local STATE_KEY = Runtime.STATE_KEY
 local getModData = Runtime.getModData
 local getWorldHours = Runtime.getWorldHours
@@ -33,7 +34,7 @@ function Runtime.getStateCopy(playerObj)
     return Metabolism.copyState(rawState)
 end
 
-function Runtime.buildStateSnapshot(playerObj, reason)
+function Runtime.buildStateSnapshot(playerObj, reason, includeDiagnostics)
     local state = Runtime.ensureStateForPlayer(playerObj)
     if not state then
         return nil
@@ -44,7 +45,7 @@ function Runtime.buildStateSnapshot(playerObj, reason)
         reason = tostring(reason or "snapshot"),
         worldHours = getWorldHours(),
         player = tostring(getPlayerLabel(playerObj)),
-        state = Metabolism.copyState(state),
+        state = MPSnapshot.copyState(state, includeDiagnostics == true),
     }
 end
 
@@ -62,8 +63,10 @@ function Runtime.syncVisibleIndicators(playerObj, reason)
     local bodyDamage = getPlayerBodyDamage(playerObj)
     syncVisibleHunger(playerObj, state, reason or "sync-visible-indicators")
     syncVisibleWeight(nutrition, state)
-    syncProteinHealing(bodyDamage, state)
-    suppressFoodEatenTimer(bodyDamage)
+    if Runtime.shouldRunAuthoritativeUpdates() then
+        syncProteinHealing(bodyDamage, state)
+        suppressFoodEatenTimer(bodyDamage)
+    end
     state.lastTraceReason = tostring(reason or state.lastTraceReason or "sync-visible-indicators")
     return state
 end
@@ -102,15 +105,6 @@ function Runtime.applyVisibleHungerTarget(playerObj, targetHunger, reason)
     state.visibleHunger = desired
     state.lastSyncedHunger = desired
     return setVisibleHunger(stats, desired)
-end
-
-function Runtime.applyImmediateFullnessCorrection(playerObj, correction, reason)
-    local stats = getPlayerStats(playerObj)
-    local before = getVisibleHungerValue(stats)
-    if before == nil then
-        return false
-    end
-    return Runtime.applyVisibleHungerTarget(playerObj, before + (tonumber(correction) or 0), reason)
 end
 
 function Runtime.importStateSnapshot(playerObj, snapshot, reason)

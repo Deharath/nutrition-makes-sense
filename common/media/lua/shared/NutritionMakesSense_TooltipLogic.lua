@@ -244,13 +244,7 @@ function TooltipLogic.getVanillaNutritionVisibility(item, viewer)
 end
 
 function TooltipLogic.getSatietyDescriptor(values)
-    local hungerDrop = nil
-    if Metabolism and type(Metabolism.getImmediateHungerDrop) == "function" then
-        hungerDrop = tonumber(Metabolism.getImmediateHungerDrop(values, 1))
-    end
-    if hungerDrop == nil then
-        hungerDrop = normalizeHungerValue(values and values.hunger) * 0.01
-    end
+    local hungerDrop = normalizeHungerValue(values and values.hunger) * 0.01
 
     if hungerDrop >= 0.24 then
         return "Very high"
@@ -329,19 +323,22 @@ function TooltipLogic.buildDescriptorRows(item, viewer)
     local rows = {}
     local debugMode = isDebugTooltipMode()
     local visibility = TooltipLogic.getVanillaNutritionVisibility(item, viewer)
+    local scriptItem = safeCall(item, "getScriptItem")
+    local directlyEdible = safeCall(scriptItem, "isCantEat") ~= true
 
-    local satiety = TooltipLogic.getSatietyDescriptor(values) or "None"
-    local satietyLabel = "Satiety"
-    if debugMode and Metabolism and type(Metabolism.getImmediateHungerDrop) == "function" then
-        satietyLabel = string.format("Satiety [%s]", formatDebugNumber(Metabolism.getImmediateHungerDrop(values, 1), 2))
-    end
-    rows[#rows + 1] = { label = satietyLabel, value = satiety }
+    if directlyEdible then
+        local satiety = TooltipLogic.getSatietyDescriptor(values) or "None"
+        local satietyLabel = debugMode
+            and string.format("Hunger Effect [%s]", formatDebugNumber(normalizeHungerValue(values.hunger) * 0.01, 2))
+            or "Satiety"
+        rows[#rows + 1] = { label = satietyLabel, value = satiety }
 
-    if debugMode and Metabolism and type(Metabolism.getSatietyContribution) == "function" then
-        rows[#rows + 1] = {
-            label = "Satiety Buffer",
-            value = formatDebugNumber(Metabolism.getSatietyContribution(values, 1), 2),
-        }
+        if debugMode and Metabolism and type(Metabolism.getSatietyContribution) == "function" then
+            rows[#rows + 1] = {
+                label = "Staying Power",
+                value = formatDebugNumber(Metabolism.getSatietyContribution(values, 1), 2),
+            }
+        end
     end
 
     local energy = TooltipLogic.getEnergyDescriptor(values) or "None"

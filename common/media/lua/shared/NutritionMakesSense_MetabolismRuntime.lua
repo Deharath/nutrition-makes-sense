@@ -3,6 +3,7 @@ NutritionMakesSense = NutritionMakesSense or {}
 require "NutritionMakesSense_MPCompat"
 require "NutritionMakesSense_Metabolism"
 require "NutritionMakesSense_CoreUtils"
+require "NutritionMakesSense_MPSnapshot"
 
 local Runtime = NutritionMakesSense.MetabolismRuntime or {}
 NutritionMakesSense.MetabolismRuntime = Runtime
@@ -10,6 +11,7 @@ NutritionMakesSense.MetabolismRuntime = Runtime
 local Metabolism = NutritionMakesSense.Metabolism
 local MP = NutritionMakesSense.MP or {}
 local CoreUtils = NutritionMakesSense.CoreUtils or {}
+local MPSnapshot = NutritionMakesSense.MPSnapshot or {}
 local STATE_KEY = tostring(MP.MOD_STATE_KEY or "NutritionMakesSenseState")
 local ANCHOR = Metabolism.VANILLA_NUTRITION_ANCHOR
 local DEPOSIT_EPSILON = 0.001
@@ -328,7 +330,6 @@ function Runtime.ensureStateForPlayer(playerObj)
         state.weightBalanceKcal = 0
         state.underfeedingDebtKcal = 0
         state.lastZone = Metabolism.getFuelZone(state.fuel)
-        state.lastHungerMultiplier = Metabolism.getFuelHungerMultiplier(state.fuel)
         state.visibleHunger = clamp(getVisibleHungerValue(stats) or 0, Metabolism.VISIBLE_HUNGER_MIN, Metabolism.VISIBLE_HUNGER_MAX)
         state.lastHungerBand = Metabolism.getVisibleHungerBand(state.visibleHunger)
         state.lastFuelPressureFactor = Metabolism.getFuelPressureFactor(state.fuel)
@@ -339,6 +340,7 @@ function Runtime.ensureStateForPlayer(playerObj)
         state.initialized = true
         state.lastTraceReason = "seed"
         state.lastDepositKcal = 0
+        state.depositSequence = 0
         state.lastBurnKcal = 0
         state.lastBaseHungerGain = 0
         state.lastPassiveHungerGain = 0
@@ -350,7 +352,6 @@ function Runtime.ensureStateForPlayer(playerObj)
         state.lastDeprivationTarget = Metabolism.getDeprivationTarget(state)
         state.lastWeightBalanceKcal = 0
         state.lastWeightControllerTarget = 0
-        state.lastExertionMultiplier = 1.0
         state.lastProteinDeficiency = Metabolism.getProteinDeficiencyProgress(state.proteins, state.weightKg)
         state.lastMetAverage = Metabolism.MET_REST
         state.lastMetPeak = Metabolism.MET_REST
@@ -364,11 +365,10 @@ function Runtime.ensureStateForPlayer(playerObj)
         state.lastSatietyQuality = 0
         state.lastSatietyContribution = 0
         state.lastSatietyReturnFactor = 1.0
-        state.lastImmediateHungerDrop = 0
-        state.lastImmediateHungerMechanical = 0
-        state.lastImmediateFillTarget = 0
-        state.lastImmediateFillVanilla = 0
-        state.lastImmediateFillCorrection = 0
+        state.lastMealHungerDrop = 0
+        state.lastMealHungerObserved = false
+        state.pendingObservedHungerDrop = 0
+        state.pendingObservedHungerAge = 0
         state.lastProteinHealingMultiplier = Metabolism.getProteinHealingMultiplier(state.proteins, state.weightKg)
         log(string.format(
             "[STATE_INIT] player=%s fuel=%.1f proteins=%.1f weight=%.3f zone=%s",
@@ -762,14 +762,13 @@ local function syncVisibleWeight(nutrition, state)
         safeCall(nutrition, "setIncWeight", gaining)
         safeCall(nutrition, "setIncWeightLot", gainingLot)
         safeCall(nutrition, "setDecWeight", losing)
+        safeCall(nutrition, "applyTraitFromWeight")
     end
-    safeCall(nutrition, "applyTraitFromWeight")
 end
 
 local function refreshDerivedState(state, reason)
     state = Metabolism.ensureState(state)
     state.lastZone = Metabolism.getFuelZone(state.fuel)
-    state.lastHungerMultiplier = Metabolism.getFuelHungerMultiplier(state.fuel)
     state.lastHungerBand = Metabolism.getVisibleHungerBand(state.visibleHunger)
     state.lastFuelPressureFactor = Metabolism.getFuelPressureFactor(state.fuel)
     state.lastGateMultiplier = Metabolism.getHungerGateMultiplier(state.fuel)
@@ -820,8 +819,13 @@ local function importLiveVisibleHungerDrop(state, stats, options)
         Metabolism.VISIBLE_HUNGER_MIN,
         Metabolism.VISIBLE_HUNGER_MAX
     )
-    local importedDrop = modeledHunger - liveHunger
-    local importedRise = liveHunger - modeledHunger
+    local lastSyncedHunger = clamp(
+        state.lastSyncedHunger or modeledHunger,
+        Metabolism.VISIBLE_HUNGER_MIN,
+        Metabolism.VISIBLE_HUNGER_MAX
+    )
+    local importedDrop = lastSyncedHunger - liveHunger
+    local importedRise = liveHunger - lastSyncedHunger
     local hasDrop = importedDrop > VISIBLE_HUNGER_IMPORT_EPSILON
     local hasRise = allowRise and importedRise > riseEpsilon
     if not hasDrop and not hasRise then
@@ -833,11 +837,14 @@ local function importLiveVisibleHungerDrop(state, stats, options)
     state.visibleHunger = liveHunger
     state.lastSyncedHunger = liveHunger
     state.lastHungerBand = Metabolism.getVisibleHungerBand(liveHunger)
-    state.lastImmediateHungerDrop = hasDrop and importedDrop or 0
-    state.lastImmediateHungerMechanical = hasDrop and importedDrop or 0
-    state.lastImmediateFillTarget = hasDrop and importedDrop or 0
-    state.lastImmediateFillVanilla = hasDrop and importedDrop or 0
-    state.lastImmediateFillCorrection = 0
+    if hasDrop then
+        state.pendingObservedHungerDrop = clamp(
+            (tonumber(state.pendingObservedHungerDrop) or 0) + importedDrop,
+            0,
+            1
+        )
+        state.pendingObservedHungerAge = 0
+    end
     return hasDrop and importedDrop or 0
 end
 
@@ -863,15 +870,14 @@ local function syncVisibleHunger(playerObj, state, reason)
     local current = getVisibleHungerValue(stats) or desired
 
     if math.abs(current - desired) <= SYNC_EPSILON then
+        state.lastSyncedHunger = desired
         return false
     end
 
     -- Keep the vanilla-facing hunger stat slaved to NMS state. Letting live vanilla
     -- drift accumulate back into state causes threshold chatter and moodle pop-in/out.
     local changed = setVisibleHunger(stats, desired)
-    if changed then
-        state.lastSyncedHunger = desired
-    end
+    state.lastSyncedHunger = desired
     return changed
 end
 
@@ -923,6 +929,7 @@ local eachKnownPlayer = CoreUtils.eachKnownPlayer
 
 Runtime.Metabolism = Metabolism
 Runtime.MP = MP
+Runtime.MPSnapshot = MPSnapshot
 Runtime.STATE_KEY = STATE_KEY
 Runtime.DEFAULT_WORKLOAD_SOURCE = DEFAULT_WORKLOAD_SOURCE
 Runtime.scriptedWorkloadOverrideByPlayerKey = scriptedWorkloadOverrideByPlayerKey

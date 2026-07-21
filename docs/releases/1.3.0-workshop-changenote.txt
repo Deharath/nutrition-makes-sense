@@ -1,0 +1,9 @@
+1.3.0
+
+- Reworked eating so vanilla food behavior determines immediate fullness, while NMS calories and macros determine available energy and how long a meal lasts. This removes guessed or doubled hunger corrections and preserves recipe-ingredient portion behavior.
+- Simplified underfeeding effects. NMS no longer accelerates fatigue or applies a generic exertion modifier; sustained deprivation now acts through reduced stamina recovery and a small extra stamina drain during exertion.
+- Aligned visible hunger thresholds with current Build 42 behavior and made low-energy warning, deprivation buildup, and recovery more consistent.
+- Hardened multiplayer authority and synchronization with smaller explicit snapshots, rate-limited workload reports, calmer state updates, frozen offline metabolism, and no client-side prediction of server-owned state.
+- Improved handling and tooltips for multi-use recipe ingredients such as flour, rice, butter, pasta, peanut butter, and sugar.
+- Corrected the current Build 42.19 Salad recipe value for Sunflower Seeds.
+- Rebuilt the internal diagnostics and scenario tests used to validate normal meals, junk-food grazing, light diets, hunger cues, protein effects, and long-term weight trends.

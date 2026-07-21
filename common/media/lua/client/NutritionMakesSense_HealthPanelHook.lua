@@ -98,18 +98,6 @@ local function collectLines(playerObj, state)
             end
         end
 
-        local fatigueFactor = Metabolism.getFatigueAccelFactor and Metabolism.getFatigueAccelFactor(deprivation) or 1.0
-        local fatiguePenalty = math.max(0, (fatigueFactor - 1.0) * 100)
-        if fatiguePenalty >= 1 then
-            baseLines[#baseLines + 1] = {
-                text = UIHelpers.tr("UI_NMS_Deprivation_FatiguePenalty", "Fatigue Rate") .. ": ",
-                color = C_WHITE,
-                valueText = "+" .. UIHelpers.formatPercent(fatiguePenalty),
-                valueColor = C_VALUE,
-                indent = 12,
-            }
-        end
-
     end
 
     if proteinDef > 0.3 then

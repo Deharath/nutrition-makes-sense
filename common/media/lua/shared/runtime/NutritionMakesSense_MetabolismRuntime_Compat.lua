@@ -25,13 +25,6 @@ function Runtime.isCompatEnduranceActive()
         and compat:hasCapability("ArmorMakesSense", "endurance_coordinator")
 end
 
-function Runtime.isCompatFatigueActive()
-    local compat = getCompat()
-    return type(compat) == "table"
-        and type(compat.hasCapability) == "function"
-        and compat:hasCapability("CaffeineMakesSense", "fatigue_coordinator")
-end
-
 local function computeEnduranceContribution(playerObj, args)
     local state = Runtime.ensureStateForPlayer(playerObj)
     if not state then
@@ -96,43 +89,6 @@ local function recordEnduranceResult(playerObj, args)
     }
 end
 
-local function computeFatigueContribution(playerObj, args)
-    local state = Runtime.ensureStateForPlayer(playerObj)
-    if not state then
-        return {
-            extraFatigue = 0,
-            fatigueAccelFactor = 1.0,
-        }
-    end
-
-    if args and args.sleeping == true then
-        return {
-            extraFatigue = 0,
-            fatigueAccelFactor = 1.0,
-        }
-    end
-
-    local dtMinutes = math.max(0, tonumber(args and args.dtMinutes) or 0)
-    local dtHours = math.max(0, tonumber(args and args.dtHours) or (dtMinutes / 60.0))
-    local fatigueAccelFactor = Metabolism.getFatigueAccelFactor(state.deprivation)
-
-    if fatigueAccelFactor <= 1.0 or dtHours <= 0 then
-        return {
-            extraFatigue = 0,
-            fatigueAccelFactor = fatigueAccelFactor,
-        }
-    end
-
-    local vanillaFatiguePerHour = 0.042
-    local extraFatigue = vanillaFatiguePerHour * (fatigueAccelFactor - 1.0) * dtHours
-
-    return {
-        extraFatigue = math.max(0, extraFatigue),
-        fatigueAccelFactor = fatigueAccelFactor,
-        deprivation = tonumber(state.deprivation) or 0,
-    }
-end
-
 local function buildTraceSnapshot(playerObj, _args)
     local state = Runtime.ensureStateForPlayer(playerObj)
     if not state then
@@ -142,7 +98,6 @@ local function buildTraceSnapshot(playerObj, _args)
     local workload = Runtime.getCurrentWorkloadSnapshot and Runtime.getCurrentWorkloadSnapshot(playerObj) or nil
     return {
         compat_endurance_active = Runtime.isCompatEnduranceActive and Runtime.isCompatEnduranceActive() or false,
-        compat_fatigue_active = Runtime.isCompatFatigueActive and Runtime.isCompatFatigueActive() or false,
         work_tier = tostring(state.lastWorkTier or workload and workload.workTier or ""),
         met_avg = tonumber(workload and workload.averageMet or state.lastMetAverage) or nil,
         met_peak = tonumber(workload and workload.peakMet or state.lastMetPeak) or nil,
@@ -162,12 +117,10 @@ if compat and type(compat.registerProvider) == "function" then
     compat:registerProvider("NutritionMakesSense", {
         capabilities = {
             endurance_provider = true,
-            fatigue_provider = true,
         },
         callbacks = {
             computeEnduranceContribution = computeEnduranceContribution,
             recordEnduranceResult = recordEnduranceResult,
-            computeFatigueContribution = computeFatigueContribution,
             buildTraceSnapshot = buildTraceSnapshot,
         },
     })

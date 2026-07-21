@@ -27,6 +27,7 @@ local DEFAULT_BASELINE_STATE = {
 
 local DEFAULT_BASELINE_VISIBLE = {
     hunger = 0.10,
+    hungryMoodle = 0,
     thirst = 0.0,
     boredom = 0.0,
     endurance = 1.0,
@@ -131,7 +132,6 @@ local LIVE_PROFILES = {
         validation = {
             evaluator = "canonical_day",
             hungerDropThreshold = 0.01,
-            lowHoursWarn = 1.5,
             endFuelWarn = 350,
             endFuelFail = 200,
             deprivationWarn = 0.01,
@@ -175,9 +175,13 @@ local LIVE_PROFILES = {
         },
         validation = {
             evaluator = "junk_food_day",
+            minimumItems = 3,
             hungerDropThreshold = 0.01,
             lowHoursWarn = 2.0,
             deprivationWarn = 0.03,
+            endFuelWarn = 300,
+            endFuelFail = 100,
+            deprivationFail = Metabolism.DEPRIVATION_PENALTY_ONSET or 0.10,
         },
     }),
     light_meals_day = withProfileDefaults({
@@ -243,7 +247,6 @@ local LIVE_PROFILES = {
             evaluator = "light_meals_day",
             hungerDropThreshold = 0.01,
             lowHoursExpect = 1.5,
-            penaltyHoursWarn = 1.5,
             deprivationWarn = 0.03,
             minMeals = 5,
             minLastMealHour = 12.5,
@@ -277,6 +280,7 @@ local LIVE_PROFILES = {
             hungerDropThreshold = 0.01,
             requireFuelBelow = 300,
             expectedFuelZone = "Low",
+            recoveryTolerance = 0.01,
         },
     }),
 }

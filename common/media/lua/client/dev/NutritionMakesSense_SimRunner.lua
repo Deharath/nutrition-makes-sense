@@ -109,8 +109,8 @@ local function updateSummary(summary, state, report, hour)
     markFirst(summary, "firstLowHour", zone == "Low" or zone == "Depleted", hour)
     markFirst(summary, "firstDepletedHour", zone == "Depleted", hour)
     markFirst(summary, "firstDeprivationHour", deprivation >= 0.10, hour)
-    markFirst(summary, "firstPeckishHour", hunger >= Metabolism.HUNGER_THRESHOLD_PECKISH, hour)
-    markFirst(summary, "firstHungryHour", hunger >= Metabolism.HUNGER_THRESHOLD_HUNGRY, hour)
+    markFirst(summary, "firstPeckishHour", hunger > Metabolism.HUNGER_THRESHOLD_PECKISH, hour)
+    markFirst(summary, "firstHungryHour", hunger > Metabolism.HUNGER_THRESHOLD_HUNGRY, hour)
 end
 
 local function makeProfiles()

@@ -3,6 +3,6 @@ id=NutritionMakesSense
 poster=poster.png
 icon=nms_icon.png
 author=Deharath
-modversion=1.2.3
+modversion=1.3.0
 versionMin=42.14.0
 description=Nutrition and weight overhaul with coherent metabolism, reworked food values, and readable player cues.

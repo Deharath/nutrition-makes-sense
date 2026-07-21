@@ -23,9 +23,6 @@ local REPORTED_WORKLOAD_WINDOW_HOURS = Runtime.REPORTED_WORKLOAD_WINDOW_HOURS or
 local isCompatEnduranceActive = Runtime.isCompatEnduranceActive or function()
     return false
 end
-local isCompatFatigueActive = Runtime.isCompatFatigueActive or function()
-    return false
-end
 
 local function pruneReportedWorkloadSamples(samples, nowHours)
     if type(samples) ~= "table" then
@@ -135,18 +132,6 @@ local function accumulateWorkloadSample(playerObj, state, cache, live, nowHours)
             cache.appliedEnduranceDrain = (cache.appliedEnduranceDrain or 0) + math.max(0, endurance - controlled)
         end
 
-        local fatigueAccel = Metabolism.getFatigueAccelFactor(state.deprivation)
-        if (not isCompatFatigueActive()) and fatigueAccel > 1.0 and not live.sleepObserved then
-            local vanillaFatiguePerHour = 0.042
-            local extraFatigue = vanillaFatiguePerHour * (fatigueAccel - 1.0) * deltaHours
-            if extraFatigue > 0 then
-                local currentFatigue = tonumber(safeCall(stats, "getFatigue")) or 0
-                if currentFatigue < 0.95 then
-                    safeCall(stats, "setFatigue", math.min(0.95, currentFatigue + extraFatigue))
-                    cache.appliedFatigueAccel = (cache.appliedFatigueAccel or 0) + extraFatigue
-                end
-            end
-        end
     end
 
     return live

@@ -9,7 +9,6 @@ require "NutritionMakesSense_Boot"
 require "NutritionMakesSense_MPCompat"
 require "NutritionMakesSense_MetabolismRuntime"
 require "NutritionMakesSense_CoreUtils"
-require "dev/NutritionMakesSense_CompatTraceServer"
 
 local MPServerRuntime = NutritionMakesSense.MPServerRuntime or {}
 NutritionMakesSense.MPServerRuntime = MPServerRuntime
@@ -17,17 +16,23 @@ NutritionMakesSense.MPServerRuntime = MPServerRuntime
 local MP = NutritionMakesSense.MP or {}
 local Runtime = NutritionMakesSense.MetabolismRuntime or {}
 local CoreUtils = NutritionMakesSense.CoreUtils or {}
-local CompatTraceServer = NutritionMakesSense.CompatTraceServer or {}
+local MPSnapshot = NutritionMakesSense.MPSnapshot or {}
+local DebugSupport = NutritionMakesSense.DebugSupport or {}
+local devToolsEnabled = type(DebugSupport.canUseDevTools) == "function" and DebugSupport.canUseDevTools() == true
+if devToolsEnabled then
+    devToolsEnabled = pcall(require, "dev/NutritionMakesSense_CompatTraceServer")
+end
+local CompatTraceServer = devToolsEnabled and (NutritionMakesSense.CompatTraceServer or {}) or {}
 
-local PASSIVE_SNAPSHOT_INTERVAL_SECONDS = 0.25
-local PASSIVE_SNAPSHOT_KEEPALIVE_SECONDS = 1.5
+local PASSIVE_SNAPSHOT_INTERVAL_SECONDS = 0.5
+local PASSIVE_SNAPSHOT_KEEPALIVE_SECONDS = 4.0
 local SNAPSHOT_FUEL_EPSILON = 0.1
 local SNAPSHOT_HUNGER_EPSILON = 0.0015
 local SNAPSHOT_PROTEIN_EPSILON = 0.1
 local SNAPSHOT_WEIGHT_EPSILON = 0.01
 local SNAPSHOT_MET_EPSILON = 0.05
 local SNAPSHOT_DEPRIVATION_EPSILON = 0.01
-local CRITICAL_VISIBLE_HUNGER = 0.85
+local CRITICAL_VISIBLE_HUNGER = 0.60
 local CRITICAL_DEPRIVATION = 0.90
 local SERVER_PLAYER_UPDATE_INTERVAL_SECONDS = 0.25
 
@@ -66,17 +71,6 @@ local function getWallClockSeconds()
         end
     end
     return (tonumber(getWorldHours()) or 0) * 3600
-end
-
-local function shallowCopy(tableLike)
-    if type(tableLike) ~= "table" then
-        return nil
-    end
-    local copy = {}
-    for key, value in pairs(tableLike) do
-        copy[key] = value
-    end
-    return copy
 end
 
 local function sendCompatTraceStatus(playerObj, payload)
@@ -135,7 +129,7 @@ local function snapshotHasCriticalPressure(previous, snapshot)
     if deprivation >= CRITICAL_DEPRIVATION and (not previous or (tonumber(previous.deprivation) or 0) < CRITICAL_DEPRIVATION) then
         return true
     end
-    if zone == "depleted" and tostring(previous and previous.zone or "") ~= "depleted" then
+    if zone == "Depleted" and tostring(previous and previous.zone or "") ~= "Depleted" then
         return true
     end
 
@@ -219,7 +213,7 @@ local function sendStateSnapshot(playerObj, reason, extra, preparedSnapshot)
 
     local snapshot = preparedSnapshot
     if type(snapshot) ~= "table" and Runtime.buildStateSnapshot then
-        snapshot = Runtime.buildStateSnapshot(playerObj, reason or "server")
+        snapshot = Runtime.buildStateSnapshot(playerObj, reason or "server", true)
     end
     if type(snapshot) ~= "table" or type(snapshot.state) ~= "table" then
         return nil
@@ -230,7 +224,7 @@ local function sendStateSnapshot(playerObj, reason, extra, preparedSnapshot)
     local payload = {
         version = tostring(snapshot.version or MP.SCRIPT_VERSION or "1.0.0"),
         reason = tostring(reason or snapshot.reason or "server"),
-        state = shallowCopy(snapshot.state),
+        state = MPSnapshot.copyState(snapshot.state, devToolsEnabled),
         worldHours = tonumber(snapshot.worldHours) or getWorldHours(),
         player = tostring(snapshot.player or getPlayerLabel(playerObj)),
         serverSeq = tonumber(nextServerSnapshotSeq),
@@ -256,7 +250,7 @@ local function sendStateSnapshot(playerObj, reason, extra, preparedSnapshot)
         return nil
     end
 
-    rememberSnapshotState(playerObj, payload)
+    rememberSnapshotState(playerObj, snapshot)
     return payload
 end
 
@@ -265,7 +259,7 @@ local function maybeSendPassiveSnapshot(playerObj, reason, force)
         return false
     end
 
-    local snapshot = Runtime.buildStateSnapshot(playerObj, reason or "passive-sync")
+    local snapshot = Runtime.buildStateSnapshot(playerObj, reason or "passive-sync", true)
     if not shouldSendPassiveSnapshot(playerObj, snapshot, force) then
         return false
     end
@@ -334,7 +328,7 @@ local function onClientCommand(module, command, playerObj, args)
             return
         end
 
-        if tostring(command) == tostring(MP.COMPAT_TRACE_START_COMMAND) then
+        if devToolsEnabled and tostring(command) == tostring(MP.COMPAT_TRACE_START_COMMAND) then
             local result = CompatTraceServer.startForPlayer and CompatTraceServer.startForPlayer(playerObj, args and args.label or "dev") or {
                 ok = false,
                 error = "trace_server_unavailable",
@@ -348,7 +342,7 @@ local function onClientCommand(module, command, playerObj, args)
             return
         end
 
-        if tostring(command) == tostring(MP.COMPAT_TRACE_STOP_COMMAND) then
+        if devToolsEnabled and tostring(command) == tostring(MP.COMPAT_TRACE_STOP_COMMAND) then
             local result = CompatTraceServer.stopForPlayer and CompatTraceServer.stopForPlayer(playerObj) or {
                 ok = false,
                 error = "trace_server_unavailable",
@@ -411,7 +405,7 @@ local function onEveryOneMinute()
         maybeSendPassiveSnapshot(playerObj, "minute-maintenance", false)
     end)
 
-    if CompatTraceServer.sampleAll then
+    if devToolsEnabled and CompatTraceServer.sampleAll then
         CompatTraceServer.sampleAll()
     end
 end

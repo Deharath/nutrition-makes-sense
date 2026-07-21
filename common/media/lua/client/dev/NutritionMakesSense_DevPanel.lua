@@ -122,9 +122,8 @@ local function computeSnapshot()
     local stats = safeCall(player, "getStats")
     local nutr = safeCall(player, "getNutrition")
     local bd = safeCall(player, "getBodyDamage")
-    local projectedState = UIHelpers.getStateCopy and UIHelpers.getStateCopy(player) or nil
-    local authoritativeState = UIHelpers.getAuthoritativeStateCopy and UIHelpers.getAuthoritativeStateCopy(player) or projectedState
-    local projectionMeta = UIHelpers.getProjectionMeta and UIHelpers.getProjectionMeta(player) or nil
+    local authoritativeState = UIHelpers.getStateCopy and UIHelpers.getStateCopy(player) or nil
+    local snapshotMeta = UIHelpers.getSnapshotMeta and UIHelpers.getSnapshotMeta(player) or nil
     local workload = Runtime.getCurrentWorkloadSnapshot and Runtime.getCurrentWorkloadSnapshot(player) or nil
 
     return {
@@ -136,8 +135,7 @@ local function computeSnapshot()
         healthFromFood = tonumber(safeCall(bd, "getHealthFromFood")),
         fedTimer = tonumber(safeCall(bd, "getHealthFromFoodTimer")),
         state = authoritativeState,
-        projectedState = projectedState,
-        projectionMeta = projectionMeta,
+        snapshotMeta = snapshotMeta,
         workload = workload,
     }
 end
@@ -204,20 +202,17 @@ local CSV_HEADER = table.concat({
     "nms_proteins", "nms_weight_kg", "nms_weight_trait",
     "nms_weight_rate_kg_week", "nms_weight_controller",
     "nms_satiety_buffer", "nms_satiety_quality", "nms_satiety_return_factor",
-    "nms_hunger_band", "nms_hunger_drop", "nms_hunger_mechanical",
+    "nms_hunger_band", "nms_meal_hunger_drop", "nms_meal_hunger_observed",
     "nms_fuel_pressure", "nms_gate_mult", "nms_met_hunger_factor",
     "nms_passive_hunger_gain", "nms_burn_kcal", "nms_deposit_kcal",
     "nms_extra_endurance", "nms_end_regen_scale", "nms_end_depriv_drain",
     "nms_protein_def", "nms_protein_heal_mult",
-    "nms_exertion_mult",
-    "nms_deprivation", "nms_deprivation_target", "nms_deprivation_end", "nms_deprivation_fat",
+    "nms_deprivation", "nms_deprivation_target",
     "event_reason", "event_item", "event_fraction",
     "event_item_known", "event_provenance",
     "event_pre_hunger", "event_target_hunger",
     "event_kcal", "event_carbs", "event_fats", "event_proteins",
-    "event_consume_source", "event_imported_drop", "event_modeled_drop",
-    "event_fallback_applied", "event_suppressed_kcal", "event_suppressed_carbs",
-    "event_suppressed_fats", "event_suppressed_proteins",
+    "event_consume_source", "event_observed_hunger_drop", "event_hunger_observed",
 }, ",")
 
 local function csvEscape(v)
@@ -267,9 +262,8 @@ local function normalizeTimelineEvent(kind, trigger, event)
         fats = tonumber(event.fats) or "",
         proteins = tonumber(event.proteins) or "",
         consume_source = tostring(event.consume_source or ""),
-        imported_drop = tonumber(event.imported_drop) or "",
-        modeled_drop = tonumber(event.modeled_drop) or "",
-        fallback_applied = event.fallback_applied == true and "true" or "",
+        observed_hunger_drop = tonumber(event.observed_hunger_drop) or "",
+        hunger_observed = event.hunger_observed == true and "true" or "",
         suppressed_kcal = tonumber(event.suppressed_kcal) or "",
         suppressed_carbs = tonumber(event.suppressed_carbs) or "",
         suppressed_fats = tonumber(event.suppressed_fats) or "",
@@ -314,8 +308,8 @@ local function recordTimelineRow(kind, trigger, snap, event)
         tostring(s.lastSatietyQuality or ""),
         tostring(s.lastSatietyReturnFactor or ""),
         tostring(s.lastHungerBand or ""),
-        tostring(s.lastImmediateHungerDrop or ""),
-        tostring(s.lastImmediateHungerMechanical or ""),
+        tostring(s.lastMealHungerDrop or ""),
+        s.lastMealHungerObserved == true and "true" or "false",
         tostring(s.lastFuelPressureFactor or ""),
         tostring(s.lastGateMultiplier or ""),
         tostring(s.lastMetHungerFactor or ""),
@@ -327,11 +321,8 @@ local function recordTimelineRow(kind, trigger, snap, event)
         tostring(s.lastEnduranceDeprivDrain or ""),
         tostring(s.lastProteinDeficiency or ""),
         tostring(s.lastProteinHealingMultiplier or ""),
-        tostring(s.lastExertionMultiplier or ""),
         tostring(s.deprivation or 0),
         tostring(s.lastDeprivationTarget or ""),
-        tostring(Metabolism.getExertionPenaltyMultiplier(tonumber(s.deprivation) or 0)),
-        tostring(Metabolism.getFatigueAccelFactor(tonumber(s.deprivation) or 0)),
         tostring(ev and ev.reason or ""),
         tostring(ev and ev.item or ""),
         tostring(ev and ev.fraction or ""),
@@ -344,13 +335,8 @@ local function recordTimelineRow(kind, trigger, snap, event)
         tostring(ev and ev.fats or ""),
         tostring(ev and ev.proteins or ""),
         tostring(ev and ev.consume_source or ""),
-        tostring(ev and ev.imported_drop or ""),
-        tostring(ev and ev.modeled_drop or ""),
-        tostring(ev and ev.fallback_applied or ""),
-        tostring(ev and ev.suppressed_kcal or ""),
-        tostring(ev and ev.suppressed_carbs or ""),
-        tostring(ev and ev.suppressed_fats or ""),
-        tostring(ev and ev.suppressed_proteins or ""),
+        tostring(ev and ev.observed_hunger_drop or ""),
+        tostring(ev and ev.hunger_observed or ""),
     }
     appendRecordingRow(row)
 end
@@ -459,22 +445,28 @@ function NMS_DevOverlay:initialise() ISPanel.initialise(self) end
 function NMS_DevOverlay:createChildren()
     ISPanel.createChildren(self)
     local bx = PAD
-    self.recordBtn = ISButton:new(bx, 4, 72, 22, "Record", self, NMS_DevOverlay.onToggleRecord)
+    self.recordBtn = ISButton:new(bx, 4, 68, 22, "Record", self, NMS_DevOverlay.onToggleRecord)
     self.recordBtn:initialise()
     self:addChild(self.recordBtn)
-    bx = bx + 76
+    bx = bx + 72
 
-    self.compatBtn = ISButton:new(bx, 4, 72, 22, "Compat", self, NMS_DevOverlay.onToggleCompatTrace)
+    self.testsBtn = ISButton:new(bx, 4, 52, 22, "Tests", self, NMS_DevOverlay.onOpenTests)
+    self.testsBtn:initialise()
+    self.testsBtn.tooltip = "Open live scenario tests"
+    self:addChild(self.testsBtn)
+    bx = bx + 56
+
+    self.compatBtn = ISButton:new(bx, 4, 66, 22, "Compat", self, NMS_DevOverlay.onToggleCompatTrace)
     self.compatBtn:initialise()
     self:addChild(self.compatBtn)
-    bx = bx + 76
+    bx = bx + 70
 
-    self.resetBtn = ISButton:new(bx, 4, 58, 22, "Reset", self, NMS_DevOverlay.onReset)
+    self.resetBtn = ISButton:new(bx, 4, 50, 22, "Reset", self, NMS_DevOverlay.onReset)
     self.resetBtn:initialise()
     self:addChild(self.resetBtn)
-    bx = bx + 62
+    bx = bx + 54
 
-    self.hunger50Btn = ISButton:new(bx, 4, 72, 22, "Hunger 50", self, NMS_DevOverlay.onSetHunger50)
+    self.hunger50Btn = ISButton:new(bx, 4, 78, 22, "Hunger .50", self, NMS_DevOverlay.onSetHunger50)
     self.hunger50Btn:initialise()
     self:addChild(self.hunger50Btn)
 
@@ -483,6 +475,17 @@ function NMS_DevOverlay:createChildren()
     self:addChild(self.closeBtn)
     self:updateRecordButton()
     self:updateCompatTraceButton()
+end
+
+function NMS_DevOverlay:onOpenTests()
+    local testPanel = NutritionMakesSense.TestPanel
+    if type(testPanel) ~= "table" then
+        local ok = pcall(require, "dev/NutritionMakesSense_TestPanel")
+        testPanel = ok and NutritionMakesSense.TestPanel or nil
+    end
+    if testPanel and type(testPanel.toggle) == "function" then
+        testPanel.toggle()
+    end
 end
 
 function NMS_DevOverlay:updateRecordButton()
@@ -564,9 +567,9 @@ end
 function NMS_DevOverlay:render()
     ISPanel.render(self)
     local snap = computeSnapshot()
-    local y = PAD
+    local y = 32
 
-    self:drawText("NMS Dev", PAD + 88, y, C.title.r, C.title.g, C.title.b, C.title.a, FONT)
+    self:drawText("NMS Runtime Inspector", PAD, y, C.title.r, C.title.g, C.title.b, C.title.a, FONT)
     y = y + LINE_H + 6
 
     if recording then
@@ -592,23 +595,42 @@ function NMS_DevOverlay:render()
     end
 
     local s = snap.state or {}
-    local projected = snap.projectedState or s
-    local projectionMeta = snap.projectionMeta or {}
+    local snapshotMeta = snap.snapshotMeta or {}
+
+    ---------------------------------------------------------------- Last Intake
+    y = drawSection(self, y, "Last Intake")
+    local mealDrop = tonumber(s.lastMealHungerDrop) or 0
+    local hungerObserved = s.lastMealHungerObserved == true
+    local deposit = tonumber(s.lastDepositKcal) or 0
+    local satietyQuality = tonumber(s.lastSatietyQuality) or 0
+    local satietyAdded = tonumber(s.lastSatietyContribution) or 0
+    local intakeStatus = deposit <= 0 and "Waiting"
+        or hungerObserved and "Captured"
+        or "Energy only"
+    local intakeColor = deposit <= 0 and C.dim
+        or hungerObserved and C.good
+        or C.warn
+    y = drawRow(self, y, "Status", intakeStatus, intakeColor)
+    y = drawRow(self, y, "Fullness", hungerObserved and ("-" .. fmt(mealDrop, 3) .. " observed") or "not observed",
+        hungerObserved and C.value or C.warn)
+    y = drawRow(self, y, "Energy", deposit > 0 and ("+" .. fmt(deposit, 0) .. " kcal") or "--")
+    y = drawRow(self, y, "Staying Power",
+        string.format("quality:%s  added:%s", fmt(satietyQuality, 2), fmt(satietyAdded, 2)))
 
     ---------------------------------------------------------------- Sync
     y = drawSection(self, y, "Sync")
-    local seqText = projectionMeta.lastSeq and tostring(projectionMeta.lastSeq) or "--"
-    local ageSeconds = tonumber(projectionMeta.ageSeconds)
+    local seqText = snapshotMeta.lastSeq and tostring(snapshotMeta.lastSeq) or "--"
+    local ageSeconds = tonumber(snapshotMeta.ageSeconds)
     local ageText = ageSeconds and string.format("%.1fs", ageSeconds) or "--"
-    local stale = projectionMeta.isStale == true
-    local reasonText = tostring(projectionMeta.lastReason or "--")
+    local stale = snapshotMeta.isStale == true
+    local reasonText = tostring(snapshotMeta.lastReason or "--")
     y = drawRow(self, y, "Status", stale and "STALE" or "Live", stale and C.warn or C.good)
     y = drawRow(self, y, "Seq", seqText)
     y = drawRow(self, y, "Age", ageText, stale and C.warn or C.dim)
     y = drawRow(self, y, "Reason", reasonText, C.dim)
 
     ---------------------------------------------------------------- Hunger
-    y = drawSection(self, y, "Hunger")
+    y = drawSection(self, y, "Hunger & Return")
     local band = s.lastHungerBand or "comfortable"
     local bandColor = BAND_COLORS[band] or C.value
     local bandLabel = BAND_LABELS[band] or band
@@ -618,7 +640,7 @@ function NMS_DevOverlay:render()
     local satBuf = tonumber(s.satietyBuffer) or 0
     local satMax = Metabolism.SATIETY_BUFFER_MAX or 1.5
     y = drawLabeledBar(self, y, satBuf / satMax, C.satiety,
-        "Satiety Buffer", fmt(satBuf, 2) .. " / " .. fmt(satMax, 1))
+        "Meal Staying Power", fmt(satBuf, 2) .. " / " .. fmt(satMax, 1))
 
     local passiveGain = tonumber(s.lastPassiveHungerGain) or 0
     local retFactor = tonumber(s.lastSatietyReturnFactor) or 1
@@ -631,7 +653,7 @@ function NMS_DevOverlay:render()
             fmt(gateMult, 2), fmt(metFactor, 2), fmt(retFactor, 2), fmt(fuelPressure, 2)))
 
     ---------------------------------------------------------------- Available Energy
-    y = drawSection(self, y, "Available Energy")
+    y = drawSection(self, y, "Energy Reserve")
     local fuel = tonumber(s.fuel) or 0
     local fuelMax = Metabolism.FUEL_MAX or 2000
     local zone = s.lastZone or "Ready"
@@ -640,16 +662,8 @@ function NMS_DevOverlay:render()
         zone, fmt(fuel, 0) .. " / " .. fmt(fuelMax, 0))
 
     local burn = tonumber(s.lastBurnKcal) or 0
-    local deposit = tonumber(s.lastDepositKcal) or 0
     y = drawRow(self, y, "Flow",
         string.format("burn:%s kcal  dep:%s kcal", fmt(burn, 0), fmt(deposit, 0)))
-    local projectedFuel = tonumber(projected.fuel)
-    if projectedFuel ~= nil and math.abs(projectedFuel - fuel) >= 0.1 then
-        y = drawRow(self, y, "Projected",
-            string.format("%s / %s", fmt(projectedFuel, 0), fmt(fuelMax, 0)),
-            C.dim)
-    end
-
     ---------------------------------------------------------------- Protein
     y = drawSection(self, y, "Protein")
     local mp = tonumber(s.proteins) or 0
@@ -685,7 +699,6 @@ function NMS_DevOverlay:render()
     local authoritativeMetPeak = tonumber(s.lastMetPeak)
     local metAvg = authoritativeMetAvg or tonumber(liveWorkload and liveWorkload.averageMet) or 1
     local metPeak = authoritativeMetPeak or tonumber(liveWorkload and liveWorkload.peakMet) or metAvg
-    local exertion = tonumber(s.lastExertionMultiplier) or 1
     y = drawRow(self, y, "Auth",
         string.format("%s   MET %s / %s", tier, fmt(metAvg, 1), fmt(metPeak, 1)))
     if liveWorkload then
@@ -699,18 +712,14 @@ function NMS_DevOverlay:render()
     end
 
     local endurance = snap.endurance
-    local fatigue = snap.fatigue
     local extraEnd = tonumber(s.lastExtraEnduranceDrain) or 0
-    y = drawRow(self, y, "Endurance", string.format("%s   drain: %s   exert: x%s",
-        pct(endurance), fmts(extraEnd, 4), fmt(exertion, 2)))
-    y = drawRow(self, y, "Fatigue", pct(fatigue))
-
+    local regenScale = tonumber(s.lastEnduranceRegenScale) or 1
+    y = drawRow(self, y, "Endurance", string.format("%s   regen:x%s   drain:%s",
+        pct(endurance), fmt(regenScale, 2), fmts(extraEnd, 4)))
     local deprivation = tonumber(s.deprivation) or 0
     local depDebt = tonumber(s.lastUnderfeedingDebtKcal or s.underfeedingDebtKcal) or 0
     local depTarget = tonumber(s.lastDeprivationTarget) or 0
-    local endPenalty = Metabolism.getExertionPenaltyMultiplier(deprivation)
-    local fatAccel = Metabolism.getFatigueAccelFactor(deprivation)
-    if deprivation > 0.01 or depDebt > 1 or endPenalty > 1.005 then
+    if deprivation > 0.01 or depDebt > 1 or regenScale < 0.995 then
         y = drawSection(self, y, "Deprivation")
         local depColor = deprivation > 0.5 and C.bad or deprivation > 0.1 and C.warn or C.dim
         y = drawLabeledBar(self, y, deprivation, depColor,
@@ -720,25 +729,9 @@ function NMS_DevOverlay:render()
                 string.format("%s kcal  target:%s", fmt(depDebt, 0), fmt(depTarget, 3)),
                 C.dim)
         end
-        if endPenalty > 1.005 or fatAccel > 1.005 then
-            y = drawRow(self, y, "Penalties",
-                string.format("end:x%s  fat:x%s",
-                    fmt(endPenalty, 2), fmt(fatAccel, 2)),
-                C.warn)
+        if regenScale < 0.995 then
+            y = drawRow(self, y, "Stamina Recovery", "x" .. fmt(regenScale, 2), C.warn)
         end
-    end
-
-    ---------------------------------------------------------------- Last Eat
-    local drop = tonumber(s.lastImmediateHungerDrop) or 0
-    local mech = tonumber(s.lastImmediateHungerMechanical) or 0
-    local sq = tonumber(s.lastSatietyQuality) or 0
-    local sc = tonumber(s.lastSatietyContribution) or 0
-    if drop > 0 or mech > 0 then
-        y = drawSection(self, y, "Last Eat")
-        y = drawRow(self, y, "Fill",
-            string.format("drop:%s  mech:%s", fmt(drop, 3), fmt(mech, 3)))
-        y = drawRow(self, y, "Satiety",
-            string.format("quality:%s  added:%s", fmt(sq, 2), fmt(sc, 2)))
     end
 
     local neededH = y + PAD

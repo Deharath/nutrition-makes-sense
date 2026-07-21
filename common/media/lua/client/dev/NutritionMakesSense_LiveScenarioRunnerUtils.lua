@@ -307,26 +307,25 @@ function Utils.measureMealConfirmation(preSnapshot, postSnapshot, expected)
     local preState = preSnapshot and preSnapshot.state or {}
     local postState = postSnapshot and postSnapshot.state or {}
     local expectedKcal = tonumber(expected and expected.kcal or 0) or 0
+    local expectedCarbs = tonumber(expected and expected.carbs or 0) or 0
+    local expectedFats = tonumber(expected and expected.fats or 0) or 0
     local expectedProteins = tonumber(expected and expected.proteins or 0) or 0
+    local preDepositSequence = tonumber(preState and preState.depositSequence) or 0
+    local postDepositSequence = tonumber(postState and postState.depositSequence) or 0
+    local requiresDeposit = expectedKcal > 0 or expectedCarbs > 0 or expectedFats > 0 or expectedProteins > 0
+    local depositObserved = postDepositSequence > preDepositSequence
     local fuelDelta = (tonumber(postState and postState.fuel) or 0) - (tonumber(preState and preState.fuel) or 0)
     local proteinDelta = (tonumber(postState and postState.proteins) or 0) - (tonumber(preState and preState.proteins) or 0)
     local satietyDelta = (tonumber(postState and postState.satietyBuffer) or 0) - (tonumber(preState and preState.satietyBuffer) or 0)
     local hungerDrop = (tonumber(preSnapshot and preSnapshot.hunger) or 0) - (tonumber(postSnapshot and postSnapshot.hunger) or 0)
     local lastDepositKcal = tonumber(postState and postState.lastDepositKcal or 0) or 0
-    local confirmed = false
-
-    if expectedKcal <= 0 then
-        confirmed = fuelDelta > 1 or proteinDelta > 0.1 or satietyDelta > 0.01 or hungerDrop > 0.005 or lastDepositKcal > 0
-    else
-        confirmed = lastDepositKcal > 0
-            or fuelDelta >= math.min(25, expectedKcal * 0.2)
-            or proteinDelta >= math.min(2, math.max(0.5, expectedProteins * 0.4))
-            or satietyDelta >= 0.02
-            or hungerDrop >= 0.01
-    end
 
     return {
-        confirmed = confirmed,
+        confirmed = not requiresDeposit or depositObserved,
+        requiresDeposit = requiresDeposit,
+        depositObserved = depositObserved,
+        preDepositSequence = preDepositSequence,
+        postDepositSequence = postDepositSequence,
         expectedKcal = expectedKcal,
         lastDepositKcal = lastDepositKcal,
         fuelDelta = fuelDelta,
@@ -351,7 +350,7 @@ function Utils.saveReport(run, reportHeader)
         return nil
     end
     local timestamp = os.date("%Y%m%d_%H%M%S")
-    local outcome = string.lower(tostring(run.outcome or Utils.deriveOutcome(run) or "pass"))
+    local outcome = string.lower(tostring(Utils.deriveOutcome(run) or "pass"))
     local relPath = string.format("nmslogs/nms_live_%s_%s_%s.csv", tostring(run.profile and run.profile.id or "scenario"), outcome, timestamp)
     local writer = Utils.openWriter(relPath)
     if not writer then
