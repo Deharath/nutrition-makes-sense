@@ -44,6 +44,10 @@ Keyboard = {
 }
 
 local toggles = { dev = 0, tool = 0, test = 0 }
+local debugEnabled = false
+isDebugEnabled = function()
+    return debugEnabled
+end
 NutritionMakesSense = {
     log = function() end,
 }
@@ -93,6 +97,42 @@ Support.assertEqual(#Events.OnPreFillWorldObjectContextMenu.handlers, 1, "world 
 Events.OnKeyPressed.handlers[1](Keyboard.KEY_NUMPAD6)
 Events.OnKeyPressed.handlers[1](Keyboard.KEY_NUMPAD7)
 Events.OnKeyPressed.handlers[1](Keyboard.KEY_NUMPAD8)
+Support.assertEqual(toggles.dev, 0, "normal launch blocks dev-panel hotkey")
+Support.assertEqual(toggles.tool, 0, "normal launch blocks tool-panel hotkey")
+Support.assertEqual(toggles.test, 0, "normal launch blocks test-panel hotkey")
+Support.assertEqual(Bootstrap.isDevPanelEnabled(), false, "normal launch disables dev surfaces")
+
+local normalOptions = {}
+local normalContext = {
+    addOption = function(_, name)
+        normalOptions[#normalOptions + 1] = name
+    end,
+}
+Events.OnPreFillWorldObjectContextMenu.handlers[1](0, normalContext, {}, false)
+Support.assertEqual(#normalOptions, 0, "normal launch exposes no NMS dev context entries")
+
+local normalInventoryOptions = {}
+local normalInventoryContext = {
+    addOption = function(_, name)
+        normalInventoryOptions[#normalInventoryOptions + 1] = name
+    end,
+}
+Events.OnFillInventoryObjectContextMenu.handlers[1](0, normalInventoryContext, { {} })
+Support.assertEqual(#normalInventoryOptions, 0, "normal launch exposes no NMS food-debug entry")
+
+debugEnabled = true
+local devPanelLoader = package.preload["dev/NutritionMakesSense_DevPanel"]
+package.preload["dev/NutritionMakesSense_DevPanel"] = function()
+    return {}
+end
+package.loaded["dev/NutritionMakesSense_DevPanel"] = nil
+Support.assertEqual(Bootstrap.isDevPanelEnabled(), false, "debug launch still requires a dev-capable build")
+package.preload["dev/NutritionMakesSense_DevPanel"] = devPanelLoader
+package.loaded["dev/NutritionMakesSense_DevPanel"] = nil
+
+Events.OnKeyPressed.handlers[1](Keyboard.KEY_NUMPAD6)
+Events.OnKeyPressed.handlers[1](Keyboard.KEY_NUMPAD7)
+Events.OnKeyPressed.handlers[1](Keyboard.KEY_NUMPAD8)
 Support.assertEqual(toggles.dev, 1, "dev-panel hotkey")
 Support.assertEqual(toggles.tool, 1, "tool-panel hotkey")
 Support.assertEqual(toggles.test, 1, "test-panel hotkey")
@@ -108,6 +148,21 @@ Support.assertEqual(#options, 3, "world menu entries")
 Support.assertEqual(options[1].name, "NMS Dev Panel", "first world menu entry")
 options[1].callback()
 Support.assertEqual(toggles.dev, 2, "world menu callback")
+
+local debugInventoryOptions = {}
+local debugInventoryContext = {
+    addOption = function(_, name)
+        debugInventoryOptions[#debugInventoryOptions + 1] = name
+    end,
+}
+Events.OnFillInventoryObjectContextMenu.handlers[1](0, debugInventoryContext, { {} })
+Support.assertEqual(#debugInventoryOptions, 1, "debug launch exposes the NMS food-debug entry")
+Support.assertEqual(debugInventoryOptions[1], "NMS Log Food Item", "food-debug entry label")
+
+debugEnabled = false
+Support.assertEqual(options[1].callback(), nil, "existing dev callback is inert outside debug mode")
+Support.assertEqual(toggles.dev, 2, "normal launch cannot toggle a previously loaded dev panel")
+debugEnabled = true
 
 local testResult = Events.OnPreFillWorldObjectContextMenu.handlers[1](0, context, {}, true)
 Support.assertEqual(testResult, "test-set", "controller context-menu test")

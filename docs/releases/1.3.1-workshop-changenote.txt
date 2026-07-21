@@ -1,0 +1,4 @@
+1.3.1
+
+- Fixed NMS development and test context-menu entries appearing during normal non-debug launches.
+- Development panels, hotkeys, and food logging actions now require both an active debug launch and a dev-capable build.

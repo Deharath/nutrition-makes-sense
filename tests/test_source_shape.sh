@@ -43,4 +43,9 @@ if ! rg -n 'OnPreFillWorldObjectContextMenu' "${LUA_ROOT}/client/bootstrap/Nutri
   exit 1
 fi
 
+if ! rg -n 'DebugSupport\.canUseDevTools\(\)' "${LUA_ROOT}/client/bootstrap/NutritionMakesSense_ClientBootstrap.lua" >/dev/null; then
+  echo "NMS dev surfaces are not gated by an active debug launch" >&2
+  exit 1
+fi
+
 echo "nms source-shape checks passed"

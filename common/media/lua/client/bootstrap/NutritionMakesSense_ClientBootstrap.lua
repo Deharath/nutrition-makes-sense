@@ -4,6 +4,7 @@ require "NutritionMakesSense_DebugSupport"
 
 local ClientBootstrap = NutritionMakesSense.ClientBootstrap or {}
 NutritionMakesSense.ClientBootstrap = ClientBootstrap
+local DebugSupport = NutritionMakesSense.DebugSupport or {}
 
 local TAG = "[NutritionMakesSense]"
 local DEV_PANEL_HOTKEY = Keyboard and Keyboard.KEY_NUMPAD6 or nil
@@ -29,7 +30,7 @@ local function tryLoadDevModule(globalKey, requirePath, label)
 
     local ok, result = pcall(require, requirePath)
     if ok then
-        return true
+        return NutritionMakesSense[globalKey] ~= nil
     end
 
     local err = tostring(result)
@@ -57,7 +58,10 @@ local function tryLoadFoodDebug()
     return tryLoadDevModule("FoodDebug", "dev/NutritionMakesSense_FoodDebug", "FoodDebug")
 end
 
-local function canUseDevPanel()
+local function canUseDevTools()
+    if type(DebugSupport.canUseDevTools) ~= "function" or not DebugSupport.canUseDevTools() then
+        return false
+    end
     return tryLoadDevPanel()
 end
 
@@ -75,8 +79,16 @@ local function toggleLoadedPanel(tryLoad, globalKey, label)
     end
 end
 
+local function toggleDevSurface(tryLoad, globalKey, label)
+    if not canUseDevTools() then
+        return false
+    end
+    toggleLoadedPanel(tryLoad, globalKey, label)
+    return true
+end
+
 local function onGameBoot()
-    if canUseDevPanel() then
+    if canUseDevTools() then
         tryLoadToolPanel()
         tryLoadTestPanel()
         tryLoadFoodDebug()
@@ -106,15 +118,11 @@ local function onKeyPressed(key)
         return
     end
 
-    if not canUseDevPanel() then
-        log("dev surfaces unavailable in this build")
-        return
-    end
-    toggleLoadedPanel(tryLoad, globalKey, label)
+    toggleDevSurface(tryLoad, globalKey, label)
 end
 
 local function onFillWorldObjectContextMenu(player, context, worldobjects, test)
-    if not canUseDevPanel() then
+    if not canUseDevTools() then
         return
     end
     if test then
@@ -123,13 +131,13 @@ local function onFillWorldObjectContextMenu(player, context, worldobjects, test)
         end
         return true
     end
-    context:addOption("NMS Dev Panel", nil, function() toggleLoadedPanel(tryLoadDevPanel, "DevPanel", "DevPanel") end)
-    context:addOption("NMS Tool Panel", nil, function() toggleLoadedPanel(tryLoadToolPanel, "ToolPanel", "ToolPanel") end)
-    context:addOption("NMS Test Panel", nil, function() toggleLoadedPanel(tryLoadTestPanel, "TestPanel", "TestPanel") end)
+    context:addOption("NMS Dev Panel", nil, function() toggleDevSurface(tryLoadDevPanel, "DevPanel", "DevPanel") end)
+    context:addOption("NMS Tool Panel", nil, function() toggleDevSurface(tryLoadToolPanel, "ToolPanel", "ToolPanel") end)
+    context:addOption("NMS Test Panel", nil, function() toggleDevSurface(tryLoadTestPanel, "TestPanel", "TestPanel") end)
 end
 
 local function onFillInventoryObjectContextMenu(player, context, items)
-    if not canUseDevPanel() then
+    if not canUseDevTools() then
         return
     end
 
@@ -152,19 +160,19 @@ local function onFillInventoryObjectContextMenu(player, context, items)
 end
 
 function ClientBootstrap.isDevPanelEnabled()
-    return canUseDevPanel()
+    return canUseDevTools()
 end
 
 function ClientBootstrap.toggleDevPanel()
-    toggleLoadedPanel(tryLoadDevPanel, "DevPanel", "DevPanel")
+    return toggleDevSurface(tryLoadDevPanel, "DevPanel", "DevPanel")
 end
 
 function ClientBootstrap.toggleToolPanel()
-    toggleLoadedPanel(tryLoadToolPanel, "ToolPanel", "ToolPanel")
+    return toggleDevSurface(tryLoadToolPanel, "ToolPanel", "ToolPanel")
 end
 
 function ClientBootstrap.toggleTestPanel()
-    toggleLoadedPanel(tryLoadTestPanel, "TestPanel", "TestPanel")
+    return toggleDevSurface(tryLoadTestPanel, "TestPanel", "TestPanel")
 end
 
 local function install()

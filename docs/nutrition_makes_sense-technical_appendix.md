@@ -1,6 +1,6 @@
 # Nutrition Makes Sense - Technical Appendix
 
-Current for NMS `1.3.0` and Project Zomboid Build 42.
+Current for NMS `1.3.1` and Project Zomboid Build 42.
 
 ## Ownership
 
