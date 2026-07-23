@@ -146,7 +146,11 @@ The status panel is an intentional post-design addition. It exposes exact metabo
 
 Development panels and live scenario runners live under `common/media/lua/client/dev/`. The runtime inspector leads with the last intake's observed fullness, energy deposit, and meal staying power. Live scenario meal logs present the same three values together so low-calorie bulky meals and calorie-dense foods can be compared directly. Server and shared trace support live under their corresponding `dev/` directories.
 
-Dev modules load only when PZ debug tools are enabled. Workshop builds exclude client, server, and shared development directories. Release servers ignore development trace commands.
+Dev modules load only when PZ debug tools are enabled and the active mod id is
+`NutritionMakesSenseDev`. Workshop builds use `NutritionMakesSense`, so they
+reject development surfaces before probing any excluded `dev/` module. Workshop
+builds exclude client, server, and shared development directories. Release
+servers ignore development trace commands.
 
 The inventory food inspector also lives under `client/dev/`; the normal client bootstrap contains only dev-module discovery, hotkeys, and context-menu wiring.
 

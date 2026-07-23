@@ -5,6 +5,50 @@ NutritionMakesSense.DebugSupport = DebugSupport
 
 local eventSinks = DebugSupport._eventSinks or {}
 DebugSupport._eventSinks = eventSinks
+local DEV_MOD_ID = "NutritionMakesSenseDev"
+
+local function normalizeModId(value)
+    local modId = tostring(value or "")
+    while string.sub(modId, 1, 1) == "\\" do
+        modId = string.sub(modId, 2)
+    end
+    return modId
+end
+
+local function isDevBuild()
+    if type(getActivatedMods) ~= "function" then
+        return false
+    end
+
+    local okMods, activeMods = pcall(getActivatedMods)
+    if not okMods or not activeMods then
+        return false
+    end
+
+    local okSize, size = pcall(function()
+        return activeMods:size()
+    end)
+    if okSize and tonumber(size) then
+        for index = 0, tonumber(size) - 1 do
+            local okEntry, modId = pcall(function()
+                return activeMods:get(index)
+            end)
+            if okEntry and normalizeModId(modId) == DEV_MOD_ID then
+                return true
+            end
+        end
+        return false
+    end
+
+    if type(activeMods) == "table" then
+        for _, modId in pairs(activeMods) do
+            if normalizeModId(modId) == DEV_MOD_ID then
+                return true
+            end
+        end
+    end
+    return false
+end
 
 local function isDebugLaunch()
     if type(isDebugEnabled) == "function" and isDebugEnabled() then
@@ -26,8 +70,12 @@ function DebugSupport.isDebugLaunch()
     return isDebugLaunch()
 end
 
+function DebugSupport.isDevBuild()
+    return isDevBuild()
+end
+
 function DebugSupport.canUseDevTools()
-    return isDebugLaunch()
+    return isDebugLaunch() and isDevBuild()
 end
 
 local function normalizeSink(sink)

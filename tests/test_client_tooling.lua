@@ -17,6 +17,14 @@ local Support = require "support"
 NutritionMakesSense = NutritionMakesSense or {}
 NutritionMakesSense.log = function() end
 
+local activeModId = "\\NutritionMakesSense"
+function getActivatedMods()
+    return {
+        size = function() return 1 end,
+        get = function() return activeModId end,
+    }
+end
+
 function isDebugEnabled()
     return false
 end
@@ -59,7 +67,12 @@ function isDebugEnabled()
     return true
 end
 
-Support.assertEqual(DebugSupport.canUseDevTools(), true, "debug launch should unlock dev tools")
+Support.assertEqual(DebugSupport.isDevBuild(), false, "Workshop mod id is not a dev build")
+Support.assertEqual(DebugSupport.canUseDevTools(), false, "debug launch does not unlock Workshop dev tools")
+
+activeModId = "\\NutritionMakesSenseDev"
+Support.assertEqual(DebugSupport.isDevBuild(), true, "B42-prefixed dev mod id is recognized")
+Support.assertEqual(DebugSupport.canUseDevTools(), true, "debug launch unlocks an active dev build")
 
 UIFont = {
     Small = "Small",

@@ -45,8 +45,15 @@ Keyboard = {
 
 local toggles = { dev = 0, tool = 0, test = 0 }
 local debugEnabled = false
+local activeModId = "\\NutritionMakesSenseDev"
 isDebugEnabled = function()
     return debugEnabled
+end
+getActivatedMods = function()
+    return {
+        size = function() return 1 end,
+        get = function() return activeModId end,
+    }
 end
 NutritionMakesSense = {
     log = function() end,
@@ -121,12 +128,34 @@ Events.OnFillInventoryObjectContextMenu.handlers[1](0, normalInventoryContext, {
 Support.assertEqual(#normalInventoryOptions, 0, "normal launch exposes no NMS food-debug entry")
 
 debugEnabled = true
+activeModId = "\\NutritionMakesSense"
+local workshopRequireAttempts = 0
 local devPanelLoader = package.preload["dev/NutritionMakesSense_DevPanel"]
 package.preload["dev/NutritionMakesSense_DevPanel"] = function()
+    workshopRequireAttempts = workshopRequireAttempts + 1
     return {}
 end
 package.loaded["dev/NutritionMakesSense_DevPanel"] = nil
-Support.assertEqual(Bootstrap.isDevPanelEnabled(), false, "debug launch still requires a dev-capable build")
+Support.assertEqual(Bootstrap.isDevPanelEnabled(), false, "debug launch does not enable Workshop dev surfaces")
+Support.assertEqual(workshopRequireAttempts, 0, "Workshop build never probes an excluded dev module")
+
+local workshopOptions = {}
+Events.OnPreFillWorldObjectContextMenu.handlers[1](0, {
+    addOption = function(_, name)
+        workshopOptions[#workshopOptions + 1] = name
+    end,
+}, {}, false)
+Events.OnFillInventoryObjectContextMenu.handlers[1](0, {
+    addOption = function(_, name)
+        workshopOptions[#workshopOptions + 1] = name
+    end,
+}, { {} })
+Support.assertEqual(#workshopOptions, 0, "debug Workshop launch exposes no dev context entries")
+Support.assertEqual(workshopRequireAttempts, 0, "context-menu events never probe excluded dev modules")
+
+activeModId = "\\NutritionMakesSenseDev"
+Support.assertEqual(Bootstrap.isDevPanelEnabled(), false, "invalid dev module does not enable dev surfaces")
+Support.assertEqual(workshopRequireAttempts, 1, "dev build probes its included dev panel")
 package.preload["dev/NutritionMakesSense_DevPanel"] = devPanelLoader
 package.loaded["dev/NutritionMakesSense_DevPanel"] = nil
 

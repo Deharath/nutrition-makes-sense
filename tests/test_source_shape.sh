@@ -48,4 +48,9 @@ if ! rg -n 'DebugSupport\.canUseDevTools\(\)' "${LUA_ROOT}/client/bootstrap/Nutr
   exit 1
 fi
 
+if ! rg -n 'function DebugSupport\.isDevBuild\(\)' "${LUA_ROOT}/shared/NutritionMakesSense_DebugSupport.lua" >/dev/null; then
+  echo "NMS dev surfaces do not distinguish dev and Workshop builds" >&2
+  exit 1
+fi
+
 echo "nms source-shape checks passed"
