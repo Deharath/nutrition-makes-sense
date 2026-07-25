@@ -203,7 +203,7 @@ local CSV_HEADER = table.concat({
     "nms_weight_rate_kg_week", "nms_weight_controller",
     "nms_satiety_buffer", "nms_satiety_quality", "nms_satiety_return_factor",
     "nms_hunger_band", "nms_meal_hunger_drop", "nms_meal_hunger_observed",
-    "nms_fuel_pressure", "nms_gate_mult", "nms_met_hunger_factor",
+    "nms_fuel_pressure", "nms_stats_decrease_mult", "nms_gate_mult", "nms_met_hunger_factor",
     "nms_passive_hunger_gain", "nms_burn_kcal", "nms_deposit_kcal",
     "nms_extra_endurance", "nms_end_regen_scale", "nms_end_depriv_drain",
     "nms_protein_def", "nms_protein_heal_mult",
@@ -311,6 +311,7 @@ local function recordTimelineRow(kind, trigger, snap, event)
         tostring(s.lastMealHungerDrop or ""),
         s.lastMealHungerObserved == true and "true" or "false",
         tostring(s.lastFuelPressureFactor or ""),
+        tostring(s.lastHungerRateMultiplier or ""),
         tostring(s.lastGateMultiplier or ""),
         tostring(s.lastMetHungerFactor or ""),
         tostring(s.lastPassiveHungerGain or ""),
@@ -645,12 +646,13 @@ function NMS_DevOverlay:render()
     local passiveGain = tonumber(s.lastPassiveHungerGain) or 0
     local retFactor = tonumber(s.lastSatietyReturnFactor) or 1
     local fuelPressure = tonumber(s.lastFuelPressureFactor) or 1
+    local hungerRateMultiplier = tonumber(s.lastHungerRateMultiplier) or 1
     local gateMult = tonumber(s.lastGateMultiplier) or 1
     local metFactor = tonumber(s.lastMetHungerFactor) or 1
     y = drawRow(self, y, "Rate", fmts(passiveGain, 4) .. " / tick")
     y = drawRow(self, y, "Multipliers",
-        string.format("gate x%s   met x%s   sat x%s   energy x%s",
-            fmt(gateMult, 2), fmt(metFactor, 2), fmt(retFactor, 2), fmt(fuelPressure, 2)))
+        string.format("gate x%s   met x%s   sat x%s   energy x%s   sandbox x%s",
+            fmt(gateMult, 2), fmt(metFactor, 2), fmt(retFactor, 2), fmt(fuelPressure, 2), fmt(hungerRateMultiplier, 2)))
 
     ---------------------------------------------------------------- Available Energy
     y = drawSection(self, y, "Energy Reserve")

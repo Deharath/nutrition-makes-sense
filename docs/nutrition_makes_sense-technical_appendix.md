@@ -48,7 +48,10 @@ Passive hunger return depends on:
 - satiety buffer
 - workload while awake
 - sleep state
+- the vanilla Stats Decrease sandbox multiplier
 - Hearty Appetite or Light Eater satiety decay
+
+Fuel pressure rises progressively as available energy falls, but ordinary low energy no longer triples hunger return. The strongest pressure is reserved for complete depletion, while recent meals retain part of their staying power.
 
 NMS caps modeled hunger at `0.699`. This deliberately keeps its correction layer below vanilla's Starving health-drain threshold.
 

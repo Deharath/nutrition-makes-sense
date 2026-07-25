@@ -26,6 +26,7 @@ local samplePositiveNutritionDelta = Runtime.samplePositiveNutritionDelta
 local hasMeaningfulDeposit = Runtime.hasMeaningfulDeposit
 local importLiveVisibleHungerDrop = Runtime.importLiveVisibleHungerDrop
 local getWorldHours = Runtime.getWorldHours
+local resolveStatsDecreaseMultiplier = Runtime.resolveStatsDecreaseMultiplier or function() return 1.0 end
 local consumeWorkloadSummary = Runtime.consumeWorkloadSummary
 local removeEndurance = Runtime.removeEndurance
 local eachKnownPlayer = Runtime.eachKnownPlayer
@@ -436,6 +437,7 @@ function Runtime.updatePlayer(playerObj, reason)
     local advanceReport = Metabolism.advanceState(state, elapsedHours, workload, {
         reason = reason or workload.workTier or "workload",
         traitEffects = traitEffects,
+        hungerRateMultiplier = resolveStatsDecreaseMultiplier(),
     })
     if workload.appliedEnduranceDrain == nil then
         removeEndurance(playerObj, playerStats, advanceReport.extraEnduranceDrain or 0)

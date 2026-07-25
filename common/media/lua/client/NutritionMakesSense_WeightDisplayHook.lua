@@ -10,9 +10,6 @@ local UI_BORDER_SPACING = 10
 local FONT = UIFont.Small
 local FONT_HGT_MEDIUM = getTextManager():getFontHeight(UIFont.Medium)
 
-local smoothedRateByPlayer = setmetatable({}, { __mode = "k" })
-local SMOOTH_ALPHA = 0.15
-
 local function getState(player)
     return UIHelpers.getStateCopy(player)
 end
@@ -25,16 +22,10 @@ local function hookedRender(self)
     local state = getState(self.char)
     if not state then return end
 
-    local rawRate = tonumber(state.lastWeightRateKgPerWeek) or 0
-    local smoothedRate = smoothedRateByPlayer[self.char]
-    if smoothedRate == nil then
-        smoothedRate = rawRate
-    else
-        smoothedRate = smoothedRate + SMOOTH_ALPHA * (rawRate - smoothedRate)
+    local rate = tonumber(state.lastWeightRateKgPerWeek) or 0
+    if math.abs(rate) < 0.005 then
+        rate = 0
     end
-    smoothedRateByPlayer[self.char] = smoothedRate
-
-    local rate = smoothedRate
     local z = UI_BORDER_SPACING + FONT_HGT_MEDIUM + UI_BORDER_SPACING * 2
 
     local weightStr = tostring(round(self.char:getNutrition():getWeight(), 0))
@@ -46,8 +37,14 @@ local function hookedRender(self)
     self:drawRect(chevronX, z, rateWidth, getTextManager():getFontHeight(FONT), 1.0,
         self.backgroundColor.r, self.backgroundColor.g, self.backgroundColor.b)
 
-    local sign = rate >= 0 and "+" or ""
-    local rateStr = string.format("%s%.2f kg/wk", sign, rate)
+    local rateStr
+    if rate > 0 then
+        rateStr = string.format("+%.2f kg/wk", rate)
+    elseif rate < 0 then
+        rateStr = string.format("%.2f kg/wk", rate)
+    else
+        rateStr = "0.00 kg/wk"
+    end
     local r, g, b
     if math.abs(rate) < 0.05 then
         r, g, b = 0.55, 0.60, 0.65

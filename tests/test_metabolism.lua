@@ -37,6 +37,27 @@ Support.assertTrue(Metabolism.getDeprivationActivityDrain(1, 6) > 0, "deprivatio
 Support.assertNil(Metabolism.getExertionPenaltyMultiplier, "retired exertion multiplier API")
 Support.assertNil(Metabolism.getFatigueAccelFactor, "sleep-pressure penalty must remain outside NMS")
 Support.assertNil(Metabolism.getImmediateHungerDrop, "calories must not manufacture immediate fullness")
+Support.assertClose(Metabolism.getFuelPressureFactor(Metabolism.FUEL_LOW_THRESHOLD), 1.0, 0.000001,
+    "ready fuel must not accelerate hunger")
+Support.assertClose(Metabolism.getFuelPressureFactor(Metabolism.FUEL_DEPLETED_THRESHOLD),
+    Metabolism.FUEL_PRESSURE_LOW_MAX, 0.000001, "low fuel pressure ceiling")
+Support.assertClose(Metabolism.getFuelPressureFactor(0),
+    Metabolism.FUEL_PRESSURE_DEPLETED_MAX, 0.000001, "depleted fuel pressure ceiling")
+
+local normalRate = Metabolism.getPassiveVisibleHungerRatePerHour(
+    Metabolism.newState({ fuel = 900 }),
+    Metabolism.ACTIVITY_IDLE,
+    nil,
+    1.0
+)
+local slowRate = Metabolism.getPassiveVisibleHungerRatePerHour(
+    Metabolism.newState({ fuel = 900 }),
+    Metabolism.ACTIVITY_IDLE,
+    nil,
+    0.65
+)
+Support.assertClose(slowRate.ratePerHour, normalRate.ratePerHour * 0.65, 0.000001,
+    "sandbox stats decrease multiplier must scale visible hunger")
 
 local state = Metabolism.newState({
     fuel = 900,
@@ -62,6 +83,15 @@ Support.assertTrue(deposit.satietyContribution > 0, "meal must contribute satiet
 Support.assertTrue(state.fuel > 900, "meal must increase fuel")
 Support.assertClose(state.visibleHunger, 0, 0.000001, "nutrition deposit must not change visible hunger")
 Support.assertNil(deposit.immediateHungerDrop, "deposit report must not contain modeled fullness")
+
+state.lastWeightDeltaKg = -0.001
+state.lastWeightRateKgPerWeek = -0.25
+Metabolism.applyFoodValues(state, { kcal = 50 }, 1, "trend-preservation")
+Support.assertClose(state.lastWeightDeltaKg, -0.001, 0.000001, "food deposits must preserve the latest weight delta")
+Support.assertClose(state.lastWeightRateKgPerWeek, -0.25, 0.000001, "food deposits must preserve the weight trend")
+Metabolism.advanceState(state, 0, Metabolism.ACTIVITY_IDLE, { reason = "zero-time" })
+Support.assertClose(state.lastWeightDeltaKg, -0.001, 0.000001, "zero-time updates must preserve the latest weight delta")
+Support.assertClose(state.lastWeightRateKgPerWeek, -0.25, 0.000001, "zero-time updates must preserve the weight trend")
 
 local beforeFuel = state.fuel
 local report = Metabolism.advanceState(state, 8, Metabolism.ACTIVITY_IDLE, { reason = "test-advance" })

@@ -55,6 +55,15 @@ end
 
 local getWorldHours = CoreUtils.getWorldHours
 
+local function resolveStatsDecreaseMultiplier()
+    local options = SandboxOptions and SandboxOptions.instance or nil
+    local multiplier = tonumber(safeCall(options, "getStatsDecreaseMultiplier"))
+    if multiplier == nil then
+        return 1.0
+    end
+    return math.max(0, multiplier)
+end
+
 local function normalizeDeposit(values)
     return {
         -- Runtime consume payloads already carry hunger in visible-hunger units.
@@ -946,6 +955,7 @@ Runtime.resolveTraitEffects = resolveTraitEffects
 Runtime.getPlayerNutrition = getPlayerNutrition
 Runtime.getPlayerBodyDamage = getPlayerBodyDamage
 Runtime.getWorldHours = getWorldHours
+Runtime.resolveStatsDecreaseMultiplier = resolveStatsDecreaseMultiplier
 Runtime.setNutritionAnchor = setNutritionAnchor
 Runtime.samplePositiveNutritionDelta = samplePositiveNutritionDelta
 Runtime.hasMeaningfulDeposit = hasMeaningfulDeposit

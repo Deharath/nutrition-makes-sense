@@ -137,10 +137,13 @@ end
 
 local gaining = makeCharacter(80)
 local losing = makeCharacter(65)
+local stable = makeCharacter(75)
 stateByPlayer[gaining] = { lastWeightRateKgPerWeek = 1.0 }
 stateByPlayer[losing] = { lastWeightRateKgPerWeek = -1.0 }
+stateByPlayer[stable] = { lastWeightRateKgPerWeek = -0.001 }
 
 Support.assertEqual(renderWeight(gaining), "+1.00 kg/wk", "gaining character weight rate")
-Support.assertEqual(renderWeight(losing), "-1.00 kg/wk", "weight smoothing must not leak between characters")
+Support.assertEqual(renderWeight(losing), "-1.00 kg/wk", "losing character weight rate")
+Support.assertEqual(renderWeight(stable), "0.00 kg/wk", "near-zero weight rate must not render as negative zero")
 
 print("nms client tooling characterization passed")

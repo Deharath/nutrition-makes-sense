@@ -2,6 +2,19 @@ local Support = require "support"
 local Metabolism = require "NutritionMakesSense_Metabolism"
 local Runtime = require "NutritionMakesSense_MetabolismRuntime"
 
+SandboxOptions = {
+    instance = {
+        getStatsDecreaseMultiplier = function()
+            return 0.65
+        end,
+    },
+}
+Support.assertClose(Runtime.resolveStatsDecreaseMultiplier(), 0.65, 0.000001,
+    "runtime must read the current vanilla stats decrease multiplier")
+SandboxOptions = nil
+Support.assertClose(Runtime.resolveStatsDecreaseMultiplier(), 1.0, 0.000001,
+    "runtime must use the vanilla normal rate when sandbox options are unavailable")
+
 local function makePlayer(initialHunger)
     local liveHunger = initialHunger
     local stats = {

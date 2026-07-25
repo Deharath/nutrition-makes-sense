@@ -37,6 +37,7 @@ local DIAGNOSTIC_STATE_FIELDS = {
     "lastDepositKcal",
     "depositSequence",
     "lastFuelPressureFactor",
+    "lastHungerRateMultiplier",
     "lastGateMultiplier",
     "lastMetHungerFactor",
     "lastPassiveHungerGain",
