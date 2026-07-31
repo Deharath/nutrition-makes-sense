@@ -15,29 +15,6 @@ local safeCall = CoreUtils.safeCall
 local rawLookup = CoreUtils.rawLookup
 local hasTrait = CoreUtils.hasTrait
 
-local function getTooltipPadding(tooltip)
-    local padLeft = tonumber(tooltip and tooltip.padLeft)
-    local padRight = tonumber(tooltip and tooltip.padRight)
-    local padTop = tonumber(tooltip and tooltip.padTop)
-    local padBottom = tonumber(tooltip and tooltip.padBottom)
-    if padLeft and padRight and padTop and padBottom then
-        return padLeft, padRight, padTop, padBottom
-    end
-
-    local font = tooltip and safeCall(tooltip, "getFont") or nil
-    local textManager = _G.TextManager and TextManager.instance or nil
-    local charWidth = tonumber(textManager and font and safeCall(textManager, "MeasureStringX", font, "1") or nil) or 5
-    if charWidth < 1 then
-        charWidth = 5
-    end
-    charWidth = charWidth + 2
-    local verticalPad = math.floor(charWidth / 2)
-    if verticalPad < 1 then
-        verticalPad = 2
-    end
-    return charWidth + 1, charWidth, verticalPad, verticalPad
-end
-
 local function addLayoutRow(layout, payload)
     local layoutItem = safeCall(layout, "addItem")
     if not layoutItem then
@@ -398,41 +375,6 @@ function TooltipLogic.appendDescriptorRowsToLayoutForViewer(layout, item, viewer
     end
 
     return true
-end
-
-function TooltipLogic.appendDescriptorsToTooltip(tooltip, item)
-    if not tooltip or not item then
-        return false
-    end
-
-    local layout = safeCall(tooltip, "beginLayout")
-    if not layout then
-        return false
-    end
-    safeCall(layout, "setMinLabelWidth", 80)
-    safeCall(layout, "setMinValueWidth", 80)
-
-    local viewer = safeCall(tooltip, "getCharacter")
-    if not TooltipLogic.appendDescriptorRowsToLayoutForViewer(layout, item, viewer) then
-        safeCall(tooltip, "endLayout", layout)
-        return false
-    end
-
-    local padLeft, _, _, padBottom = getTooltipPadding(tooltip)
-    local startY = math.max(0, (tonumber(safeCall(tooltip, "getHeight")) or 0) - padBottom)
-    local y = tonumber(safeCall(layout, "render", padLeft, startY, tooltip)) or startY
-    safeCall(tooltip, "endLayout", layout)
-    safeCall(tooltip, "setHeight", math.floor(y + padBottom))
-    local width = tonumber(safeCall(tooltip, "getWidth")) or 0
-    if width < 150 then
-        safeCall(tooltip, "setWidth", 150)
-    end
-
-    return true
-end
-
-function TooltipLogic.getTooltipPadding(tooltip)
-    return getTooltipPadding(tooltip)
 end
 
 return TooltipLogic
