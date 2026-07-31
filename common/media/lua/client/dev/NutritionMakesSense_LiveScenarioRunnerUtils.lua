@@ -351,7 +351,7 @@ function Utils.saveReport(run, reportHeader)
     end
     local timestamp = os.date("%Y%m%d_%H%M%S")
     local outcome = string.lower(tostring(Utils.deriveOutcome(run) or "pass"))
-    local relPath = string.format("nmslogs/nms_live_%s_%s_%s.csv", tostring(run.profile and run.profile.id or "scenario"), outcome, timestamp)
+    local relPath = string.format("nmslogs/nms_live_%s_%s_%s.txt", tostring(run.profile and run.profile.id or "scenario"), outcome, timestamp)
     local writer = Utils.openWriter(relPath)
     if not writer then
         return nil

@@ -22,6 +22,7 @@ assert_absent 'projectedState|getProjectedStateCopy|buildProjectedTarget|updateP
 assert_absent 'duplicate_deposit_detected' 'asynchronous per-item calorie comparison'
 assert_absent 'setTimedActionInstantCheat|timed_action_instant_unavailable' 'capability-gated runner cheat'
 assert_absent 'isHungerSignalReady' 'backend hunger signal trigger'
+assert_absent '\\.csv"' 'B42.20-blocked runtime CSV output extension'
 
 if ! rg -n 'shouldRunAuthoritativeUpdates\(\)' "${LUA_ROOT}/shared/runtime/NutritionMakesSense_MetabolismRuntime_Sync.lua" >/dev/null; then
   echo "client shell can write authority-owned nutrition effects" >&2
@@ -50,6 +51,12 @@ fi
 
 if ! rg -n 'function DebugSupport\.isDevBuild\(\)' "${LUA_ROOT}/shared/NutritionMakesSense_DebugSupport.lua" >/dev/null; then
   echo "NMS dev surfaces do not distinguish dev and Workshop builds" >&2
+  exit 1
+fi
+
+if ! rg -n 'nms_weight_balance_kcal.*nms_weight_controller_target.*nms_deposit_sequence' \
+    "${LUA_ROOT}/client/dev/NutritionMakesSense_DevPanel.lua" >/dev/null; then
+  echo "NMS recording schema is missing weight-controller diagnostics" >&2
   exit 1
 fi
 

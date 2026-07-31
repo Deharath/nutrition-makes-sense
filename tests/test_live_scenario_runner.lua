@@ -32,6 +32,29 @@ Support.assertEqual(state.depositSequence, 1, "state retains the first deposit s
 local second = Metabolism.applyFoodValues(state, { kcal = 50 }, 1, "second")
 Support.assertEqual(second.depositSequence, 2, "each deposit advances the sequence exactly once")
 
+local reportPath = nil
+local reportLines = {}
+function getFileWriter(path)
+    reportPath = path
+    return {
+        writeln = function(_, line)
+            reportLines[#reportLines + 1] = line
+        end,
+        close = function() end,
+    }
+end
+
+local savedReportPath = RunnerUtils.saveReport({
+    profile = { id = "writer_extension" },
+    failCount = 0,
+    warnCount = 0,
+    reportRows = { "test,row" },
+}, "header,row")
+Support.assertEqual(savedReportPath, reportPath, "live report returns the opened path")
+Support.assertEqual(savedReportPath:match("%.txt$") ~= nil, true, "B42.20 live reports use an allowed text extension")
+Support.assertEqual(reportLines[1], "header,row", "live report writes its header")
+Support.assertEqual(reportLines[2], "test,row", "live report writes its rows")
+
 local staleDeposit = RunnerUtils.measureMealConfirmation(
     { hunger = 0.20, state = { depositSequence = 7, lastDepositKcal = 250, fuel = 500, proteins = 20, satietyBuffer = 0.1 } },
     { hunger = 0.05, state = { depositSequence = 7, lastDepositKcal = 250, fuel = 500, proteins = 20, satietyBuffer = 0.1 } },

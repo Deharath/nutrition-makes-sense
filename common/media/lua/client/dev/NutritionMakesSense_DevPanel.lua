@@ -190,7 +190,7 @@ local function drawProteinReserveBar(self, y, proteins, weightKg)
     return y + BAR_H + BAR_BOT_PAD
 end
 
--- Recording (CSV)
+-- Recording (CSV-formatted text; B42.20 only permits a small file-extension allowlist)
 
 local CSV_HEADER = table.concat({
     "row_kind", "row_trigger",
@@ -201,6 +201,7 @@ local CSV_HEADER = table.concat({
     "nms_fuel", "nms_zone", "nms_underfeeding_debt",
     "nms_proteins", "nms_weight_kg", "nms_weight_trait",
     "nms_weight_rate_kg_week", "nms_weight_controller",
+    "nms_weight_balance_kcal", "nms_weight_controller_target", "nms_deposit_sequence",
     "nms_satiety_buffer", "nms_satiety_quality", "nms_satiety_return_factor",
     "nms_hunger_band", "nms_meal_hunger_drop", "nms_meal_hunger_observed",
     "nms_fuel_pressure", "nms_stats_decrease_mult", "nms_gate_mult", "nms_met_hunger_factor",
@@ -304,6 +305,9 @@ local function recordTimelineRow(kind, trigger, snap, event)
         tostring(s.lastWeightTrait or ""),
         tostring(s.lastWeightRateKgPerWeek or ""),
         tostring(s.weightController or ""),
+        tostring(s.weightBalanceKcal or ""),
+        tostring(s.lastWeightControllerTarget or ""),
+        tostring(s.depositSequence or ""),
         tostring(s.satietyBuffer or ""),
         tostring(s.lastSatietyQuality or ""),
         tostring(s.lastSatietyReturnFactor or ""),
@@ -360,7 +364,7 @@ local function writeRecordingToFile()
         return nil
     end
     local timestamp = os.date("%Y%m%d_%H%M%S")
-    local filename = "nms_recording_" .. (recordLabel or "dev") .. "_" .. timestamp .. ".csv"
+    local filename = "nms_recording_" .. (recordLabel or "dev") .. "_" .. timestamp .. ".txt"
     local relPath = "nmslogs/" .. filename
 
     local writer = nil
@@ -380,7 +384,12 @@ local function writeRecordingToFile()
 end
 
 function DevPanel.startRecording(label)
-    if recording then DevPanel.stopRecording() end
+    if recording then
+        local path = DevPanel.stopRecording()
+        if not path then
+            return false
+        end
+    end
     recordBuffer = {}
     recordStartMinute = getWorldAgeMinutes()
     lastSampleGameMinute = recordStartMinute
@@ -388,6 +397,7 @@ function DevPanel.startRecording(label)
     recording = true
     recordSample(computeSnapshot(), "start")
     print(string.format("[NutritionMakesSense] recording started (label=%s)", recordLabel))
+    return true
 end
 
 function DevPanel.stopRecording()
@@ -396,6 +406,14 @@ function DevPanel.stopRecording()
     recording = false
     local path = writeRecordingToFile()
     local count = #recordBuffer
+    if not path then
+        recording = true
+        print(string.format(
+            "[NutritionMakesSense] recording save failed; keeping %d buffered samples and recording active",
+            count
+        ))
+        return nil, count
+    end
     recordBuffer = {}
     recordStartMinute = nil
     lastSampleGameMinute = nil
@@ -560,7 +578,13 @@ function NMS_DevOverlay:onSetHunger50()
 end
 
 function NMS_DevOverlay:onClose()
-    if recording then DevPanel.stopRecording() end
+    if recording then
+        local path = DevPanel.stopRecording()
+        if not path then
+            self:updateRecordButton()
+            return
+        end
+    end
     if CompatTrace.isRecording and CompatTrace.isRecording() then CompatTrace.stop() end
     DevPanel.hide()
 end

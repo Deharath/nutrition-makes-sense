@@ -215,7 +215,7 @@ function Shared.writeSamples(rows, prefix, label)
     local timestamp = os.date("%Y%m%d_%H%M%S")
     local filePrefix = tostring(prefix or "mscompat_trace")
     local fileLabel = tostring(label or "dev")
-    local fileName = string.format("%s_%s_%s.csv", filePrefix, fileLabel, timestamp)
+    local fileName = string.format("%s_%s_%s.txt", filePrefix, fileLabel, timestamp)
     local relPath = "makes_sense_compat/" .. fileName
 
     if type(getFileWriter) ~= "function" then
