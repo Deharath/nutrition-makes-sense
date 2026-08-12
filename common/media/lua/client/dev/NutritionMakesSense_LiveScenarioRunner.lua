@@ -76,6 +76,8 @@ local RESTORE_TOLERANCE = {
     hunger = 0.01,
     thirst = 0.01,
     boredom = 0.05,
+    foodSickness = 0.01,
+    poison = 0.01,
     endurance = 0.01,
     fatigue = 0.01,
     healthFromFood = 0.001,
@@ -124,7 +126,7 @@ local REPORT_HEADER = table.concat({
     "state_zone",
     "state_deprivation",
     "state_deprivation_target",
-    "state_underfeeding_debt",
+    "state_weight_balance_kcal",
     "state_satiety",
     "state_proteins",
     "state_weight_kg",
@@ -132,6 +134,22 @@ local REPORT_HEADER = table.concat({
     "state_last_deposit_kcal",
     "state_deposit_sequence",
     "state_last_trace_reason",
+    "food_sickness",
+    "poison",
+    "item_cooked",
+    "item_burnt",
+    "item_rotten",
+    "item_dangerous_uncooked",
+    "item_unsafe_reason",
+    "state_hunger_rate_multiplier",
+    "state_energy_appetite_progress",
+    "state_energy_appetite_rate_hour",
+    "state_fuel_pressure",
+    "state_satiety_return_factor",
+    "state_last_passive_hunger_gain",
+    "state_total_intake_kcal",
+    "state_total_burn_kcal",
+    "state_total_visible_hunger_gain",
 }, ",")
 
 local function log(msg)
@@ -146,6 +164,7 @@ local safeCall = CoreUtils.safeCall
 local safeInvoke = CoreUtils.safeInvoke
 local hasTrait = CoreUtils.hasTrait
 local copyTable = RunnerUtils.copyTable
+local getListItem = RunnerUtils.getListItem
 local clamp = RunnerUtils.clamp
 local nearlyEqual = RunnerUtils.nearlyEqual
 local normalizeStartWeightKg = RunnerUtils.normalizeStartWeightKg
@@ -169,6 +188,7 @@ local hasTimedActions = RunnerUtils.hasTimedActions
 local getInventory = RunnerUtils.getInventory
 local inventoryContainsItem = RunnerUtils.inventoryContainsItem
 local removeInventoryItem = RunnerUtils.removeInventoryItem
+local getFoodSafety = RunnerUtils.getFoodSafety
 local getFoodEatenMoodle = RunnerUtils.getFoodEatenMoodle
 local getHungryMoodleLevel = RunnerUtils.getHungryMoodleLevel
 local deriveOutcome = RunnerUtils.deriveOutcome
@@ -404,7 +424,7 @@ end
 
 local function getSequenceItem(run, itemIndex)
     local items = run and run.profile and run.profile.items or nil
-    return items and items[itemIndex] or nil
+    return getListItem(items, itemIndex, run and run.profile and run.profile.repeatSequenceOnSignal == true)
 end
 
 local function getSequenceGapHours(run)
@@ -487,6 +507,8 @@ snapshotPlayer = function(playerObj)
         hunger = clamp(getCharacterStat(stats, "HUNGER", "getHunger") or 0, 0, 1),
         thirst = clamp(getCharacterStat(stats, "THIRST", "getThirst") or 0, 0, 1),
         boredom = math.max(0, tonumber(getCharacterStat(stats, "BOREDOM", "getBoredom")) or 0),
+        foodSickness = math.max(0, tonumber(getCharacterStat(stats, "FOOD_SICKNESS")) or 0),
+        poison = math.max(0, tonumber(getCharacterStat(stats, "POISON")) or 0),
         endurance = clamp(getCharacterStat(stats, "ENDURANCE", "getEndurance") or 0, 0, 1),
         fatigue = clamp(getCharacterStat(stats, "FATIGUE", "getFatigue") or 0, 0, 1),
         calories = tonumber(nutrition and safeCall(nutrition, "getCalories")) or 0,
@@ -615,6 +637,9 @@ local function ensureAnalysis(run)
         meals = {},
         timeInLowHours = 0,
         timeInDepletedHours = 0,
+        timeInAwakeHiddenDepletedHours = 0,
+        awakeHiddenDepletedStreakHours = 0,
+        maxAwakeHiddenDepletedStreakHours = 0,
         lastObservedElapsedHours = 0,
     }
     return run.analysis
@@ -643,6 +668,8 @@ local function updateDerivedSignals(run)
     local anyThreshold = tonumber(run.profile and run.profile.validation and run.profile.validation.deprivationAnyThreshold) or 0.0001
     local zeroThreshold = tonumber(run.profile and run.profile.validation and run.profile.validation.deprivationZeroThreshold) or 0.0001
     local zone = tostring(state and state.lastZone or "")
+    local sleepObserved = tostring(state and state.lastWorkTier or "") == tostring(Metabolism.WORK_TIER_SLEEP or "sleep")
+        or (run.currentPhase and run.currentPhase.sleepObserved == true)
     local previousObservedHours = tonumber(analysis.lastObservedElapsedHours) or 0
     local observedDelta = math.max(0, elapsedHours - previousObservedHours)
     analysis.lastObservedElapsedHours = elapsedHours
@@ -671,6 +698,20 @@ local function updateDerivedSignals(run)
     elseif zone == "Depleted" then
         captureAnalysisEvent(run, "firstDepletedZone", snapshot, elapsedHours)
         analysis.timeInDepletedHours = (tonumber(analysis.timeInDepletedHours) or 0) + observedDelta
+    end
+    if zone == "Depleted"
+        and not sleepObserved
+        and hunger <= (Metabolism.HUNGER_THRESHOLD_PECKISH or 0.15) then
+        analysis.timeInAwakeHiddenDepletedHours =
+            (tonumber(analysis.timeInAwakeHiddenDepletedHours) or 0) + observedDelta
+        analysis.awakeHiddenDepletedStreakHours =
+            (tonumber(analysis.awakeHiddenDepletedStreakHours) or 0) + observedDelta
+        analysis.maxAwakeHiddenDepletedStreakHours = math.max(
+            tonumber(analysis.maxAwakeHiddenDepletedStreakHours) or 0,
+            tonumber(analysis.awakeHiddenDepletedStreakHours) or 0
+        )
+    else
+        analysis.awakeHiddenDepletedStreakHours = 0
     end
     if deprivation > anyThreshold then
         captureAnalysisEvent(run, "firstDeprivationAny", snapshot, elapsedHours)
@@ -794,6 +835,7 @@ recordRow = function(run, severity, code, message, extra)
     local phase = run.currentPhase
     local mealRun = run.currentMeal
     local itemRun = mealRun and mealRun.currentItem or nil
+    local itemSafety = getFoodSafety(itemRun and itemRun.item or nil) or {}
     local row = {
         severity or SEVERITY_PASS,
         tostring(code or ""),
@@ -830,7 +872,7 @@ recordRow = function(run, severity, code, message, extra)
         tostring(state and state.lastZone or ""),
         tostring(state and state.deprivation or ""),
         tostring(state and state.lastDeprivationTarget or ""),
-        tostring(state and (state.lastUnderfeedingDebtKcal or state.underfeedingDebtKcal) or ""),
+        tostring(state and state.weightBalanceKcal or ""),
         tostring(state and state.satietyBuffer or ""),
         tostring(state and state.proteins or ""),
         tostring(state and state.weightKg or ""),
@@ -838,6 +880,22 @@ recordRow = function(run, severity, code, message, extra)
         tostring(state and state.lastDepositKcal or ""),
         tostring(state and state.depositSequence or ""),
         tostring(state and state.lastTraceReason or ""),
+        tostring(snapshot and snapshot.foodSickness or ""),
+        tostring(snapshot and snapshot.poison or ""),
+        tostring(itemSafety.cooked == nil and "" or itemSafety.cooked),
+        tostring(itemSafety.burnt == nil and "" or itemSafety.burnt),
+        tostring(itemSafety.rotten == nil and "" or itemSafety.rotten),
+        tostring(itemSafety.dangerousUncooked == nil and "" or itemSafety.dangerousUncooked),
+        tostring(itemSafety.reason or ""),
+        tostring(state and state.lastHungerRateMultiplier or ""),
+        tostring(state and state.lastEnergyAppetiteProgress or ""),
+        tostring(state and state.lastEnergyAppetiteRatePerHour or ""),
+        tostring(state and state.lastFuelPressureFactor or ""),
+        tostring(state and state.lastSatietyReturnFactor or ""),
+        tostring(state and state.lastPassiveHungerGain or ""),
+        tostring(state and state.totalIntakeKcal or ""),
+        tostring(state and state.totalBurnKcal or ""),
+        tostring(state and state.totalVisibleHungerGain or ""),
     }
 
     if type(extra) == "table" then
@@ -931,6 +989,9 @@ local function setLastStatusFromRun(run)
     if consumptionMode == CONSUMPTION_MODE_SIGNAL_SEQUENCE then
         mealsCompleted = math.max(0, (run.nextSequenceItemIndex or 1) - 1)
         mealsTotal = run.profile and run.profile.items and #run.profile.items or 0
+        if run.profile and run.profile.repeatSequenceOnSignal == true then
+            mealsTotal = math.max(mealsTotal, mealsCompleted)
+        end
     elseif consumptionMode == CONSUMPTION_MODE_SIGNAL_MEALS then
         mealsCompleted = math.max(0, (run.nextMealIndex or 1) - 1)
         mealsTotal = run.profile and run.profile.meals and #run.profile.meals or 0
@@ -1038,6 +1099,7 @@ local function applyPhaseOverride(run, phase)
             peakMet = phase.averageMet,
             source = "scripted_override",
             targetName = phase.metabolics,
+            sleepObserved = phase.sleepObserved == true,
         }, "live-runner-phase")
     end
     if type(Metabolics) == "table" and Metabolics[phase.metabolics]
@@ -1244,6 +1306,12 @@ local function spawnMealItem(run, itemSpec)
             safeInvoke(item, "setCookedInMicrowave", prepared.cookedInMicrowave == true)
         end
     end
+    local safety = getFoodSafety(item)
+    if safety and safety.unsafe then
+        removeInventoryItem(inventory, item)
+        return nil, string.format("refused unsafe spawned food %s (%s)",
+            tostring(itemSpec.fullType or "?"), tostring(safety.reason or "unknown"))
+    end
     run.spawnedItems[#run.spawnedItems + 1] = item
     return item
 end
@@ -1408,6 +1476,9 @@ end
 local function tickMeal(run)
     local mealRun = run.currentMeal
     if not mealRun then
+        if run.currentPhase and run.currentPhase.allowEating == false then
+            return
+        end
         local meal = nil
         local shouldStart = false
         local triggerReason = nil
@@ -1634,6 +1705,12 @@ local function applyBaseline(run)
     if visible.boredom ~= nil then
         setCharacterStat(stats, "BOREDOM", "setBoredom", visible.boredom)
     end
+    if visible.foodSickness ~= nil then
+        setCharacterStat(stats, "FOOD_SICKNESS", nil, visible.foodSickness)
+    end
+    if visible.poison ~= nil then
+        setCharacterStat(stats, "POISON", nil, visible.poison)
+    end
     if Runtime.syncVisibleShell then
         Runtime.syncVisibleShell(run.player, "live-runner-baseline")
     end
@@ -1657,6 +1734,12 @@ local function applyBaseline(run)
     end
     if run.baselineVisible.boredom ~= nil then
         ok = ok and nearlyEqual(actual.boredom, run.baselineVisible.boredom, RESTORE_TOLERANCE.boredom)
+    end
+    if run.baselineVisible.foodSickness ~= nil then
+        ok = ok and nearlyEqual(actual.foodSickness, run.baselineVisible.foodSickness, RESTORE_TOLERANCE.foodSickness)
+    end
+    if run.baselineVisible.poison ~= nil then
+        ok = ok and nearlyEqual(actual.poison, run.baselineVisible.poison, RESTORE_TOLERANCE.poison)
     end
     ok = ok and nearlyEqual(actual.endurance, run.baselineVisible.endurance, RESTORE_TOLERANCE.endurance)
     ok = ok and nearlyEqual(actual.fatigue, run.baselineVisible.fatigue, RESTORE_TOLERANCE.fatigue)
@@ -1805,6 +1888,12 @@ local function restoreSnapshot(run)
     if run.snapshot.visible and run.snapshot.visible.boredom ~= nil then
         setCharacterStat(stats, "BOREDOM", "setBoredom", run.snapshot.visible.boredom)
     end
+    if run.snapshot.visible and run.snapshot.visible.foodSickness ~= nil then
+        setCharacterStat(stats, "FOOD_SICKNESS", nil, run.snapshot.visible.foodSickness)
+    end
+    if run.snapshot.visible and run.snapshot.visible.poison ~= nil then
+        setCharacterStat(stats, "POISON", nil, run.snapshot.visible.poison)
+    end
     if Runtime.debugSetVisibleBaselines and run.snapshot.visible then
         Runtime.debugSetVisibleBaselines(run.player, {
             hunger = run.snapshot.visible.hunger,
@@ -1833,6 +1922,8 @@ local function restoreSnapshot(run)
     restoreOk = restoreOk and nearlyEqual(restored.hunger, before.hunger, RESTORE_TOLERANCE.hunger)
     restoreOk = restoreOk and nearlyEqual(restored.thirst, before.thirst, RESTORE_TOLERANCE.thirst)
     restoreOk = restoreOk and nearlyEqual(restored.boredom, before.boredom, RESTORE_TOLERANCE.boredom)
+    restoreOk = restoreOk and nearlyEqual(restored.foodSickness, before.foodSickness, RESTORE_TOLERANCE.foodSickness)
+    restoreOk = restoreOk and nearlyEqual(restored.poison, before.poison, RESTORE_TOLERANCE.poison)
     restoreOk = restoreOk and nearlyEqual(restored.endurance, before.endurance, RESTORE_TOLERANCE.endurance)
     restoreOk = restoreOk and nearlyEqual(restored.fatigue, before.fatigue, RESTORE_TOLERANCE.fatigue)
     restoreOk = restoreOk and nearlyEqual(restored.healthFromFood, before.healthFromFood, RESTORE_TOLERANCE.healthFromFood)
@@ -2173,10 +2264,6 @@ function Runner.getStatus()
         setLastStatusFromRun(activeRun)
     end
     return lastStatus
-end
-
-function Runner.getLastReportPath()
-    return lastReportPath
 end
 
 function Runner.getProfiles()

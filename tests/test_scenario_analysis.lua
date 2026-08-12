@@ -100,6 +100,91 @@ local canonicalStable = evaluate({
 Support.assertTrue(hasEvaluation(canonicalStable, "pass", "canonical_day_stable"),
     "low-zone exposure alone does not make a healthy canonical day rough")
 
+local recordedStableConsumes = {}
+for index = 1, 9 do
+    recordedStableConsumes[index] = { hungerDrop = 0.08 }
+end
+local recordedStable = evaluate({
+    profile = {
+        validation = {
+            evaluator = "recorded_exploration_day",
+            minimumItems = 8,
+            maximumItems = 14,
+            minimumIntakeBurnRatio = 0.70,
+            maximumIntakeBurnRatio = 1.25,
+            maximumAwakeHiddenDepletedStreakHours = 2,
+            maximumDeprivation = 0.01,
+        },
+    },
+    analysis = {
+        consumes = recordedStableConsumes,
+        finalSnapshot = {
+            state = {
+                totalIntakeKcal = 2415,
+                totalBurnKcal = 3055.4,
+                fuel = 700,
+                deprivation = 0,
+                lastZone = "Ready",
+            },
+        },
+        peakDeprivation = { value = 0 },
+        maxAwakeHiddenDepletedStreakHours = 0,
+    },
+})
+Support.assertTrue(hasEvaluation(recordedStable, "pass", "recorded_day_prompt_count_plausible"),
+    "the recorded-day evaluator accepts a plausible number of hunger-led items")
+Support.assertTrue(hasEvaluation(recordedStable, "pass", "recorded_day_intake_tracks_burn"),
+    "the recorded-day evaluator checks intake against measured burn")
+Support.assertTrue(hasEvaluation(recordedStable, "pass", "recorded_day_avoids_hidden_depletion"),
+    "a stable recorded day passes the hidden-depletion check")
+Support.assertTrue(hasEvaluation(recordedStable, "pass", "recorded_day_no_same_day_malnutrition"),
+    "a stable recorded day cannot silently accumulate deprivation")
+Support.assertTrue(hasEvaluation(recordedStable, "pass", "recorded_day_meals_feel_effective"),
+    "all hunger-led items must produce immediate visible relief")
+
+local recordedRough = evaluate({
+    profile = {
+        validation = {
+            evaluator = "recorded_exploration_day",
+            minimumItems = 8,
+            maximumItems = 14,
+            minimumIntakeBurnRatio = 0.70,
+            maximumIntakeBurnRatio = 1.25,
+            maximumAwakeHiddenDepletedStreakHours = 2,
+            maximumDeprivation = 0.01,
+        },
+    },
+    analysis = {
+        consumes = {
+            { hungerDrop = 0.08 },
+            { hungerDrop = 0 },
+            { hungerDrop = 0.08 },
+            { hungerDrop = 0.08 },
+        },
+        finalSnapshot = {
+            state = {
+                totalIntakeKcal = 1700,
+                totalBurnKcal = 3055.4,
+                fuel = 0,
+                deprivation = 0.10,
+                lastZone = "Depleted",
+            },
+        },
+        peakDeprivation = { value = 0.10 },
+        maxAwakeHiddenDepletedStreakHours = 7,
+    },
+})
+Support.assertTrue(hasEvaluation(recordedRough, "fail", "recorded_day_underprompted"),
+    "too few closed-loop prompts fail the recorded-day test")
+Support.assertTrue(hasEvaluation(recordedRough, "fail", "recorded_day_intake_too_low"),
+    "substantially inadequate intake fails the recorded-day test")
+Support.assertTrue(hasEvaluation(recordedRough, "fail", "recorded_day_hidden_depletion_too_long"),
+    "hours of hidden depletion fail the recorded-day test")
+Support.assertTrue(hasEvaluation(recordedRough, "fail", "recorded_day_deprivation_too_high"),
+    "same-day malnutrition fails the recorded-day test")
+Support.assertTrue(hasEvaluation(recordedRough, "fail", "recorded_day_meals_feel_effective"),
+    "an item that provides no immediate hunger relief fails the recorded-day test")
+
 local lightStable = evaluate({
     profile = {
         validation = {

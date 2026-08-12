@@ -20,10 +20,9 @@ local getPlayerStats = Runtime.getPlayerStats
 local getVisibleHungerValue = Runtime.getVisibleHungerValue
 local clamp = Runtime.clamp
 local setVisibleHunger = Runtime.setVisibleHunger
-
-function Runtime.getStateKey()
-    return STATE_KEY
-end
+local getTelemetryForState = Runtime.getTelemetryForState
+local replaceTelemetryForState = Runtime.replaceTelemetryForState
+local buildStateView = Runtime.buildStateView
 
 function Runtime.getStateCopy(playerObj)
     local modData = getModData(playerObj)
@@ -31,7 +30,7 @@ function Runtime.getStateCopy(playerObj)
     if type(rawState) ~= "table" then
         return nil
     end
-    return Metabolism.copyState(rawState)
+    return buildStateView(rawState, getTelemetryForState(rawState))
 end
 
 function Runtime.buildStateSnapshot(playerObj, reason, includeDiagnostics)
@@ -45,7 +44,7 @@ function Runtime.buildStateSnapshot(playerObj, reason, includeDiagnostics)
         reason = tostring(reason or "snapshot"),
         worldHours = getWorldHours(),
         player = tostring(getPlayerLabel(playerObj)),
-        state = MPSnapshot.copyState(state, includeDiagnostics == true),
+        state = MPSnapshot.copyState(buildStateView(state, getTelemetryForState(state)), includeDiagnostics == true),
     }
 end
 
@@ -61,28 +60,19 @@ function Runtime.syncVisibleIndicators(playerObj, reason)
 
     local nutrition = getPlayerNutrition(playerObj)
     local bodyDamage = getPlayerBodyDamage(playerObj)
+    local telemetry = getTelemetryForState(state)
     syncVisibleHunger(playerObj, state, reason or "sync-visible-indicators")
-    syncVisibleWeight(nutrition, state)
+    syncVisibleWeight(nutrition, state, telemetry)
     if Runtime.shouldRunAuthoritativeUpdates() then
         syncProteinHealing(bodyDamage, state)
         suppressFoodEatenTimer(bodyDamage)
     end
-    state.lastTraceReason = tostring(reason or state.lastTraceReason or "sync-visible-indicators")
+    telemetry.lastTraceReason = tostring(reason or telemetry.lastTraceReason or "sync-visible-indicators")
     return state
 end
 
 function Runtime.syncVisibleShell(playerObj, reason)
-    if not playerObj then
-        return nil
-    end
-
-    local state = Runtime.syncVisibleIndicators(playerObj, reason or "sync-visible-shell")
-    if not state then
-        return nil
-    end
-
-    state.lastTraceReason = tostring(reason or state.lastTraceReason or "sync-visible-shell")
-    return state
+    return Runtime.syncVisibleIndicators(playerObj, reason or "sync-visible-shell")
 end
 
 function Runtime.applyVisibleHungerTarget(playerObj, targetHunger, reason)
@@ -103,7 +93,7 @@ function Runtime.applyVisibleHungerTarget(playerObj, targetHunger, reason)
 
     local desired = clamp(numeric, Metabolism.VISIBLE_HUNGER_MIN, Metabolism.VISIBLE_HUNGER_MAX)
     state.visibleHunger = desired
-    state.lastSyncedHunger = desired
+    getTelemetryForState(state).lastSyncedHunger = desired
     return setVisibleHunger(stats, desired)
 end
 
@@ -118,17 +108,26 @@ function Runtime.importStateSnapshot(playerObj, snapshot, reason)
     end
 
     local rawState = type(snapshot.state) == "table" and snapshot.state or snapshot
-    local state = Metabolism.ensureState(Metabolism.copyState(rawState))
+    local state = Metabolism.copyState(rawState)
+    local telemetry = replaceTelemetryForState(state, rawState)
     state.initialized = true
-    state.lastTraceReason = tostring(reason or snapshot.reason or "mp-sync")
+    telemetry.lastTraceReason = tostring(reason or snapshot.reason or "mp-sync")
     if snapshot.worldHours ~= nil then
         state.lastWorldHours = tonumber(snapshot.worldHours) or state.lastWorldHours
     end
 
     modData[STATE_KEY] = state
 
+    -- A server snapshot is authoritative. Apply its hunger value directly before the
+    -- generic shell sync so a small client-prediction/float difference cannot be
+    -- misclassified as a second local meal drop and veto the snapshot.
+    Runtime.applyVisibleHungerTarget(
+        playerObj,
+        state.visibleHunger,
+        reason or snapshot.reason or "mp-sync"
+    )
     Runtime.syncVisibleShell(playerObj, reason or snapshot.reason or "mp-sync")
-    return state
+    return buildStateView(state, telemetry)
 end
 
 return Runtime

@@ -717,20 +717,4 @@ function TestPanel.toggle()
     panelInstance:setVisible(true)
 end
 
-function TestPanel.isVisible()
-    return panelInstance ~= nil and panelInstance:isVisible()
-end
-
-function TestPanel.abortActive()
-    if type(LiveRunner.abort) == "function" then
-        LiveRunner.abort("test-panel-abort")
-    end
-end
-
-function TestPanel.onEveryOneMinute()
-    if panelInstance and panelInstance.loadValues then
-        panelInstance:loadValues()
-    end
-end
-
 return TestPanel

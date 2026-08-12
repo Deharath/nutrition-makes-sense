@@ -13,7 +13,6 @@ local normalizeVisibleHungerInput = Runtime.normalizeVisibleHungerInput
 local setStatValue = Runtime.setStatValue
 local safeCall = Runtime.safeCall
 local clamp = Runtime.clamp
-local refreshDerivedState = Runtime.refreshDerivedState
 local seedHealthFromFood = Runtime.seedHealthFromFood
 local syncVisibleWeight = Runtime.syncVisibleWeight
 local syncProteinHealing = Runtime.syncProteinHealing
@@ -28,12 +27,46 @@ local importLiveVisibleHungerDrop = Runtime.importLiveVisibleHungerDrop
 local getWorldHours = Runtime.getWorldHours
 local resolveStatsDecreaseMultiplier = Runtime.resolveStatsDecreaseMultiplier or function() return 1.0 end
 local consumeWorkloadSummary = Runtime.consumeWorkloadSummary
-local removeEndurance = Runtime.removeEndurance
 local eachKnownPlayer = Runtime.eachKnownPlayer
+local getTelemetryForState = Runtime.getTelemetryForState
+local replaceTelemetryForState = Runtime.replaceTelemetryForState
+local buildStateView = Runtime.buildStateView
+local recordDepositTelemetry = Runtime.recordDepositTelemetry
+local recordAdvanceTelemetry = Runtime.recordAdvanceTelemetry
 local DebugSupport = NutritionMakesSense.DebugSupport or {}
+local Settings = Runtime.Settings or NutritionMakesSense.Settings or {}
 local PENDING_HUNGER_MAX_AGE = 2
 local ACTIVE_ELAPSED_CAP_HOURS = 0.25
 local MP_RESUME_GAP_THRESHOLD_HOURS = 0.50
+
+local function buildMealEvent(fullness, details)
+    local result = type(fullness) == "table" and fullness or {}
+    local context = type(details) == "table" and details or {}
+    local values = type(context.values) == "table" and context.values or {}
+    local mechanicalDrop = tonumber(result.mechanicalDrop) or tonumber(context.observedDrop) or 0
+    return {
+        reason = tostring(context.reason or "meal-observation"),
+        item = "", item_known = false, fraction = 1,
+        provenance = tostring(context.provenance or "observed-hunger-only"),
+        consume_source = tostring(context.consumeSource or "runtime-observed-hunger"),
+        pre_visible_hunger = tonumber(result.preVisibleHunger) or tonumber(context.preHunger) or 0,
+        target_visible_hunger = tonumber(result.targetVisibleHunger) or tonumber(context.targetHunger) or 0,
+        kcal = tonumber(values.kcal) or 0,
+        carbs = tonumber(values.carbs) or 0,
+        fats = tonumber(values.fats) or 0,
+        proteins = tonumber(values.proteins) or 0,
+        observed_hunger_drop = tonumber(context.observedDrop) or mechanicalDrop,
+        hunger_observed = mechanicalDrop > 0,
+        mechanical_hunger_drop = mechanicalDrop,
+        physical_hunger_drop = tonumber(result.physicalDrop) or 0,
+        nutrient_hunger_drop = tonumber(result.nutrientDrop) or 0,
+        modeled_hunger_drop = tonumber(result.targetDrop) or 0,
+        applied_hunger_drop = tonumber(result.appliedDrop) or 0,
+        hunger_correction = tonumber(result.appliedCorrection) or 0,
+        meal_transaction_kcal = tonumber(result.transactionKcal) or 0,
+        meal_transaction_fragments = tonumber(result.transactionFragments) or 0,
+    }
+end
 
 local function isMultiplayerAuthorityRuntime()
     if type(isClient) == "function" and isClient() == true then
@@ -53,7 +86,7 @@ local function isResumeReason(reason)
         or string.find(reasonText, "request", 1, true) ~= nil
 end
 
-local function resolveActiveElapsedHours(state, nowHours, reason)
+local function resolveActiveElapsedHours(state, telemetry, nowHours, reason)
     if nowHours == nil then
         return 0, {
             rawHours = 0,
@@ -77,11 +110,11 @@ local function resolveActiveElapsedHours(state, nowHours, reason)
         }
     end
 
-    local pendingResumeHours = tonumber(state and state.pendingResumeWorldHours) or nil
-    local pendingResumeReason = tostring(state and state.pendingResumeReason or reason or "resume")
+    local pendingResumeHours = tonumber(telemetry and telemetry.pendingResumeWorldHours) or nil
+    local pendingResumeReason = tostring(telemetry and telemetry.pendingResumeReason or reason or "resume")
     if pendingResumeHours ~= nil and pendingResumeHours >= previousHours then
-        state.pendingResumeWorldHours = nil
-        state.pendingResumeReason = nil
+        telemetry.pendingResumeWorldHours = nil
+        telemetry.pendingResumeReason = nil
         return 0, {
             rawHours = rawElapsed,
             mode = "resume-freeze",
@@ -131,7 +164,6 @@ function Runtime.debugSetStateFields(playerObj, updates, reason)
             or fieldName == "weightKg"
             or fieldName == "weightController"
             or fieldName == "weightBalanceKcal"
-            or fieldName == "underfeedingDebtKcal"
             or fieldName == "deprivation"
             or fieldName == "satietyBuffer" then
             local before = state[fieldName]
@@ -145,10 +177,11 @@ function Runtime.debugSetStateFields(playerObj, updates, reason)
     end
 
     if #changed == 0 then
-        return Metabolism.copyState(state)
+        return buildStateView(state, getTelemetryForState(state))
     end
 
-    state = refreshDerivedState(state, reason or "debug-set")
+    state = Metabolism.ensureState(state)
+    getTelemetryForState(state).lastTraceReason = tostring(reason or "debug-set")
     modData[STATE_KEY] = state
 
     Runtime.syncVisibleShell(playerObj, reason or "mp-authority")
@@ -164,7 +197,7 @@ function Runtime.debugSetStateFields(playerObj, updates, reason)
         ))
     end
 
-    return Metabolism.copyState(state)
+    return buildStateView(state, getTelemetryForState(state))
 end
 
 function Runtime.debugResetState(playerObj, reason)
@@ -180,54 +213,30 @@ function Runtime.debugResetState(playerObj, reason)
     local previous = Runtime.ensureStateForPlayer(playerObj)
     local stats = getPlayerStats(playerObj)
     local bodyDamage = getPlayerBodyDamage(playerObj)
+    local visibleHunger = clamp(
+        getVisibleHungerValue(stats) or 0,
+        Metabolism.VISIBLE_HUNGER_MIN,
+        Metabolism.VISIBLE_HUNGER_MAX
+    )
     local state = Metabolism.newState({
         initialized = true,
         fuel = 1300,
-        weightKg = Metabolism.DEFAULT_WEIGHT_KG,
-        proteins = Metabolism.getDefaultProteinAdequacy(Metabolism.DEFAULT_WEIGHT_KG),
-        weightController = 0,
-        weightBalanceKcal = 0,
-        underfeedingDebtKcal = 0,
-        satietyBuffer = 0,
-        deprivation = 0,
+        visibleHunger = visibleHunger,
         lastWorldHours = getWorldHours(),
-        lastMetAverage = Metabolism.MET_REST,
-        lastMetPeak = Metabolism.MET_REST,
-        lastEffectiveEnduranceMet = Metabolism.MET_REST,
-        lastWorkTier = Metabolism.WORK_TIER_REST,
-        lastMetSource = "debug-reset",
-        lastObservedHours = 0,
-        lastHeavyHours = 0,
-        lastVeryHeavyHours = 0,
-        visibleHunger = clamp(getVisibleHungerValue(stats) or 0, Metabolism.VISIBLE_HUNGER_MIN, Metabolism.VISIBLE_HUNGER_MAX),
-        lastSatietyQuality = 0,
-        lastSatietyContribution = 0,
-        lastSatietyReturnFactor = 1.0,
-        lastMealHungerDrop = 0,
-        lastMealHungerObserved = false,
-        pendingObservedHungerDrop = 0,
-        pendingObservedHungerAge = 0,
-        lastBurnKcal = 0,
-        lastDepositKcal = 0,
         depositSequence = tonumber(previous and previous.depositSequence) or 0,
-        lastBaseHungerGain = 0,
-        lastPassiveHungerGain = 0,
-        lastCorrectionGain = 0,
-        lastExtraEnduranceDrain = 0,
-        lastWeightDeltaKg = 0,
-        lastWeightRateKgPerWeek = 0,
-        lastUnderfeedingDebtKcal = 0,
-        lastDeprivationTarget = 0,
-        lastWeightBalanceKcal = 0,
-        lastWeightControllerTarget = 0,
-        lastTraceReason = tostring(reason or "debug-reset"),
         baseHealthFromFood = tonumber(previous and previous.baseHealthFromFood) or seedHealthFromFood(bodyDamage),
     })
-    state = refreshDerivedState(state, reason or "debug-reset")
+    local telemetry = replaceTelemetryForState(state, {
+        lastMetSource = "debug-reset",
+        lastMealPreHunger = visibleHunger,
+        lastMealTargetHunger = visibleHunger,
+        lastSyncedHunger = visibleHunger,
+        lastTraceReason = tostring(reason or "debug-reset"),
+    })
     modData[STATE_KEY] = state
 
     local nutrition = getPlayerNutrition(playerObj)
-    syncVisibleWeight(nutrition, state)
+    syncVisibleWeight(nutrition, state, telemetry)
     syncProteinHealing(bodyDamage, state)
     setNutritionAnchor(nutrition)
 
@@ -240,7 +249,7 @@ function Runtime.debugResetState(playerObj, reason)
         tostring(reason or "debug-reset")
     ))
 
-    return Metabolism.copyState(state)
+    return buildStateView(state, telemetry)
 end
 
 function Runtime.debugSetVisibleBaselines(playerObj, fields, reason)
@@ -261,8 +270,7 @@ function Runtime.debugSetVisibleBaselines(playerObj, fields, reason)
         local state = Runtime.ensureStateForPlayer(playerObj)
         if state then
             state.visibleHunger = clamp(hunger, Metabolism.VISIBLE_HUNGER_MIN, Metabolism.VISIBLE_HUNGER_MAX)
-            state.lastSyncedHunger = state.visibleHunger
-            state.lastHungerBand = Metabolism.getVisibleHungerBand(state.visibleHunger)
+            getTelemetryForState(state).lastSyncedHunger = state.visibleHunger
         end
     end
 
@@ -322,12 +330,121 @@ function Runtime.applyAuthoritativeDeposit(playerObj, values, reason, options)
         return nil
     end
 
+    local telemetry = getTelemetryForState(state)
     local normalized = normalizeDeposit(values)
     local report = Metabolism.applyFoodValues(state, normalized, 1, reason or "mp-authority")
+    recordDepositTelemetry(telemetry, report)
+    local opts = type(options) == "table" and options or nil
+    if opts and opts.accumulateMealFullness == true then
+        local fullness = Runtime.accumulateMealObservation(
+            state,
+            normalized,
+            opts.observedHungerDrop,
+            opts.preVisibleHunger,
+            reason or "mp-authority"
+        )
+        report.mealFullness = fullness
+        report.mealHungerDrop = fullness.appliedDrop
+        report.mealModeledDrop = fullness.targetDrop
+        report.mealMechanicalDrop = fullness.mechanicalDrop
+        report.mealPhysicalDrop = fullness.physicalDrop
+        report.mealNutrientDrop = fullness.nutrientDrop
+        report.mealHungerCorrection = fullness.appliedCorrection
+        report.preVisibleHunger = fullness.preVisibleHunger
+        report.targetVisibleHunger = fullness.targetVisibleHunger
+    end
 
     Runtime.syncVisibleShell(playerObj, reason or "mp-authority")
 
     return report, state
+end
+
+function Runtime.finalizeMealObservation(state, values, observedHungerDrop, preVisibleHunger, reason)
+    local telemetry = getTelemetryForState(state)
+    state = Metabolism.ensureState(state)
+    local normalized = normalizeDeposit(values)
+    local preHunger = tonumber(preVisibleHunger)
+        or tonumber(telemetry.pendingMealPreVisibleHunger)
+        or tonumber(state.visibleHunger)
+        or 0
+    local fullness = Metabolism.resolveMealHunger(normalized, observedHungerDrop, preHunger)
+
+    state.visibleHunger = fullness.targetVisibleHunger
+    telemetry.lastMealHungerDrop = fullness.appliedDrop
+    telemetry.lastMealModeledDrop = fullness.targetDrop
+    telemetry.lastMealMechanicalDrop = fullness.mechanicalDrop
+    telemetry.lastMealPhysicalDrop = fullness.physicalDrop
+    telemetry.lastMealNutrientDrop = fullness.nutrientDrop
+    telemetry.lastMealPreHunger = fullness.preVisibleHunger
+    telemetry.lastMealTargetHunger = fullness.targetVisibleHunger
+    telemetry.pendingObservedHungerDrop = 0
+    telemetry.pendingObservedHungerAge = 0
+    telemetry.pendingMealPreVisibleHunger = nil
+    telemetry.lastTraceReason = tostring(reason or "meal-fullness")
+
+    return fullness
+end
+
+function Runtime.accumulateMealObservation(state, values, observedHungerDrop, preVisibleHunger, reason)
+    local telemetry = getTelemetryForState(state)
+    state = Metabolism.ensureState(state)
+    local normalized = normalizeDeposit(values)
+    local transaction = telemetry.pendingMealTransaction
+    if type(transaction) ~= "table" or (tonumber(transaction.age) or 0) > PENDING_HUNGER_MAX_AGE then
+        transaction = {
+            preVisibleHunger = tonumber(preVisibleHunger)
+                or tonumber(telemetry.pendingMealPreVisibleHunger)
+                or tonumber(state.visibleHunger)
+                or 0,
+            kcal = 0,
+            carbs = 0,
+            fats = 0,
+            proteins = 0,
+            observedHungerDrop = 0,
+            satietyContribution = 0,
+            fragments = 0,
+            age = 0,
+        }
+    end
+
+    transaction.kcal = math.max(0, (tonumber(transaction.kcal) or 0) + normalized.kcal)
+    transaction.carbs = math.max(0, (tonumber(transaction.carbs) or 0) + normalized.carbs)
+    transaction.fats = math.max(0, (tonumber(transaction.fats) or 0) + normalized.fats)
+    transaction.proteins = math.max(0, (tonumber(transaction.proteins) or 0) + normalized.proteins)
+    transaction.observedHungerDrop = clamp(
+        (tonumber(transaction.observedHungerDrop) or 0) + (tonumber(observedHungerDrop) or 0),
+        0,
+        1
+    )
+    transaction.satietyContribution = math.max(
+        0,
+        (tonumber(transaction.satietyContribution) or 0) + Metabolism.getSatietyContribution(normalized, 1)
+    )
+    if hasMeaningfulDeposit(normalized) then
+        transaction.fragments = (tonumber(transaction.fragments) or 0) + 1
+    end
+    transaction.age = 0
+    telemetry.pendingMealTransaction = transaction
+
+    local fullness = Runtime.finalizeMealObservation(
+        state,
+        transaction,
+        transaction.observedHungerDrop,
+        transaction.preVisibleHunger,
+        reason or "meal-transaction"
+    )
+    transaction.lastTargetVisibleHunger = fullness.targetVisibleHunger
+    telemetry.pendingMealTransaction = transaction
+    telemetry.lastMealDepositKcal = transaction.kcal
+    telemetry.lastMealTransactionFragments = transaction.fragments
+    telemetry.lastSatietyQuality = Metabolism.getSatietyQuality(transaction)
+    telemetry.lastSatietyContribution = transaction.satietyContribution
+    fullness.transactionKcal = transaction.kcal
+    fullness.transactionCarbs = transaction.carbs
+    fullness.transactionFats = transaction.fats
+    fullness.transactionProteins = transaction.proteins
+    fullness.transactionFragments = transaction.fragments
+    return fullness
 end
 
 function Runtime.updatePlayer(playerObj, reason)
@@ -339,6 +456,7 @@ function Runtime.updatePlayer(playerObj, reason)
     if not state then
         return
     end
+    local telemetry = getTelemetryForState(state)
 
     local playerLabel = getPlayerLabel(playerObj)
     local nutrition = getPlayerNutrition(playerObj)
@@ -346,7 +464,9 @@ function Runtime.updatePlayer(playerObj, reason)
     local observedDeltaDetected = hasMeaningfulDeposit(observedDelta)
 
     local playerStats = getPlayerStats(playerObj)
-    local preVisibleHunger = tonumber(state.visibleHunger) or 0
+    local preVisibleHunger = tonumber(telemetry.pendingMealPreVisibleHunger)
+        or tonumber(state.visibleHunger)
+        or 0
     if observedDeltaDetected and type(importLiveVisibleHungerDrop) == "function" then
         importLiveVisibleHungerDrop(state, playerStats)
     end
@@ -354,39 +474,71 @@ function Runtime.updatePlayer(playerObj, reason)
     -- Apply observed vanilla nutrition deltas anywhere we are running authoritative updates.
     -- Dedicated servers, listen servers, and solo runtimes must all credit the same intake path.
     if observedDeltaDetected then
-        local observedHungerDrop = clamp(tonumber(state.pendingObservedHungerDrop) or 0, 0, 1)
-        local hungerObserved = observedHungerDrop > 0
-        state.pendingObservedHungerDrop = 0
-        state.pendingObservedHungerAge = 0
-        state.lastMealHungerDrop = observedHungerDrop
-        state.lastMealHungerObserved = hungerObserved
-
-        Runtime.applyAuthoritativeDeposit(playerObj, observedDelta, "vanilla-nutrition-delta")
+        local observedHungerDrop = clamp(tonumber(telemetry.pendingObservedHungerDrop) or 0, 0, 1)
+        local mealPreHunger = tonumber(telemetry.pendingMealPreVisibleHunger) or preVisibleHunger
+        local depositReport = Runtime.applyAuthoritativeDeposit(
+            playerObj,
+            observedDelta,
+            "vanilla-nutrition-delta",
+            {
+                accumulateMealFullness = true,
+                observedHungerDrop = observedHungerDrop,
+                preVisibleHunger = mealPreHunger,
+            }
+        )
+        local fullness = depositReport and depositReport.mealFullness or {}
         if type(DebugSupport.noteConsumeEvent) == "function" then
-            DebugSupport.noteConsumeEvent({
+            DebugSupport.noteConsumeEvent(buildMealEvent(fullness, {
                 reason = tostring(reason or "vanilla-nutrition-delta"),
-                item = "",
-                item_known = false,
                 provenance = "observed-nutrition-delta",
-                consume_source = "runtime-observed-delta",
-                fraction = 1,
-                pre_visible_hunger = preVisibleHunger,
-                target_visible_hunger = tonumber(state.visibleHunger) or preVisibleHunger,
-                kcal = tonumber(observedDelta and observedDelta.kcal) or 0,
-                carbs = tonumber(observedDelta and observedDelta.carbs) or 0,
-                fats = tonumber(observedDelta and observedDelta.fats) or 0,
-                proteins = tonumber(observedDelta and observedDelta.proteins) or 0,
-                observed_hunger_drop = observedHungerDrop,
-                hunger_observed = hungerObserved,
-            })
+                consumeSource = "runtime-observed-delta",
+                values = observedDelta,
+                observedDrop = observedHungerDrop,
+                preHunger = mealPreHunger,
+                targetHunger = state.visibleHunger,
+            }))
         end
     else
-        local pendingDrop = tonumber(state.pendingObservedHungerDrop) or 0
-        if pendingDrop > 0 then
-            state.pendingObservedHungerAge = (tonumber(state.pendingObservedHungerAge) or 0) + 1
-            if state.pendingObservedHungerAge > PENDING_HUNGER_MAX_AGE then
-                state.pendingObservedHungerDrop = 0
-                state.pendingObservedHungerAge = 0
+        local pendingDrop = tonumber(telemetry.pendingObservedHungerDrop) or 0
+        local transaction = type(telemetry.pendingMealTransaction) == "table" and telemetry.pendingMealTransaction or nil
+        if pendingDrop > 0 and transaction then
+            local fullness = Runtime.accumulateMealObservation(
+                state,
+                nil,
+                pendingDrop,
+                transaction.preVisibleHunger,
+                "delayed-mechanical-confirmation"
+            )
+            if type(DebugSupport.noteHungerSyncEvent) == "function" then
+                DebugSupport.noteHungerSyncEvent(buildMealEvent(fullness, {
+                    reason = "delayed-mechanical-confirmation",
+                    provenance = "observed-hunger-confirmation",
+                }))
+            end
+        elseif pendingDrop > 0 then
+            telemetry.pendingObservedHungerAge = (tonumber(telemetry.pendingObservedHungerAge) or 0) + 1
+            if telemetry.pendingObservedHungerAge > PENDING_HUNGER_MAX_AGE then
+                local fullness = Runtime.finalizeMealObservation(
+                    state,
+                    nil,
+                    pendingDrop,
+                    telemetry.pendingMealPreVisibleHunger,
+                    "observed-hunger-only"
+                )
+                if type(DebugSupport.noteConsumeEvent) == "function" then
+                    DebugSupport.noteConsumeEvent(buildMealEvent(fullness, {
+                        reason = "observed-hunger-only",
+                        provenance = "observed-hunger-only",
+                    }))
+                end
+            end
+        end
+
+        transaction = type(telemetry.pendingMealTransaction) == "table" and telemetry.pendingMealTransaction or nil
+        if pendingDrop <= 0 and transaction then
+            transaction.age = (tonumber(transaction.age) or 0) + 1
+            if transaction.age > PENDING_HUNGER_MAX_AGE then
+                telemetry.pendingMealTransaction = nil
             end
         end
     end
@@ -400,11 +552,8 @@ function Runtime.updatePlayer(playerObj, reason)
     local zoneBefore = Metabolism.getFuelZone(state.fuel)
 
     local nowHours = getWorldHours()
-    local elapsedHours, elapsedContext = resolveActiveElapsedHours(state, nowHours, reason)
+    local elapsedHours, elapsedContext = resolveActiveElapsedHours(state, telemetry, nowHours, reason)
     state.lastWorldHours = nowHours or state.lastWorldHours
-    state.lastActiveElapsedHours = elapsedHours
-    state.lastRawElapsedHours = tonumber(elapsedContext and elapsedContext.rawHours) or elapsedHours
-    state.lastElapsedMode = tostring(elapsedContext and elapsedContext.mode or "active")
 
     if elapsedContext and elapsedContext.mode == "resume-freeze" then
         log(string.format(
@@ -434,14 +583,21 @@ function Runtime.updatePlayer(playerObj, reason)
 
     local workload = consumeWorkloadSummary(playerObj)
     local traitEffects = Runtime.resolveTraitEffects and Runtime.resolveTraitEffects(playerObj) or nil
+    local statsDecreaseMultiplier = resolveStatsDecreaseMultiplier()
+    local appetiteRateMultiplier = type(Settings.getAppetiteRateMultiplier) == "function"
+        and Settings.getAppetiteRateMultiplier() or 1.0
+    local energyBurnMultiplier = type(Settings.getEnergyBurnMultiplier) == "function"
+        and Settings.getEnergyBurnMultiplier() or 1.0
     local advanceReport = Metabolism.advanceState(state, elapsedHours, workload, {
         reason = reason or workload.workTier or "workload",
         traitEffects = traitEffects,
-        hungerRateMultiplier = resolveStatsDecreaseMultiplier(),
+        statsDecreaseMultiplier = statsDecreaseMultiplier,
+        appetiteRateMultiplier = appetiteRateMultiplier,
+        hungerRateMultiplier = statsDecreaseMultiplier * appetiteRateMultiplier,
+        energyBurnMultiplier = energyBurnMultiplier,
+        previousWeightRateKgPerWeek = telemetry.lastWeightRateKgPerWeek,
     })
-    if workload.appliedEnduranceDrain == nil then
-        removeEndurance(playerObj, playerStats, advanceReport.extraEnduranceDrain or 0)
-    end
+    recordAdvanceTelemetry(telemetry, advanceReport)
     Runtime.syncVisibleShell(playerObj, reason or workload.workTier or "workload")
 
     local zoneAfter = Metabolism.getFuelZone(state.fuel)
@@ -452,8 +608,8 @@ function Runtime.updatePlayer(playerObj, reason)
             tostring(zoneBefore),
             tostring(zoneAfter),
             tonumber(state.fuel or 0),
-            tostring(state.lastWorkTier or workload.workTier or "--"),
-            tonumber(advanceReport.averageMet or state.lastMetAverage or Metabolism.MET_REST),
+            tostring(telemetry.lastWorkTier or workload.workTier or "--"),
+            tonumber(advanceReport.averageMet or telemetry.lastMetAverage or Metabolism.MET_REST),
             tonumber(advanceReport.visibleHungerGain or 0)
         ))
     end
@@ -465,9 +621,9 @@ function Runtime.updatePlayer(playerObj, reason)
             tonumber(state.weightKg or Metabolism.DEFAULT_WEIGHT_KG),
             tonumber(advanceReport.weightDeltaKg or 0),
             tonumber(state.weightController or 0),
-            tostring(state.lastWeightTrait or "Normal"),
-            tonumber(advanceReport.averageMet or state.lastMetAverage or Metabolism.MET_REST),
-            tonumber(advanceReport.peakMet or state.lastMetPeak or Metabolism.MET_REST),
+            tostring(Metabolism.getWeightTrait(state.weightKg)),
+            tonumber(advanceReport.averageMet or telemetry.lastMetAverage or Metabolism.MET_REST),
+            tonumber(advanceReport.peakMet or telemetry.lastMetPeak or Metabolism.MET_REST),
             tonumber(advanceReport.extraEnduranceDrain or 0)
         ))
     end
@@ -484,9 +640,10 @@ function Runtime.markPlayerSessionResumed(playerObj, reason)
         return nil
     end
 
+    local telemetry = getTelemetryForState(state)
     local nowHours = getWorldHours() or state.lastWorldHours
-    state.pendingResumeWorldHours = nowHours
-    state.pendingResumeReason = tostring(reason or "session-resume")
+    telemetry.pendingResumeWorldHours = nowHours
+    telemetry.pendingResumeReason = tostring(reason or "session-resume")
     return state
 end
 
@@ -500,15 +657,13 @@ function Runtime.bootstrapPlayer(playerObj, reason)
         return nil
     end
 
+    local telemetry = getTelemetryForState(state)
     state.lastWorldHours = getWorldHours() or state.lastWorldHours
     if isResumeReason(reason) then
-        state.pendingResumeWorldHours = nil
-        state.pendingResumeReason = nil
-        state.lastActiveElapsedHours = 0
-        state.lastRawElapsedHours = 0
-        state.lastElapsedMode = "bootstrap-freeze"
+        telemetry.pendingResumeWorldHours = nil
+        telemetry.pendingResumeReason = nil
     end
-    state.lastTraceReason = tostring(reason or "bootstrap")
+    telemetry.lastTraceReason = tostring(reason or "bootstrap")
     Runtime.syncVisibleShell(playerObj, reason or "bootstrap")
     Runtime.observePlayerWorkload(playerObj, reason or "bootstrap")
     return state

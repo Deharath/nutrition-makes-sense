@@ -8,6 +8,8 @@ local CORE_STATE_FIELDS = {
     "fuel",
     "proteins",
     "weightKg",
+    "weightController",
+    "weightBalanceKcal",
     "deprivation",
     "visibleHunger",
     "satietyBuffer",
@@ -15,19 +17,13 @@ local CORE_STATE_FIELDS = {
     "lastWeightTrait",
     "lastWeightRateKgPerWeek",
     "lastHungerBand",
+    "lastDeprivationTarget",
+    "depositSequence",
 }
 
 local DIAGNOSTIC_STATE_FIELDS = {
-    "weightController",
-    "weightBalanceKcal",
-    "underfeedingDebtKcal",
-    "lastWeightBalanceKcal",
-    "lastWeightControllerTarget",
-    "lastUnderfeedingDebtKcal",
-    "lastDeprivationTarget",
     "lastMetAverage",
     "lastMetPeak",
-    "lastEffectiveEnduranceMet",
     "lastWorkTier",
     "lastMetSource",
     "lastObservedHours",
@@ -35,11 +31,20 @@ local DIAGNOSTIC_STATE_FIELDS = {
     "lastVeryHeavyHours",
     "lastBurnKcal",
     "lastDepositKcal",
-    "depositSequence",
+    "totalIntakeKcal",
+    "totalBurnKcal",
+    "totalVisibleHungerGain",
+    "totalObservedHours",
+    "totalSleepHours",
     "lastFuelPressureFactor",
     "lastHungerRateMultiplier",
+    "lastStatsDecreaseMultiplier",
+    "lastAppetiteRateMultiplier",
+    "lastEnergyBurnMultiplier",
     "lastGateMultiplier",
     "lastMetHungerFactor",
+    "lastEnergyAppetiteProgress",
+    "lastEnergyAppetiteRatePerHour",
     "lastPassiveHungerGain",
     "lastExtraEnduranceDrain",
     "lastEnduranceRegenScale",
@@ -50,9 +55,18 @@ local DIAGNOSTIC_STATE_FIELDS = {
     "lastSatietyContribution",
     "lastSatietyReturnFactor",
     "lastMealHungerDrop",
-    "lastMealHungerObserved",
+    "lastMealModeledDrop",
+    "lastMealDepositKcal",
+    "lastMealTransactionFragments",
+    "lastMealMechanicalDrop",
+    "lastMealPhysicalDrop",
+    "lastMealNutrientDrop",
+    "lastMealPreHunger",
+    "lastMealTargetHunger",
+    "lastSyncedHunger",
     "lastTraceReason",
 }
+Snapshot.DIAGNOSTIC_STATE_FIELDS = DIAGNOSTIC_STATE_FIELDS
 
 local function copyFields(target, state, fields)
     for _, field in ipairs(fields) do
@@ -72,19 +86,6 @@ function Snapshot.copyState(state, includeDiagnostics)
     copyFields(copy, state, CORE_STATE_FIELDS)
     if includeDiagnostics == true then
         copyFields(copy, state, DIAGNOSTIC_STATE_FIELDS)
-    end
-    return copy
-end
-
-function Snapshot.getStateFields(includeDiagnostics)
-    local copy = {}
-    for _, field in ipairs(CORE_STATE_FIELDS) do
-        copy[#copy + 1] = field
-    end
-    if includeDiagnostics == true then
-        for _, field in ipairs(DIAGNOSTIC_STATE_FIELDS) do
-            copy[#copy + 1] = field
-        end
     end
     return copy
 end

@@ -55,7 +55,12 @@ local function tryLoadTestPanel()
 end
 
 local function tryLoadFoodDebug()
-    return tryLoadDevModule("FoodDebug", "dev/NutritionMakesSense_FoodDebug", "FoodDebug")
+    local loaded = tryLoadDevModule("FoodDebug", "dev/NutritionMakesSense_FoodDebug", "FoodDebug")
+    local FoodDebug = NutritionMakesSense.FoodDebug or {}
+    if loaded and type(FoodDebug.install) == "function" then
+        FoodDebug.install()
+    end
+    return loaded
 end
 
 local function canUseDevTools()
@@ -157,22 +162,6 @@ local function onFillInventoryObjectContextMenu(player, context, items)
     end
 
     context:addOption("NMS Log Food Item", item, FoodDebug.logItem)
-end
-
-function ClientBootstrap.isDevPanelEnabled()
-    return canUseDevTools()
-end
-
-function ClientBootstrap.toggleDevPanel()
-    return toggleDevSurface(tryLoadDevPanel, "DevPanel", "DevPanel")
-end
-
-function ClientBootstrap.toggleToolPanel()
-    return toggleDevSurface(tryLoadToolPanel, "ToolPanel", "ToolPanel")
-end
-
-function ClientBootstrap.toggleTestPanel()
-    return toggleDevSurface(tryLoadTestPanel, "TestPanel", "TestPanel")
 end
 
 local function install()

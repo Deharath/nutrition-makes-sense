@@ -1,0 +1,3 @@
+row_kind,interval_game_hours,interval_burn_kcal,is_asleep,auth_met_avg,auth_met_peak,movement_mode,nms_fuel,nms_proteins,nms_weight_kg,nms_weight_controller,nms_weight_balance_kcal,nms_deprivation,nms_satiety_buffer,visible_hunger,event_kcal,event_carbs,event_fats,event_proteins,event_mechanical_hunger_drop,event_item,event_item_name,meta_key,meta_value
+sample,0,0,false,1.2,1.2,stationary,800,245,80,0,0,0,0,0.16,,,,,,,,,
+consume,1,100,false,1.2,1.2,stationary,800,245,80,0,0,0,0,0.16,200,20,10,8,0.12,Base.TestFood,"Test Food, Bowl",,

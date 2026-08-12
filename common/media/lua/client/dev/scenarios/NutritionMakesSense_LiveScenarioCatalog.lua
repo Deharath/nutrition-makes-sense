@@ -30,6 +30,8 @@ local DEFAULT_BASELINE_VISIBLE = {
     hungryMoodle = 0,
     thirst = 0.0,
     boredom = 0.0,
+    foodSickness = 0.0,
+    poison = 0.0,
     endurance = 1.0,
     fatigue = 0.0,
     healthFromFoodTimer = 0,
@@ -45,14 +47,18 @@ local CANONICAL_DAY_PHASES = {
     { label = "Evening Leisure", startHour = 12.5, endHour = 16.0, metabolics = "StandingAtRest", averageMet = 1.1 },
 }
 
-local function phase(label, startHour, endHour, metabolics, averageMet)
-    return {
+local function phase(label, startHour, endHour, metabolics, averageMet, options)
+    local value = {
         label = label,
         startHour = startHour,
         endHour = endHour,
         metabolics = metabolics,
         averageMet = averageMet,
     }
+    for key, optionValue in pairs(options or {}) do
+        value[key] = optionValue
+    end
+    return value
 end
 
 local function food(fullType, label, prepared)
@@ -88,6 +94,70 @@ local function withProfileDefaults(profile)
 end
 
 local LIVE_PROFILES = {
+    recorded_exploration_day = withProfileDefaults({
+        id = "recorded_exploration_day",
+        label = "Recorded Exploration Autopilot",
+        description = "Closed-loop wake, sleep, and post-wake response derived from the recorded 3055 kcal exploration day.",
+        sortOrder = 5,
+        durationHours = 20.334,
+        consumptionMode = "signal_sequence",
+        signalThreshold = "peckish",
+        repeatSequenceOnSignal = true,
+        minGapHours = 0.25,
+        baselineState = {
+            fuel = 1341,
+            deprivation = 0,
+            satietyBuffer = 0.05,
+            proteins = 257,
+            weightKg = 80,
+            weightController = 0,
+            weightBalanceKcal = 41,
+        },
+        baselineVisible = {
+            hunger = 0.002,
+            hungryMoodle = 0,
+            thirst = 0.0,
+            boredom = 0.0,
+            foodSickness = 0.0,
+            poison = 0.0,
+            endurance = 1.0,
+            fatigue = 0.0,
+            healthFromFoodTimer = 0,
+        },
+        phases = {
+            phase("Early Exploration", 0.000, 3.000, "MediumWork", 4.232),
+            phase("Forest Travel", 3.000, 9.000, "MediumWork", 3.727),
+            phase("Hard Exploration", 9.000, 12.000, "MediumWork", 3.975),
+            phase("Wind-Down", 12.000, 13.830, "UsingTools", 2.512),
+            phase("Recorded Sleep", 13.830, 19.834, "Sleeping", 0.807, {
+                sleepObserved = true,
+                allowEating = false,
+                interruptibleForFood = false,
+            }),
+            phase("Post-Wake Response", 19.834, 20.334, "StandingAtRest", 1.1, {
+                allowEating = true,
+                postWakeResponse = true,
+            }),
+        },
+        items = {
+            food("Base.BellPepper", "Bell Pepper"),
+            food("Base.CannedSardinesOpen", "Canned Sardines"),
+            food("Base.Steak", "Steak", { cooked = true, heat = 1.8 }),
+            food("Base.BeefJerky", "Beef Jerky"),
+            food("Base.Sausage", "Sausage", { cooked = true, heat = 1.8 }),
+            food("Base.Burger", "Burger"),
+        },
+        validation = {
+            evaluator = "recorded_exploration_day",
+            minimumItems = 9,
+            maximumItems = 14,
+            minimumIntakeBurnRatio = 0.70,
+            maximumIntakeBurnRatio = 1.25,
+            maximumAwakeHiddenDepletedStreakHours = 2.0,
+            maximumDeprivation = 0.01,
+            hungerDropThreshold = 0.01,
+        },
+    }),
     canonical_day = withProfileDefaults({
         id = "canonical_day",
         label = "Live Scripted Day",

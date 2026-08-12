@@ -1,14 +1,13 @@
 NutritionMakesSense = NutritionMakesSense or {}
 
 require "NutritionMakesSense_Boot"
-require "NutritionMakesSense_DebugSupport"
 require "NutritionMakesSense_MPClientRuntime_Vanilla"
 require "NutritionMakesSense_ClientOptions"
 require "NutritionMakesSense_TooltipOverlay"
 require "NutritionMakesSense_HealthPanelHook"
 require "NutritionMakesSense_MalnourishedMoodle"
 require "NutritionMakesSense_WeightDisplayHook"
-require "NutritionMakesSense_PlayerStatusPanel"
+require "hooks/NutritionMakesSense_MealPrediction"
 require "bootstrap/NutritionMakesSense_ClientBootstrap"
 require "hooks/NutritionMakesSense_ClientHooks"
 
@@ -31,8 +30,8 @@ end
 if NutritionMakesSense.WeightDisplayHook and type(NutritionMakesSense.WeightDisplayHook.install) == "function" then
     NutritionMakesSense.WeightDisplayHook.install()
 end
-if NutritionMakesSense.PlayerStatusPanel and type(NutritionMakesSense.PlayerStatusPanel.install) == "function" then
-    NutritionMakesSense.PlayerStatusPanel.install()
+if NutritionMakesSense.MealPrediction and type(NutritionMakesSense.MealPrediction.install) == "function" then
+    NutritionMakesSense.MealPrediction.install()
 end
 if NutritionMakesSense.ClientBootstrap and type(NutritionMakesSense.ClientBootstrap.install) == "function" then
     NutritionMakesSense.ClientBootstrap.install()

@@ -4,6 +4,7 @@ require "NutritionMakesSense_MPCompat"
 require "NutritionMakesSense_Metabolism"
 require "NutritionMakesSense_CoreUtils"
 require "NutritionMakesSense_MPSnapshot"
+require "NutritionMakesSense_Settings"
 
 local Runtime = NutritionMakesSense.MetabolismRuntime or {}
 NutritionMakesSense.MetabolismRuntime = Runtime
@@ -12,6 +13,7 @@ local Metabolism = NutritionMakesSense.Metabolism
 local MP = NutritionMakesSense.MP or {}
 local CoreUtils = NutritionMakesSense.CoreUtils or {}
 local MPSnapshot = NutritionMakesSense.MPSnapshot or {}
+local Settings = NutritionMakesSense.Settings or {}
 local STATE_KEY = tostring(MP.MOD_STATE_KEY or "NutritionMakesSenseState")
 local ANCHOR = Metabolism.VANILLA_NUTRITION_ANCHOR
 local DEPOSIT_EPSILON = 0.001
@@ -40,6 +42,144 @@ local function clamp(value, minValue, maxValue)
     return Metabolism.clamp(value, minValue, maxValue)
 end
 local roundToStep = CoreUtils.roundToStep
+
+local telemetryByState = setmetatable({}, { __mode = "k" })
+local TELEMETRY_FIELDS = {}
+for _, field in ipairs(MPSnapshot.DIAGNOSTIC_STATE_FIELDS or {}) do
+    TELEMETRY_FIELDS[#TELEMETRY_FIELDS + 1] = field
+end
+for _, field in ipairs({
+    "lastEnduranceObserved", "lastWeightDeltaKg", "lastWeightRateKgPerWeek",
+    "pendingObservedHungerDrop", "pendingObservedHungerAge", "pendingMealPreVisibleHunger", "pendingMealTransaction",
+    "pendingResumeWorldHours", "pendingResumeReason",
+}) do
+    TELEMETRY_FIELDS[#TELEMETRY_FIELDS + 1] = field
+end
+
+local function newTelemetry(state, seed)
+    local telemetry = {}
+    for _, field in ipairs(TELEMETRY_FIELDS) do
+        local value = type(seed) == "table" and seed[field] or nil
+        if value ~= nil then
+            telemetry[field] = value
+        end
+    end
+    telemetry.lastMetAverage = tonumber(telemetry.lastMetAverage) or Metabolism.MET_REST
+    telemetry.lastMetPeak = tonumber(telemetry.lastMetPeak) or telemetry.lastMetAverage
+    telemetry.lastWorkTier = Metabolism.normalizeWorkTier(
+        telemetry.lastWorkTier or Metabolism.classifyWorkTier(telemetry.lastMetAverage, false)
+    )
+    telemetry.lastMetSource = tostring(telemetry.lastMetSource or "bootstrap")
+    telemetry.lastSyncedHunger = tonumber(telemetry.lastSyncedHunger)
+        or tonumber(state and state.visibleHunger) or 0
+    telemetry.lastTraceReason = tostring(telemetry.lastTraceReason or "init")
+    if type(telemetry.pendingMealTransaction) ~= "table" then
+        telemetry.pendingMealTransaction = nil
+    end
+    return telemetry
+end
+
+local function getTelemetryForState(state, seed)
+    if type(state) ~= "table" then
+        return nil
+    end
+    local telemetry = telemetryByState[state]
+    if telemetry then
+        return telemetry
+    end
+    telemetry = newTelemetry(state, seed or state)
+    telemetryByState[state] = telemetry
+    return telemetry
+end
+
+local function replaceTelemetryForState(state, seed)
+    if type(state) ~= "table" then
+        return nil
+    end
+    local telemetry = newTelemetry(state, seed)
+    telemetryByState[state] = telemetry
+    return telemetry
+end
+
+local function buildStateView(state, telemetry)
+    if type(state) ~= "table" then
+        return nil
+    end
+    local view = Metabolism.copyState(state)
+    for _, field in ipairs(TELEMETRY_FIELDS) do
+        local value = telemetry and telemetry[field] or nil
+        if value ~= nil then
+            view[field] = value
+        end
+    end
+    view.lastZone = Metabolism.getFuelZone(view.fuel)
+    view.lastHungerBand = Metabolism.getVisibleHungerBand(view.visibleHunger)
+    view.lastWeightTrait = Metabolism.getWeightTrait(view.weightKg)
+    view.lastDeprivationTarget = Metabolism.getDeprivationTarget(view)
+    view.lastFuelPressureFactor = tonumber(view.lastFuelPressureFactor) or Metabolism.getFuelPressureFactor(view.fuel)
+    view.lastGateMultiplier = tonumber(view.lastGateMultiplier) or Metabolism.getHungerGateMultiplier(view.fuel)
+    view.lastEnergyAppetiteProgress = tonumber(view.lastEnergyAppetiteProgress)
+        or Metabolism.getEnergyAppetiteProgress(view.weightBalanceKcal)
+    view.lastProteinDeficiency = tonumber(view.lastProteinDeficiency)
+        or Metabolism.getProteinDeficiencyProgress(view.proteins, view.weightKg)
+    view.lastProteinHealingMultiplier = Metabolism.getProteinHealingMultiplier(view.proteins, view.weightKg)
+    view.lastMealPreHunger = tonumber(view.lastMealPreHunger) or view.visibleHunger
+    view.lastMealTargetHunger = tonumber(view.lastMealTargetHunger) or view.visibleHunger
+    return view
+end
+
+local function recordDepositTelemetry(telemetry, report)
+    if not telemetry or type(report) ~= "table" then
+        return
+    end
+    telemetry.lastDepositKcal = tonumber(report.kcal) or 0
+    telemetry.totalIntakeKcal = (tonumber(telemetry.totalIntakeKcal) or 0) + telemetry.lastDepositKcal
+    telemetry.lastTraceReason = tostring(report.reason or report.label or "food")
+    telemetry.lastSatietyQuality = tonumber(report.satietyQuality) or 0
+    telemetry.lastSatietyContribution = tonumber(report.satietyContribution) or 0
+    telemetry.lastSatietyReturnFactor = tonumber(report.satietyReturnFactorAfter) or 1
+end
+
+local function recordAdvanceTelemetry(telemetry, report)
+    if not telemetry or type(report) ~= "table" then
+        return
+    end
+    telemetry.lastMetAverage = tonumber(report.averageMet) or Metabolism.MET_REST
+    telemetry.lastMetPeak = tonumber(report.peakMet) or telemetry.lastMetAverage
+    telemetry.lastWorkTier = tostring(report.workTier or Metabolism.WORK_TIER_REST)
+    telemetry.lastMetSource = tostring(report.source or "runtime")
+    telemetry.lastObservedHours = tonumber(report.observedHours) or 0
+    telemetry.lastHeavyHours = tonumber(report.heavyHours) or 0
+    telemetry.lastVeryHeavyHours = tonumber(report.veryHeavyHours) or 0
+    telemetry.lastBurnKcal = tonumber(report.burnedKcal) or 0
+    telemetry.lastPassiveHungerGain = tonumber(report.visibleHungerGain) or 0
+    telemetry.lastFuelPressureFactor = tonumber(report.peakFuelPressureFactor) or 1
+    telemetry.lastGateMultiplier = tonumber(report.peakGateMultiplier) or 1
+    telemetry.lastMetHungerFactor = tonumber(report.peakMetHungerFactor) or 1
+    telemetry.lastEnergyAppetiteProgress = tonumber(report.peakEnergyAppetiteProgress) or 0
+    telemetry.lastEnergyAppetiteRatePerHour = tonumber(report.peakEnergyAppetiteRatePerHour) or 0
+    telemetry.lastHungerRateMultiplier = tonumber(report.hungerRateMultiplier) or 1
+    telemetry.lastStatsDecreaseMultiplier = tonumber(report.statsDecreaseMultiplier) or 1
+    telemetry.lastAppetiteRateMultiplier = tonumber(report.appetiteRateMultiplier) or 1
+    telemetry.lastEnergyBurnMultiplier = tonumber(report.energyBurnMultiplier) or 1
+    telemetry.lastExtraEnduranceDrain = tonumber(report.extraEnduranceDrain) or 0
+    telemetry.lastProteinDeficiency = tonumber(report.peakProteinDeficiency) or telemetry.lastProteinDeficiency
+    telemetry.lastSatietyReturnFactor = tonumber(report.satietyReturnFactor) or 1
+    telemetry.lastTraceReason = tostring(report.reason or "advance")
+
+    local elapsedHours = math.max(0, tonumber(report.elapsedHours) or 0)
+    if elapsedHours > 0 then
+        telemetry.totalBurnKcal = (tonumber(telemetry.totalBurnKcal) or 0) + telemetry.lastBurnKcal
+        telemetry.totalVisibleHungerGain = (tonumber(telemetry.totalVisibleHungerGain) or 0)
+            + telemetry.lastPassiveHungerGain
+        telemetry.totalObservedHours = (tonumber(telemetry.totalObservedHours) or 0) + elapsedHours
+        if report.sleepObserved == true or tostring(report.source or "") == "sleep" then
+            telemetry.totalSleepHours = (tonumber(telemetry.totalSleepHours) or 0) + elapsedHours
+        end
+        telemetry.lastWeightDeltaKg = tonumber(report.weightDeltaKg) or 0
+        telemetry.lastWeightRateKgPerWeek = tonumber(report.weightRateKgPerWeek) or 0
+    end
+end
 
 local function isClientOnly()
     return type(isClient) == "function" and isClient() and not (type(isServer) == "function" and isServer())
@@ -202,65 +342,6 @@ local function seedWeight(nutrition)
     return Metabolism.DEFAULT_WEIGHT_KG
 end
 
-local function migrateAuthoritativeWeightFields(rawState, nutrition)
-    if type(rawState) ~= "table" or rawState.initialized ~= true then
-        return nil
-    end
-
-    local migratedWeight = nil
-    local source = nil
-
-    if tonumber(rawState.weightKg) == nil then
-        local legacyWeight = tonumber(rawState.weight)
-        if legacyWeight ~= nil then
-            migratedWeight = clamp(legacyWeight, Metabolism.WEIGHT_MIN_KG, Metabolism.WEIGHT_MAX_KG)
-            source = "legacy-weight"
-        else
-            local liveWeight = tonumber(nutrition and safeCall(nutrition, "getWeight") or nil)
-            if liveWeight ~= nil then
-                migratedWeight = clamp(liveWeight, Metabolism.WEIGHT_MIN_KG, Metabolism.WEIGHT_MAX_KG)
-                source = "live-weight"
-            end
-        end
-
-        if migratedWeight ~= nil then
-            rawState.weightKg = migratedWeight
-        end
-    else
-        migratedWeight = clamp(rawState.weightKg, Metabolism.WEIGHT_MIN_KG, Metabolism.WEIGHT_MAX_KG)
-    end
-
-    if rawState.lastWeightTrait == nil or rawState.lastWeightTrait == "" then
-        local traitWeight = migratedWeight
-        if traitWeight == nil then
-            local legacyWeight = tonumber(rawState.weight)
-            local liveWeight = tonumber(nutrition and safeCall(nutrition, "getWeight") or nil)
-            if legacyWeight ~= nil then
-                traitWeight = clamp(legacyWeight, Metabolism.WEIGHT_MIN_KG, Metabolism.WEIGHT_MAX_KG)
-                rawState.weightKg = rawState.weightKg or traitWeight
-                source = source or "legacy-weight"
-            elseif liveWeight ~= nil then
-                traitWeight = clamp(liveWeight, Metabolism.WEIGHT_MIN_KG, Metabolism.WEIGHT_MAX_KG)
-                rawState.weightKg = rawState.weightKg or traitWeight
-                source = source or "live-weight"
-            end
-        end
-        if traitWeight ~= nil then
-            rawState.lastWeightTrait = Metabolism.getWeightTrait(traitWeight)
-        end
-    end
-
-    if source == nil then
-        return nil
-    end
-
-    return {
-        source = source,
-        weightKg = tonumber(rawState.weightKg),
-        trait = tostring(rawState.lastWeightTrait),
-    }
-end
-
 local function getModData(playerObj)
     local modData = safeCall(playerObj, "getModData")
     if type(modData) ~= "table" then
@@ -281,7 +362,6 @@ local function syncProteinHealing(bodyDamage, state)
     if not bodyDamage or not state then
         return 1.0
     end
-
     local baseHealthFromFood = tonumber(state.baseHealthFromFood) or seedHealthFromFood(bodyDamage)
     state.baseHealthFromFood = baseHealthFromFood
 
@@ -291,7 +371,6 @@ local function syncProteinHealing(bodyDamage, state)
     if current == nil or math.abs(current - desired) > SYNC_EPSILON then
         safeCall(bodyDamage, "setHealthFromFood", desired)
     end
-    state.lastProteinHealingMultiplier = healingMultiplier
     return healingMultiplier
 end
 
@@ -319,77 +398,44 @@ function Runtime.ensureStateForPlayer(playerObj)
     local bodyDamage = getPlayerBodyDamage(playerObj)
     local rawState = type(modData[STATE_KEY]) == "table" and modData[STATE_KEY] or {}
     local stats = getPlayerStats(playerObj)
-    local migratedWeight = migrateAuthoritativeWeightFields(rawState, nutrition)
+    local telemetry = getTelemetryForState(rawState, rawState)
     local state = Metabolism.ensureState(rawState)
     state.baseHealthFromFood = tonumber(state.baseHealthFromFood) or seedHealthFromFood(bodyDamage)
-    if migratedWeight then
-        log(string.format(
-            "[STATE_MIGRATION] player=%s source=%s weight=%.3f trait=%s",
-            tostring(getPlayerLabel(playerObj)),
-            tostring(migratedWeight.source),
-            tonumber(migratedWeight.weightKg or state.weightKg or Metabolism.DEFAULT_WEIGHT_KG),
-            tostring(migratedWeight.trait or state.lastWeightTrait or Metabolism.getWeightTrait(state.weightKg))
-        ))
-    end
     if state.initialized ~= true then
-        state.fuel = seedFuel(nutrition)
-        state.weightKg = seedWeight(nutrition)
-        state.proteins = seedProteinAdequacy(state.weightKg)
-        state.weightController = 0
-        state.weightBalanceKcal = 0
-        state.underfeedingDebtKcal = 0
-        state.lastZone = Metabolism.getFuelZone(state.fuel)
-        state.visibleHunger = clamp(getVisibleHungerValue(stats) or 0, Metabolism.VISIBLE_HUNGER_MIN, Metabolism.VISIBLE_HUNGER_MAX)
-        state.lastHungerBand = Metabolism.getVisibleHungerBand(state.visibleHunger)
-        state.lastFuelPressureFactor = Metabolism.getFuelPressureFactor(state.fuel)
-        state.lastGateMultiplier = Metabolism.getHungerGateMultiplier(state.fuel)
-        state.lastMetHungerFactor = 1.0
-        state.lastWeightTrait = Metabolism.getWeightTrait(state.weightKg)
-        state.lastWorldHours = getWorldHours()
-        state.initialized = true
-        state.lastTraceReason = "seed"
-        state.lastDepositKcal = 0
-        state.depositSequence = 0
-        state.lastBurnKcal = 0
-        state.lastBaseHungerGain = 0
-        state.lastPassiveHungerGain = 0
-        state.lastCorrectionGain = 0
-        state.lastExtraEnduranceDrain = 0
-        state.lastWeightDeltaKg = 0
-        state.lastWeightRateKgPerWeek = 0
-        state.lastUnderfeedingDebtKcal = 0
-        state.lastDeprivationTarget = Metabolism.getDeprivationTarget(state)
-        state.lastWeightBalanceKcal = 0
-        state.lastWeightControllerTarget = 0
-        state.lastProteinDeficiency = Metabolism.getProteinDeficiencyProgress(state.proteins, state.weightKg)
-        state.lastMetAverage = Metabolism.MET_REST
-        state.lastMetPeak = Metabolism.MET_REST
-        state.lastEffectiveEnduranceMet = Metabolism.MET_REST
-        state.lastWorkTier = Metabolism.WORK_TIER_REST
-        state.lastMetSource = "seed"
-        state.lastObservedHours = 0
-        state.lastHeavyHours = 0
-        state.lastVeryHeavyHours = 0
-        state.satietyBuffer = 0
-        state.lastSatietyQuality = 0
-        state.lastSatietyContribution = 0
-        state.lastSatietyReturnFactor = 1.0
-        state.lastMealHungerDrop = 0
-        state.lastMealHungerObserved = false
-        state.pendingObservedHungerDrop = 0
-        state.pendingObservedHungerAge = 0
-        state.lastProteinHealingMultiplier = Metabolism.getProteinHealingMultiplier(state.proteins, state.weightKg)
+        local weightKg = seedWeight(nutrition)
+        local visibleHunger = clamp(
+            getVisibleHungerValue(stats) or 0,
+            Metabolism.VISIBLE_HUNGER_MIN,
+            Metabolism.VISIBLE_HUNGER_MAX
+        )
+        state = Metabolism.newState({
+            initialized = true,
+            fuel = seedFuel(nutrition),
+            weightKg = weightKg,
+            proteins = seedProteinAdequacy(weightKg),
+            visibleHunger = visibleHunger,
+            lastWorldHours = getWorldHours(),
+            baseHealthFromFood = tonumber(state.baseHealthFromFood) or seedHealthFromFood(bodyDamage),
+        })
+        telemetry = replaceTelemetryForState(state, {
+            lastMetSource = "seed",
+            lastTraceReason = "seed",
+            lastMealPreHunger = visibleHunger,
+            lastMealTargetHunger = visibleHunger,
+            lastSyncedHunger = visibleHunger,
+        })
         log(string.format(
             "[STATE_INIT] player=%s fuel=%.1f proteins=%.1f weight=%.3f zone=%s",
             tostring(getPlayerLabel(playerObj)),
             tonumber(state.fuel or 0),
             tonumber(state.proteins or 0),
             tonumber(state.weightKg or Metabolism.DEFAULT_WEIGHT_KG),
-            tostring(state.lastZone or Metabolism.getFuelZone(state.fuel))
+            tostring(Metabolism.getFuelZone(state.fuel))
         ))
         setNutritionAnchor(nutrition)
     end
 
+    telemetryByState[state] = telemetry
     modData[STATE_KEY] = state
     return state
 end
@@ -657,7 +703,6 @@ local function getActivityCache(playerObj)
         heavyHours = 0,
         veryHeavyHours = 0,
         peakMet = Metabolism.MET_REST,
-        pendingBurnKcal = 0,
         appliedEnduranceDrain = 0,
         sourceHours = {},
         sleepObserved = false,
@@ -703,7 +748,6 @@ local function buildWorkloadSummaryFromCache(cache)
             veryHeavyHours = cache.veryHeavyHours,
             source = pickDominantSource(cache.sourceHours),
             sleepObserved = cache.sleepObserved,
-            pendingBurnKcal = cache.pendingBurnKcal,
             appliedEnduranceDrain = cache.appliedEnduranceDrain,
         })
     end
@@ -712,7 +756,6 @@ local function buildWorkloadSummaryFromCache(cache)
         averageMet = Metabolism.MET_REST,
         peakMet = Metabolism.MET_REST,
         source = DEFAULT_WORKLOAD_SOURCE,
-        pendingBurnKcal = cache.pendingBurnKcal,
         appliedEnduranceDrain = cache.appliedEnduranceDrain,
     })
 end
@@ -733,25 +776,13 @@ local function setVisibleHunger(stats, value)
     return true
 end
 
-local function removeEndurance(playerObj, stats, delta)
-    if not playerObj or delta <= 0 then
-        return
-    end
-
-    if stats and CharacterStat and CharacterStat.ENDURANCE then
-        safeCall(stats, "remove", CharacterStat.ENDURANCE, delta)
-        return
-    end
-
-    safeCall(playerObj, "exert", delta)
-end
-
-local function syncVisibleWeight(nutrition, state)
+local function syncVisibleWeight(nutrition, state, telemetry)
     if not nutrition or not state then
         return
     end
 
-    local weightRate = tonumber(state.lastWeightRateKgPerWeek) or 0
+    telemetry = telemetry or getTelemetryForState(state)
+    local weightRate = tonumber(telemetry and telemetry.lastWeightRateKgPerWeek) or 0
     local weightController = tonumber(state.weightController) or 0
     local gaining = weightRate > 0.05
     local losing = weightRate < -0.05
@@ -773,21 +804,6 @@ local function syncVisibleWeight(nutrition, state)
         safeCall(nutrition, "setDecWeight", losing)
         safeCall(nutrition, "applyTraitFromWeight")
     end
-end
-
-local function refreshDerivedState(state, reason)
-    state = Metabolism.ensureState(state)
-    state.lastZone = Metabolism.getFuelZone(state.fuel)
-    state.lastHungerBand = Metabolism.getVisibleHungerBand(state.visibleHunger)
-    state.lastFuelPressureFactor = Metabolism.getFuelPressureFactor(state.fuel)
-    state.lastGateMultiplier = Metabolism.getHungerGateMultiplier(state.fuel)
-    state.lastWeightTrait = Metabolism.getWeightTrait(state.weightKg)
-    state.lastUnderfeedingDebtKcal = tonumber(state.underfeedingDebtKcal) or 0
-    state.lastDeprivationTarget = Metabolism.getDeprivationTarget(state)
-    state.lastProteinDeficiency = Metabolism.getProteinDeficiencyProgress(state.proteins, state.weightKg)
-    state.lastProteinHealingMultiplier = Metabolism.getProteinHealingMultiplier(state.proteins, state.weightKg)
-    state.lastTraceReason = tostring(reason or state.lastTraceReason or "debug-set")
-    return state
 end
 
 local function shouldAdoptManualVisibleHunger(playerObj, reason)
@@ -815,6 +831,7 @@ local function importLiveVisibleHungerDrop(state, stats, options)
         return 0
     end
 
+    local telemetry = getTelemetryForState(state)
     local opts = type(options) == "table" and options or nil
     local allowRise = opts and opts.allowRise == true
     local riseEpsilon = tonumber(opts and opts.riseEpsilon) or MANUAL_VISIBLE_HUNGER_IMPORT_EPSILON
@@ -829,7 +846,7 @@ local function importLiveVisibleHungerDrop(state, stats, options)
         Metabolism.VISIBLE_HUNGER_MAX
     )
     local lastSyncedHunger = clamp(
-        state.lastSyncedHunger or modeledHunger,
+        telemetry.lastSyncedHunger or modeledHunger,
         Metabolism.VISIBLE_HUNGER_MIN,
         Metabolism.VISIBLE_HUNGER_MAX
     )
@@ -841,18 +858,23 @@ local function importLiveVisibleHungerDrop(state, stats, options)
         return 0
     end
 
+    if hasDrop and (tonumber(telemetry.pendingObservedHungerDrop) or 0) <= VISIBLE_HUNGER_IMPORT_EPSILON
+        and telemetry.pendingMealPreVisibleHunger == nil then
+        telemetry.pendingMealPreVisibleHunger = lastSyncedHunger
+    end
+
     -- Import live hunger edits before shell sync to avoid snapping vanilla/UI debug writes
-    -- back to stale modeled state.
+    -- back to stale modeled state. The pre-drop reference is retained so a delayed
+    -- nutrition deposit can replace the mechanical result instead of stacking on it.
     state.visibleHunger = liveHunger
-    state.lastSyncedHunger = liveHunger
-    state.lastHungerBand = Metabolism.getVisibleHungerBand(liveHunger)
+    telemetry.lastSyncedHunger = liveHunger
     if hasDrop then
-        state.pendingObservedHungerDrop = clamp(
-            (tonumber(state.pendingObservedHungerDrop) or 0) + importedDrop,
+        telemetry.pendingObservedHungerDrop = clamp(
+            (tonumber(telemetry.pendingObservedHungerDrop) or 0) + importedDrop,
             0,
             1
         )
-        state.pendingObservedHungerAge = 0
+        telemetry.pendingObservedHungerAge = 0
     end
     return hasDrop and importedDrop or 0
 end
@@ -862,6 +884,7 @@ local function syncVisibleHunger(playerObj, state, reason)
         return false
     end
 
+    local telemetry = getTelemetryForState(state)
     local stats = getPlayerStats(playerObj)
     if not stats then
         return false
@@ -879,14 +902,24 @@ local function syncVisibleHunger(playerObj, state, reason)
     local current = getVisibleHungerValue(stats) or desired
 
     if math.abs(current - desired) <= SYNC_EPSILON then
-        state.lastSyncedHunger = desired
+        telemetry.lastSyncedHunger = desired
         return false
     end
 
     -- Keep the vanilla-facing hunger stat slaved to NMS state. Letting live vanilla
     -- drift accumulate back into state causes threshold chatter and moodle pop-in/out.
     local changed = setVisibleHunger(stats, desired)
-    state.lastSyncedHunger = desired
+    telemetry.lastSyncedHunger = desired
+    if changed and type(DebugSupport.noteHungerSyncEvent) == "function" then
+        DebugSupport.noteHungerSyncEvent({
+            reason = tostring(reason or "visible-hunger-sync"),
+            provenance = "hunger-shell-sync",
+            pre_visible_hunger = current,
+            target_visible_hunger = desired,
+            observed_hunger_drop = math.max(0, current - desired),
+            hunger_observed = true,
+        })
+    end
     return changed
 end
 
@@ -925,7 +958,6 @@ local function consumeWorkloadSummary(playerObj)
         cache.heavyHours = 0
         cache.veryHeavyHours = 0
         cache.peakMet = summary.averageMet or Metabolism.MET_REST
-        cache.pendingBurnKcal = 0
         cache.appliedEnduranceDrain = 0
         cache.sourceHours = {}
         cache.sleepObserved = false
@@ -939,6 +971,7 @@ local eachKnownPlayer = CoreUtils.eachKnownPlayer
 Runtime.Metabolism = Metabolism
 Runtime.MP = MP
 Runtime.MPSnapshot = MPSnapshot
+Runtime.Settings = Settings
 Runtime.STATE_KEY = STATE_KEY
 Runtime.DEFAULT_WORKLOAD_SOURCE = DEFAULT_WORKLOAD_SOURCE
 Runtime.scriptedWorkloadOverrideByPlayerKey = scriptedWorkloadOverrideByPlayerKey
@@ -962,6 +995,11 @@ Runtime.hasMeaningfulDeposit = hasMeaningfulDeposit
 Runtime.shouldRunAuthoritativeUpdates = shouldRunAuthoritativeUpdates
 Runtime.isDedicatedServerRuntime = isDedicatedServerRuntime
 Runtime.getPlayerCacheKey = getPlayerCacheKey
+Runtime.getTelemetryForState = getTelemetryForState
+Runtime.replaceTelemetryForState = replaceTelemetryForState
+Runtime.buildStateView = buildStateView
+Runtime.recordDepositTelemetry = recordDepositTelemetry
+Runtime.recordAdvanceTelemetry = recordAdvanceTelemetry
 Runtime.normalizeScriptedWorkloadOverride = normalizeScriptedWorkloadOverride
 Runtime.normalizeReportedWorkloadSample = normalizeReportedWorkloadSample
 Runtime.getFreshReportedWorkload = getFreshReportedWorkload
@@ -974,12 +1012,10 @@ Runtime.syncVisibleHunger = syncVisibleHunger
 Runtime.syncVisibleWeight = syncVisibleWeight
 Runtime.syncProteinHealing = syncProteinHealing
 Runtime.suppressFoodEatenTimer = suppressFoodEatenTimer
-Runtime.refreshDerivedState = refreshDerivedState
 Runtime.importLiveVisibleHungerDrop = importLiveVisibleHungerDrop
 Runtime.seedHealthFromFood = seedHealthFromFood
 Runtime.setStatValue = setStatValue
 Runtime.normalizeDeposit = normalizeDeposit
-Runtime.removeEndurance = removeEndurance
 Runtime.consumeWorkloadSummary = consumeWorkloadSummary
 Runtime.eachKnownPlayer = eachKnownPlayer
 

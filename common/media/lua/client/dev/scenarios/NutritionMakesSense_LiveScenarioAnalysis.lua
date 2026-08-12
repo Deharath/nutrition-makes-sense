@@ -97,6 +97,26 @@ PROFILE_SUMMARY_BUILDERS.snack_gap_stress = function(run, helpers)
     }
 end
 
+PROFILE_SUMMARY_BUILDERS.recorded_exploration_day = function(run, helpers)
+    local analysis = helpers.ensureAnalysis(run)
+    local finalState = analysis.finalSnapshot and analysis.finalSnapshot.state or {}
+    local intake = tonumber(finalState.totalIntakeKcal) or 0
+    local burn = tonumber(finalState.totalBurnKcal) or 0
+    local ratio = burn > 0 and (intake / burn) or 0
+    return {
+        metricLine("Items Eaten", tostring(#(analysis.consumes or {}))),
+        metricLine("Intake / Burn", string.format("%.0f / %.0f kcal  (%.0f%%)", intake, burn, ratio * 100)),
+        metricLine("First Peckish", string.format("%s  energy %s",
+            helpers.formatMetricHour(analysis.firstPeckish and analysis.firstPeckish.hour),
+            helpers.formatMetricNumber(analysis.firstPeckish and analysis.firstPeckish.fuel, "%.0f"))),
+        metricLine("First Depleted", helpers.formatMetricHour(analysis.firstDepletedZone and analysis.firstDepletedZone.hour)),
+        metricLine("Depleted Time", string.format("%.2fh", tonumber(analysis.timeInDepletedHours) or 0)),
+        metricLine("Max Hidden Awake", string.format("%.2fh", tonumber(analysis.maxAwakeHiddenDepletedStreakHours) or 0)),
+        metricLine("End Energy", helpers.formatMetricNumber(finalState.fuel, "%.0f")),
+        metricLine("Peak Depriv", helpers.formatMetricNumber(analysis.peakDeprivation and analysis.peakDeprivation.value, "%.3f")),
+    }
+end
+
 PROFILE_EVALUATORS.canonical_day = function(run, helpers)
     local analysis = helpers.ensureAnalysis(run)
     local validation = run.profile and run.profile.validation or {}
@@ -154,6 +174,81 @@ PROFILE_EVALUATORS.canonical_day = function(run, helpers)
     if mealIssues == 0 then
         helpers.addEvaluation(run, helpers.SEVERITY_PASS, "canonical_meals_help",
             "structured proper meals consistently lowered hunger through the day")
+    end
+end
+
+PROFILE_EVALUATORS.recorded_exploration_day = function(run, helpers)
+    local analysis = helpers.ensureAnalysis(run)
+    local validation = run.profile and run.profile.validation or {}
+    local consumes = analysis.consumes or {}
+    local finalState = analysis.finalSnapshot and analysis.finalSnapshot.state or {}
+    local intake = tonumber(finalState.totalIntakeKcal) or 0
+    local burn = tonumber(finalState.totalBurnKcal) or 0
+    local ratio = burn > 0 and (intake / burn) or 0
+    local minimumItems = tonumber(validation.minimumItems) or 8
+    local maximumItems = tonumber(validation.maximumItems) or 14
+    local minimumRatio = tonumber(validation.minimumIntakeBurnRatio) or 0.70
+    local maximumRatio = tonumber(validation.maximumIntakeBurnRatio) or 1.25
+    local maximumHiddenStreak = tonumber(validation.maximumAwakeHiddenDepletedStreakHours) or 2.0
+    local maximumDeprivation = tonumber(validation.maximumDeprivation) or 0.01
+    local hiddenStreak = tonumber(analysis.maxAwakeHiddenDepletedStreakHours) or 0
+    local peakDeprivation = tonumber(analysis.peakDeprivation and analysis.peakDeprivation.value) or 0
+    local weakReliefCount = 0
+    local hungerDropThreshold = tonumber(validation.hungerDropThreshold) or 0.01
+
+    for _, consume in ipairs(consumes) do
+        if (tonumber(consume and consume.hungerDrop) or 0) < hungerDropThreshold then
+            weakReliefCount = weakReliefCount + 1
+        end
+    end
+
+    if #consumes < minimumItems then
+        helpers.addEvaluation(run, helpers.SEVERITY_FAIL, "recorded_day_underprompted",
+            string.format("closed-loop appetite only prompted %d items; expected at least %d", #consumes, minimumItems))
+    elseif #consumes > maximumItems then
+        helpers.addEvaluation(run, helpers.SEVERITY_FAIL, "recorded_day_overprompted",
+            string.format("closed-loop appetite prompted %d items; expected at most %d", #consumes, maximumItems))
+    else
+        helpers.addEvaluation(run, helpers.SEVERITY_PASS, "recorded_day_prompt_count_plausible",
+            string.format("closed-loop appetite prompted %d items", #consumes))
+    end
+
+    if burn <= 0 then
+        helpers.addEvaluation(run, helpers.SEVERITY_FAIL, "recorded_day_burn_missing",
+            "recorded-workload autopilot produced no metabolic burn ledger")
+    elseif ratio < minimumRatio then
+        helpers.addEvaluation(run, helpers.SEVERITY_FAIL, "recorded_day_intake_too_low",
+            string.format("hunger-led intake only covered %.0f%% of burn (%.0f / %.0f kcal)", ratio * 100, intake, burn))
+    elseif ratio > maximumRatio then
+        helpers.addEvaluation(run, helpers.SEVERITY_FAIL, "recorded_day_intake_too_high",
+            string.format("hunger-led intake reached %.0f%% of burn (%.0f / %.0f kcal)", ratio * 100, intake, burn))
+    else
+        helpers.addEvaluation(run, helpers.SEVERITY_PASS, "recorded_day_intake_tracks_burn",
+            string.format("hunger-led intake covered %.0f%% of burn (%.0f / %.0f kcal)", ratio * 100, intake, burn))
+    end
+
+    if hiddenStreak > maximumHiddenStreak then
+        helpers.addEvaluation(run, helpers.SEVERITY_FAIL, "recorded_day_hidden_depletion_too_long",
+            string.format("awake energy depletion stayed hidden for %.2fh; maximum %.2fh", hiddenStreak, maximumHiddenStreak))
+    else
+        helpers.addEvaluation(run, helpers.SEVERITY_PASS, "recorded_day_avoids_hidden_depletion",
+            string.format("longest awake comfortable-but-depleted streak stayed at %.2fh", hiddenStreak))
+    end
+
+    if peakDeprivation > maximumDeprivation then
+        helpers.addEvaluation(run, helpers.SEVERITY_FAIL, "recorded_day_deprivation_too_high",
+            string.format("one recorded day reached %.3f deprivation", peakDeprivation))
+    else
+        helpers.addEvaluation(run, helpers.SEVERITY_PASS, "recorded_day_no_same_day_malnutrition",
+            string.format("peak deprivation stayed at %.3f", peakDeprivation))
+    end
+
+    if #consumes > 0 and weakReliefCount == 0 then
+        helpers.addEvaluation(run, helpers.SEVERITY_PASS, "recorded_day_meals_feel_effective",
+            "every hunger-triggered item produced observable immediate relief")
+    elseif weakReliefCount > 0 then
+        helpers.addEvaluation(run, helpers.SEVERITY_FAIL, "recorded_day_meals_feel_effective",
+            string.format("%d hunger-triggered items failed to produce immediate relief", weakReliefCount))
     end
 end
 

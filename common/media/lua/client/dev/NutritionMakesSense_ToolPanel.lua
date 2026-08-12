@@ -2,13 +2,11 @@ NutritionMakesSense = NutritionMakesSense or {}
 NutritionMakesSense.ToolPanel = NutritionMakesSense.ToolPanel or {}
 
 require "ISUI/ISTextEntryBox"
-require "dev/NutritionMakesSense_SimRunner"
 require "ui/NutritionMakesSense_UIHelpers"
 
 local ToolPanel = NutritionMakesSense.ToolPanel
 local Runtime = NutritionMakesSense.MetabolismRuntime or {}
 local Metabolism = NutritionMakesSense.Metabolism or {}
-local SimRunner = NutritionMakesSense.SimRunner or {}
 local UIHelpers = NutritionMakesSense.UIHelpers or {}
 
 local panelInstance = nil
@@ -33,39 +31,34 @@ local BAD   = { r = 0.85, g = 0.25, b = 0.20, a = 1.0 }
 local PRESETS = {
     {
         name = "Well Fed", color = GOOD,
-        state = { fuel = 1300, deprivation = 0, satietyBuffer = 0.8, weightController = 0.05, weightBalanceKcal = 440, underfeedingDebtKcal = 0 },
+        state = { fuel = 1300, deprivation = 0, satietyBuffer = 0.8, weightController = 0.05, weightBalanceKcal = 440 },
         vanilla = { hunger = 0, endurance = 1, fatigue = 0 },
     },
     {
         name = "Hungry", color = WARN,
-        state = { fuel = 400, deprivation = 0, satietyBuffer = 0, weightController = -0.05, weightBalanceKcal = -510, underfeedingDebtKcal = 120 },
+        state = { fuel = 400, deprivation = 0, satietyBuffer = 0, weightController = -0.05, weightBalanceKcal = -510 },
         vanilla = { hunger = 0.35, endurance = 1, fatigue = 0 },
     },
     {
         name = "Deprived", color = WARN,
-        state = { fuel = 0, deprivation = 0.6, satietyBuffer = 0, weightController = -0.2, weightBalanceKcal = -1125, underfeedingDebtKcal = 624 },
+        state = { fuel = 0, deprivation = 0.6, satietyBuffer = 0, weightController = -0.2, weightBalanceKcal = -5000 },
         vanilla = { hunger = 0.60, endurance = 1, fatigue = 0.3 },
     },
     {
         name = "Critical", color = BAD,
-        state = { fuel = 0, deprivation = 0.9, satietyBuffer = 0, weightController = -0.4, weightBalanceKcal = -1950, underfeedingDebtKcal = 906 },
+        state = { fuel = 0, deprivation = 0.9, satietyBuffer = 0, weightController = -0.4, weightBalanceKcal = -8000 },
         vanilla = { hunger = 0.69, endurance = 0.5, fatigue = 0.5 },
     },
     {
         name = "Recovery", color = GOOD,
-        state = { fuel = 800, deprivation = 0.7, satietyBuffer = 0.5, weightController = 0, weightBalanceKcal = 0, underfeedingDebtKcal = 220 },
+        state = { fuel = 800, deprivation = 0.7, satietyBuffer = 0.5, weightController = 0, weightBalanceKcal = -3500 },
         vanilla = { hunger = 0.20, endurance = 1, fatigue = 0.2 },
     },
 }
 
-local function getSimProfiles()
-    return type(SimRunner.getProfiles) == "function" and SimRunner.getProfiles() or {}
-end
-
 local FIELDS = {
     { key = "fuel",              label = "Energy",      fmt = "%.0f" },
     { key = "deprivation",       label = "Deprivation", fmt = "%.3f" },
-    { key = "underfeedingDebtKcal", label = "Dep Debt", fmt = "%.0f" },
     { key = "satietyBuffer",     label = "Satiety",     fmt = "%.3f" },
     { key = "proteins",          label = "Prot Adeq",   fmt = "%.0f" },
     { key = "weightController",  label = "Controller",  fmt = "%.3f" },
@@ -152,21 +145,6 @@ local function applyVanillaField(spec, value)
     end
 end
 
-local function buildSimulationStatus(summary)
-    if type(summary) ~= "table" then
-        return { "simulation failed" }
-    end
-
-    return {
-        string.format("%s simulated", tostring(summary.label or summary.profileId or "profile")),
-        string.format("Peckish %s  Hungry %s", tostring(summary.firstPeckishLabel or "--"), tostring(summary.firstHungryLabel or "--")),
-        string.format("Low %s  Depleted %s", tostring(summary.firstLowLabel or "--"), tostring(summary.firstDepletedLabel or "--")),
-        string.format("Deprivation %s  Peak %.3f", tostring(summary.firstDeprivationLabel or "--"), tonumber(summary.highestDeprivation or 0)),
-        string.format("End energy %.0f  End hunger %.3f", tonumber(summary.endFuel or 0), tonumber(summary.endHunger or 0)),
-        string.format("Weight %+0.3f kg", tonumber(summary.weightDeltaKg or 0)),
-    }
-end
-
 -- UI
 
 local NMS_ToolOverlay = (ISPanel and type(ISPanel.derive) == "function")
@@ -183,8 +161,6 @@ function NMS_ToolOverlay:new(x, y)
     p.entries = {}
     p.vanillaEntries = {}
     p.status = ""
-    p.statusLines = {}
-    p.liveStatusLines = {}
     return p
 end
 
@@ -248,18 +224,7 @@ function NMS_ToolOverlay:createChildren()
         y = y + ROW
     end
 
-    y = y + 6
-    self:drawSectionAt(y, "Sim Profiles")
-    y = y + 18
-    for _, profile in ipairs(getSimProfiles()) do
-        local btn = ISButton:new(PAD, y, 112, 20, profile.label, self, NMS_ToolOverlay.onRunSimProfile)
-        btn:initialise()
-        btn.internal = profile.id
-        self:addChild(btn)
-        y = y + ROW
-    end
-
-    self.contentHeight = y + 100
+    self.contentHeight = y + 12
     self:loadValues()
 end
 
@@ -294,7 +259,6 @@ function NMS_ToolOverlay:onPreset(button)
     applyPreset(preset)
     self:loadValues()
     self.status = preset.name .. " applied"
-    self.statusLines = {}
 end
 
 function NMS_ToolOverlay:onSetField(button)
@@ -304,7 +268,6 @@ function NMS_ToolOverlay:onSetField(button)
     applyField(key, e.entry:getText())
     self:loadValues()
     self.status = key .. " set"
-    self.statusLines = {}
 end
 
 function NMS_ToolOverlay:onSetVanilla(button)
@@ -314,26 +277,6 @@ function NMS_ToolOverlay:onSetVanilla(button)
     applyVanillaField(e.spec, e.entry:getText())
     self:loadValues()
     self.status = key .. " set"
-    self.statusLines = {}
-end
-
-function NMS_ToolOverlay:onRunSimProfile(button)
-    local profileId = button and button.internal or nil
-    if not profileId or type(SimRunner.runProfile) ~= "function" then
-        self.status = "simulation unavailable"
-        self.statusLines = { "simulation unavailable" }
-        return
-    end
-
-    local summary = SimRunner.runProfile(profileId)
-    if not summary then
-        self.status = "simulation failed"
-        self.statusLines = { "simulation failed" }
-        return
-    end
-
-    self.status = tostring(summary.label or profileId) .. " simulated"
-    self.statusLines = buildSimulationStatus(summary)
 end
 
 function NMS_ToolOverlay:onClose()
@@ -374,10 +317,6 @@ function NMS_ToolOverlay:render()
     if self.status and self.status ~= "" then
         self:drawText(self.status, PAD, statusY, DIM.r, DIM.g, DIM.b, DIM.a, FONT_S)
         statusY = statusY + 16
-    end
-    for _, line in ipairs(self.statusLines or {}) do
-        self:drawText(line, PAD, statusY, DIM.r, DIM.g, DIM.b, DIM.a, FONT_S)
-        statusY = statusY + 14
     end
 end
 
@@ -420,10 +359,6 @@ end
 
 function ToolPanel.toggle()
     if panelInstance and panelInstance:isVisible() then ToolPanel.hide() else ToolPanel.show() end
-end
-
-function ToolPanel.isVisible()
-    return panelInstance ~= nil and panelInstance:isVisible()
 end
 
 return ToolPanel

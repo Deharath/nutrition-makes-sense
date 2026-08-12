@@ -7,3 +7,23 @@ option NutritionMakesSense.UseCuratedFoodValues
     page = NutritionMakesSense,
     translation = NutritionMakesSense_UseCuratedFoodValues,
 }
+
+option NutritionMakesSense.EnergyBurnMultiplier
+{
+    type = double,
+    min = 0.25,
+    max = 3.0,
+    default = 1.0,
+    page = NutritionMakesSense,
+    translation = NutritionMakesSense_EnergyBurnMultiplier,
+}
+
+option NutritionMakesSense.AppetiteRateMultiplier
+{
+    type = double,
+    min = 0.25,
+    max = 3.0,
+    default = 1.0,
+    page = NutritionMakesSense,
+    translation = NutritionMakesSense_AppetiteRateMultiplier,
+}

@@ -83,7 +83,10 @@ local function normalizeSink(sink)
         return nil
     end
 
-    if type(sink.noteConsumeEvent) ~= "function" and type(sink.noteSeedEvent) ~= "function" then
+    if type(sink.noteConsumeEvent) ~= "function"
+        and type(sink.noteFoodActionEvent) ~= "function"
+        and type(sink.noteSnapshotEvent) ~= "function"
+        and type(sink.noteHungerSyncEvent) ~= "function" then
         return nil
     end
 
@@ -134,8 +137,16 @@ function DebugSupport.noteConsumeEvent(event)
     dispatchEvent("noteConsumeEvent", event)
 end
 
-function DebugSupport.noteSeedEvent(event)
-    dispatchEvent("noteSeedEvent", event)
+function DebugSupport.noteFoodActionEvent(event)
+    dispatchEvent("noteFoodActionEvent", event)
+end
+
+function DebugSupport.noteSnapshotEvent(event)
+    dispatchEvent("noteSnapshotEvent", event)
+end
+
+function DebugSupport.noteHungerSyncEvent(event)
+    dispatchEvent("noteHungerSyncEvent", event)
 end
 
 return DebugSupport

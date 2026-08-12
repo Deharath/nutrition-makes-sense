@@ -20,6 +20,20 @@ function Utils.copyTable(source)
     return out
 end
 
+function Utils.getListItem(list, index, repeatEnabled)
+    if type(list) ~= "table" or #list == 0 then
+        return nil
+    end
+    local normalizedIndex = math.max(1, math.floor(tonumber(index) or 1))
+    if normalizedIndex > #list then
+        if repeatEnabled ~= true then
+            return nil
+        end
+        normalizedIndex = ((normalizedIndex - 1) % #list) + 1
+    end
+    return list[normalizedIndex]
+end
+
 function Utils.clamp(value, minValue, maxValue)
     return Metabolism.clamp and Metabolism.clamp(value, minValue, maxValue)
         or math.max(minValue, math.min(maxValue, value))
@@ -259,6 +273,30 @@ function Utils.removeInventoryItem(inventory, item)
         return not Utils.inventoryContainsItem(inventory, item)
     end
     return false
+end
+
+function Utils.getFoodSafety(item)
+    if not item then
+        return nil
+    end
+
+    local safety = {
+        cooked = safeCall(item, "isCooked") == true,
+        burnt = safeCall(item, "isBurnt") == true,
+        rotten = safeCall(item, "isRotten") == true,
+        dangerousUncooked = safeCall(item, "isbDangerousUncooked") == true,
+    }
+    if safety.rotten then
+        safety.unsafe = true
+        safety.reason = "rotten"
+    elseif safety.dangerousUncooked and not safety.cooked then
+        safety.unsafe = true
+        safety.reason = "dangerous_uncooked"
+    else
+        safety.unsafe = false
+        safety.reason = ""
+    end
+    return safety
 end
 
 function Utils.getFoodEatenMoodle(playerObj)

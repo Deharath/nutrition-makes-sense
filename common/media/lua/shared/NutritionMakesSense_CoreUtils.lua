@@ -131,17 +131,6 @@ local function rawLookup(tableLike, key)
     return nil
 end
 
-local function clamp01(value)
-    local numeric = tonumber(value) or 0
-    if numeric < 0 then
-        return 0
-    end
-    if numeric > 1 then
-        return 1
-    end
-    return numeric
-end
-
 local function roundToStep(value, step)
     local numeric = tonumber(value) or 0
     local unit = tonumber(step) or 1
@@ -224,10 +213,6 @@ end
 
 function CoreUtils.rawLookup(tableLike, key)
     return rawLookup(tableLike, key)
-end
-
-function CoreUtils.clamp01(value)
-    return clamp01(value)
 end
 
 function CoreUtils.roundToStep(value, step)

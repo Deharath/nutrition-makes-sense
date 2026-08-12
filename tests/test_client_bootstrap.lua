@@ -44,6 +44,8 @@ Keyboard = {
 }
 
 local toggles = { dev = 0, tool = 0, test = 0 }
+local foodDebugInstalls = 0
+local foodDebugInstalled = false
 local debugEnabled = false
 local activeModId = "\\NutritionMakesSenseDev"
 isDebugEnabled = function()
@@ -82,6 +84,12 @@ package.preload["dev/NutritionMakesSense_FoodDebug"] = function()
         resolveActualItems = function(items) return items end,
         isFoodItem = function() return true end,
         logItem = function() end,
+        install = function()
+            if not foodDebugInstalled then
+                foodDebugInstalled = true
+                foodDebugInstalls = foodDebugInstalls + 1
+            end
+        end,
     }
     return NutritionMakesSense.FoodDebug
 end
@@ -107,7 +115,6 @@ Events.OnKeyPressed.handlers[1](Keyboard.KEY_NUMPAD8)
 Support.assertEqual(toggles.dev, 0, "normal launch blocks dev-panel hotkey")
 Support.assertEqual(toggles.tool, 0, "normal launch blocks tool-panel hotkey")
 Support.assertEqual(toggles.test, 0, "normal launch blocks test-panel hotkey")
-Support.assertEqual(Bootstrap.isDevPanelEnabled(), false, "normal launch disables dev surfaces")
 
 local normalOptions = {}
 local normalContext = {
@@ -136,7 +143,6 @@ package.preload["dev/NutritionMakesSense_DevPanel"] = function()
     return {}
 end
 package.loaded["dev/NutritionMakesSense_DevPanel"] = nil
-Support.assertEqual(Bootstrap.isDevPanelEnabled(), false, "debug launch does not enable Workshop dev surfaces")
 Support.assertEqual(workshopRequireAttempts, 0, "Workshop build never probes an excluded dev module")
 
 local workshopOptions = {}
@@ -154,8 +160,9 @@ Support.assertEqual(#workshopOptions, 0, "debug Workshop launch exposes no dev c
 Support.assertEqual(workshopRequireAttempts, 0, "context-menu events never probe excluded dev modules")
 
 activeModId = "\\NutritionMakesSenseDev"
-Support.assertEqual(Bootstrap.isDevPanelEnabled(), false, "invalid dev module does not enable dev surfaces")
+Events.OnKeyPressed.handlers[1](Keyboard.KEY_NUMPAD6)
 Support.assertEqual(workshopRequireAttempts, 1, "dev build probes its included dev panel")
+Support.assertEqual(toggles.dev, 0, "invalid dev module cannot toggle a panel")
 package.preload["dev/NutritionMakesSense_DevPanel"] = devPanelLoader
 package.loaded["dev/NutritionMakesSense_DevPanel"] = nil
 
@@ -165,6 +172,8 @@ Events.OnKeyPressed.handlers[1](Keyboard.KEY_NUMPAD8)
 Support.assertEqual(toggles.dev, 1, "dev-panel hotkey")
 Support.assertEqual(toggles.tool, 1, "tool-panel hotkey")
 Support.assertEqual(toggles.test, 1, "test-panel hotkey")
+Events.OnGameBoot.handlers[1]()
+Support.assertEqual(foodDebugInstalls, 1, "dev boot installs observation-only food telemetry")
 
 local options = {}
 local context = {

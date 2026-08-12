@@ -5,7 +5,12 @@ NutritionMakesSense.Settings = Settings
 
 local DEFAULTS = {
     UseCuratedFoodValues = true,
+    EnergyBurnMultiplier = 1.0,
+    AppetiteRateMultiplier = 1.0,
 }
+
+local MULTIPLIER_MIN = 0.25
+local MULTIPLIER_MAX = 3.0
 
 local function toBoolean(value, fallback)
     if value == nil then
@@ -44,12 +49,32 @@ local function getSandboxOptionValue(shortName)
     return SandboxVars["NutritionMakesSense." .. shortName]
 end
 
+local function clamp(value, minValue, maxValue)
+    return math.max(minValue, math.min(maxValue, value))
+end
+
+local function getMultiplier(shortName, fallback)
+    local value = tonumber(getSandboxOptionValue(shortName))
+    if value == nil then
+        value = fallback
+    end
+    return clamp(value, MULTIPLIER_MIN, MULTIPLIER_MAX)
+end
+
 function Settings.useCuratedFoodValues()
     return toBoolean(getSandboxOptionValue("UseCuratedFoodValues"), DEFAULTS.UseCuratedFoodValues)
 end
 
-function Settings.getStaticFoodValueSource()
-    return Settings.useCuratedFoodValues() and "authored" or "vanilla"
+function Settings.getEnergyBurnMultiplier()
+    return getMultiplier("EnergyBurnMultiplier", DEFAULTS.EnergyBurnMultiplier)
 end
+
+function Settings.getAppetiteRateMultiplier()
+    return getMultiplier("AppetiteRateMultiplier", DEFAULTS.AppetiteRateMultiplier)
+end
+
+Settings.DEFAULTS = DEFAULTS
+Settings.MULTIPLIER_MIN = MULTIPLIER_MIN
+Settings.MULTIPLIER_MAX = MULTIPLIER_MAX
 
 return Settings

@@ -21,6 +21,33 @@ Support.assertNil(RunnerUtils.isHungerSignalReady,
     "live meals must not trigger from backend hunger values")
 Support.assertNil(RunnerUtils.getExpectedHungerMoodleLevel,
     "runner must not maintain a shadow copy of mutable vanilla moodle rules")
+Support.assertEqual(RunnerUtils.getListItem({ "a", "b" }, 2, false), "b",
+    "finite signal sequences return their indexed item")
+Support.assertNil(RunnerUtils.getListItem({ "a", "b" }, 3, false),
+    "finite signal sequences stop after their final item")
+Support.assertEqual(RunnerUtils.getListItem({ "a", "b" }, 3, true), "a",
+    "closed-loop signal sequences cycle while the scenario remains active")
+
+local function fakeFood(options)
+    local values = options or {}
+    return {
+        isCooked = function() return values.cooked == true end,
+        isBurnt = function() return values.burnt == true end,
+        isRotten = function() return values.rotten == true end,
+        isbDangerousUncooked = function() return values.dangerousUncooked == true end,
+    }
+end
+
+local rawMeatSafety = RunnerUtils.getFoodSafety(fakeFood({ dangerousUncooked = true }))
+Support.assertEqual(rawMeatSafety.unsafe, true, "dangerous raw food is rejected")
+Support.assertEqual(rawMeatSafety.reason, "dangerous_uncooked", "raw-food rejection explains its cause")
+
+local cookedMeatSafety = RunnerUtils.getFoodSafety(fakeFood({ dangerousUncooked = true, cooked = true }))
+Support.assertEqual(cookedMeatSafety.unsafe, false, "cooked dangerous-when-raw food is accepted")
+
+local rottenFoodSafety = RunnerUtils.getFoodSafety(fakeFood({ rotten = true, cooked = true }))
+Support.assertEqual(rottenFoodSafety.unsafe, true, "rotten spawned food is rejected")
+Support.assertEqual(rottenFoodSafety.reason, "rotten", "rotten-food rejection explains its cause")
 
 local state = Metabolism.newState({ fuel = 500 })
 Support.assertEqual(state.depositSequence, 0, "new states start with no observed deposits")

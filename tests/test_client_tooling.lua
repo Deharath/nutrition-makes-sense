@@ -61,6 +61,22 @@ Support.assertEqual(DebugSupport.registerEventSink("test", sink), true, "debug s
 DebugSupport.noteConsumeEvent({ reason = "consume" })
 DebugSupport.unregisterEventSink("test")
 Support.assertEqual(capturedEvent and capturedEvent.reason, "consume", "one-argument debug sink payload")
+local foodActionEvent = nil
+local snapshotEvent = nil
+local hungerSyncEvent = nil
+Support.assertEqual(DebugSupport.registerEventSink("telemetry", {
+    noteFoodActionEvent = function(event) foodActionEvent = event end,
+    noteSnapshotEvent = function(event) snapshotEvent = event end,
+    noteHungerSyncEvent = function(event) hungerSyncEvent = event end,
+}), true, "telemetry-only sink registration")
+DebugSupport.noteFoodActionEvent({ item = "Base.Apple" })
+DebugSupport.noteSnapshotEvent({ snapshot_sequence = 4 })
+DebugSupport.noteHungerSyncEvent({ target_visible_hunger = 0.25 })
+DebugSupport.unregisterEventSink("telemetry")
+Support.assertEqual(foodActionEvent and foodActionEvent.item, "Base.Apple", "food action telemetry dispatch")
+Support.assertEqual(snapshotEvent and snapshotEvent.snapshot_sequence, 4, "snapshot telemetry dispatch")
+Support.assertClose(hungerSyncEvent and hungerSyncEvent.target_visible_hunger, 0.25, 0.000001,
+    "hunger sync telemetry dispatch")
 Support.assertEqual(DebugSupport.canUseDevTools(), false, "admin access must not unlock dev tools")
 
 function isDebugEnabled()

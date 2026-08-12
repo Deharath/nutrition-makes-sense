@@ -293,19 +293,6 @@ function PlayerStatusPanel.toggle()
     end
 end
 
-function PlayerStatusPanel.isVisible()
-    return panelInstance ~= nil and panelInstance:isVisible()
-end
-
-function PlayerStatusPanel.install()
-    if PlayerStatusPanel._installed then
-        return PlayerStatusPanel
-    end
-    PlayerStatusPanel._installed = true
-
-    return PlayerStatusPanel
-end
-
 function NMS_NutritionStatus()
     local ok, err = pcall(PlayerStatusPanel.toggle)
     if not ok then

@@ -19,6 +19,7 @@ local getCharacterStatValue = Runtime.getCharacterStatValue
 local setStatValue = Runtime.setStatValue
 local safeCall = Runtime.safeCall
 local normalizeReportedWorkloadSample = Runtime.normalizeReportedWorkloadSample
+local getTelemetryForState = Runtime.getTelemetryForState
 local REPORTED_WORKLOAD_WINDOW_HOURS = Runtime.REPORTED_WORKLOAD_WINDOW_HOURS or (4 / 3600)
 local isCompatEnduranceActive = Runtime.isCompatEnduranceActive or function()
     return false
@@ -89,7 +90,6 @@ local function accumulateWorkloadSample(playerObj, state, cache, live, nowHours)
     cache.peakMet = math.max(cache.peakMet or live.peakMet, live.peakMet or live.averageMet)
     cache.sleepObserved = cache.sleepObserved or live.sleepObserved == true
     cache.sourceHours[live.source or DEFAULT_WORKLOAD_SOURCE] = (cache.sourceHours[live.source or DEFAULT_WORKLOAD_SOURCE] or 0) + deltaHours
-    cache.pendingBurnKcal = (cache.pendingBurnKcal or 0) + (Metabolism.getFuelBurnPerHourFromMet(live, state and state.weightKg) * deltaHours)
 
     if (live.averageMet or 0) >= Metabolism.MET_HEAVY_THRESHOLD then
         cache.heavyHours = cache.heavyHours + deltaHours
@@ -100,8 +100,9 @@ local function accumulateWorkloadSample(playerObj, state, cache, live, nowHours)
 
     local stats = getPlayerStats(playerObj)
     if state and stats then
+        local telemetry = getTelemetryForState(state)
         local endurance = getCharacterStatValue(stats, "ENDURANCE", "getEndurance")
-        local previous = state.lastEnduranceObserved
+        local previous = telemetry.lastEnduranceObserved
         if endurance ~= nil and not isCompatEnduranceActive() then
             local controlled = endurance
             local regenScale = 1.0
@@ -126,9 +127,9 @@ local function accumulateWorkloadSample(playerObj, state, cache, live, nowHours)
                 setStatValue(stats, "ENDURANCE", "setEndurance", controlled)
             end
 
-            state.lastEnduranceObserved = controlled
-            state.lastEnduranceRegenScale = regenScale
-            state.lastEnduranceDeprivDrain = deprivDrain
+            telemetry.lastEnduranceObserved = controlled
+            telemetry.lastEnduranceRegenScale = regenScale
+            telemetry.lastEnduranceDeprivDrain = deprivDrain
             cache.appliedEnduranceDrain = (cache.appliedEnduranceDrain or 0) + math.max(0, endurance - controlled)
         end
 

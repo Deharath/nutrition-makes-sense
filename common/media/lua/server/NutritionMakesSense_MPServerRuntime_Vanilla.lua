@@ -106,6 +106,7 @@ local function rememberSnapshotState(playerObj, snapshot)
         proteins = tonumber(state.proteins) or 0,
         weightKg = tonumber(state.weightKg) or 0,
         deprivation = tonumber(state.deprivation) or 0,
+        depositSequence = tonumber(state.depositSequence) or 0,
         zone = tostring(state.lastZone or ""),
         workTier = tostring(state.lastWorkTier or ""),
         metAverage = tonumber(state.lastMetAverage) or 0,
@@ -146,6 +147,9 @@ local function snapshotChangedMeaningfully(previous, snapshot)
         return true
     end
     if tostring(previous.workTier or "") ~= tostring(state.lastWorkTier or "") then
+        return true
+    end
+    if (tonumber(previous.depositSequence) or 0) ~= (tonumber(state.depositSequence) or 0) then
         return true
     end
     if math.abs((tonumber(previous.fuel) or 0) - (tonumber(state.fuel) or 0)) >= SNAPSHOT_FUEL_EPSILON then

@@ -15,7 +15,6 @@ local function log(msg)
         "[CLIENT_WORKLOAD]",
         "[NMS_CONSUME]",
         "[STATE_INIT]",
-        "[STATE_MIGRATION]",
         "[MP_WORKLOAD]",
     }
 
