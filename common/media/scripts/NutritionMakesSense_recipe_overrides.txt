@@ -1,0 +1,178 @@
+module Base
+{
+    craftRecipe SmashPumpkin
+    {
+        timedAction = CrushWatermelon,
+        time = 50,
+        Tags = AnySurfaceCraft;Cooking;CanBeDoneInDark,
+        category = Cooking,
+        inputs
+        {
+            item 1 tags[base:hammer;base:sledgehammer] mode:keep flags[MayDegradeVeryLight;Prop1],
+            item 1 [Base.Pumpkin] flags[AllowRottenItem;Prop2;InheritFoodAge;InheritFood;ItemCount],
+        }
+        outputs
+        {
+            item 5 Base.PumpkinSmashed,
+        }
+    }
+
+    craftRecipe SmashWatermelon
+    {
+        timedAction = CrushWatermelon,
+        time = 50,
+        Tags = AnySurfaceCraft;Cooking;CanBeDoneInDark,
+        category = Cooking,
+        inputs
+        {
+            item 1 tags[base:hammer;base:sledgehammer] mode:keep flags[MayDegradeVeryLight;Prop1],
+            item 1 [Base.Watermelon] flags[AllowRottenItem;Prop2;InheritFoodAge;InheritFood;ItemCount],
+        }
+        outputs
+        {
+            item 5 Base.WatermelonSmashed,
+        }
+    }
+
+    craftRecipe SliceFillet
+    {
+        timedAction = SliceFish,
+        time = 50,
+        OnCreate = RecipeCodeOnCreate.cutFish,
+        OnTest = RecipeCodeOnTest.cutFish,
+        Tags = InHandCraft;CanBeDoneFromFloor;Cooking,
+        category = Cooking,
+        xpAward = Butchering:10,
+        inputs
+        {
+            item 1 tags[base:sharpknife;base:meatcleaver] mode:keep flags[IsNotDull;SharpnessCheck],
+            item 1 tags[base:uncutfish] flags[InheritFoodAge;InheritFood;ItemCount],
+        }
+        outputs
+        {
+            item 2 Base.FishFillet,
+        }
+    }
+
+    craftRecipe ButcherSmallAnimal
+    {
+        timedAction = SliceMeat_Surface,
+        time = 50,
+        OnCreate = RecipeCodeOnCreate.cutSmallAnimal,
+        Tags = AnySurfaceCraft;Cooking,
+        category = Cooking,
+        xpAward = Butchering:10,
+        inputs
+        {
+            item 1 tags[base:sharpknife;base:meatcleaver] mode:keep flags[IsNotDull;SharpnessCheck],
+            item 1 [Base.DeadBird;Base.DeadMouse;Base.DeadSquirrel;Base.DeadRat;Base.Frog;Base.DeadRabbit] mappers[animalType] flags[InheritFoodAge;InheritFood;ItemCount;InheritCooked],
+        }
+        outputs
+        {
+            item 1 mapper:animalType,
+        }
+        itemMapper animalType
+        {
+            Base.FrogMeat = Base.Frog,
+            Base.Smallbirdmeat = Base.DeadBird,
+            Base.DeadMouseSkinned = Base.DeadMouse,
+            Base.DeadRatSkinned = Base.DeadRat,
+            Base.Rabbitmeat = Base.DeadRabbit,
+            default = Base.Smallanimalmeat,
+        }
+    }
+
+    craftRecipe MakeSquidCalamari
+    {
+        timedAction = SliceMeat_Surface,
+        time = 30,
+        Tags = AnySurfaceCraft;Cooking,
+        category = Cooking,
+        xpAward = Cooking:3,
+        inputs
+        {
+            item 1 tags[base:sharpknife;base:meatcleaver] mode:keep flags[IsNotDull;SharpnessCheck],
+            item 1 [Base.Squid] flags[InheritFoodAge;InheritFood;ItemCount],
+        }
+        outputs
+        {
+            item 2 Base.SquidCalamari,
+        }
+    }
+
+    craftRecipe GetBaconBits
+    {
+        timedAction = SliceMeat,
+        time = 10,
+        Tags = InHandCraft;Cooking,
+        category = Cooking,
+        inputs
+        {
+            item 1 tags[base:sharpknife] mode:keep flags[SharpnessCheck;IsNotDull],
+            item 1 [Base.BaconRashers] flags[AllowRottenItem;InheritCooked;InheritFoodAge;InheritFood;ItemCount],
+        }
+        outputs
+        {
+            item 4 Base.BaconBits,
+        }
+    }
+
+    craftRecipe GetBaconRashers
+    {
+        timedAction = SliceMeat,
+        time = 10,
+        Tags = InHandCraft;Cooking,
+        category = Cooking,
+        inputs
+        {
+            item 1 tags[base:sharpknife] mode:keep flags[SharpnessCheck;IsNotDull],
+            item 1 [Base.Bacon] flags[AllowRottenItem;InheritCooked;InheritFoodAge;InheritFood;ItemCount],
+        }
+        outputs
+        {
+            item 4 Base.BaconRashers,
+        }
+    }
+
+    craftRecipe CutChicken
+    {
+        timedAction = SliceMeat_Surface,
+        time = 150,
+        OnCreate = NutritionMakesSense_RecipeCodeOnCreate.cutPoultry,
+        Tags = AnySurfaceCraft;Cooking,
+        category = Cooking,
+        xpAward = Cooking:20,
+        inputs
+        {
+            item 1 tags[base:sharpknife;base:meatcleaver] mode:keep flags[IsNotDull;SharpnessCheck],
+            item 1 [Base.ChickenWhole] flags[InheritFoodAge;ItemCount],
+        }
+        outputs
+        {
+            item 2 Base.Chicken,
+            item 2 Base.ChickenWings,
+            item 2 Base.ChickenFillet,
+        }
+    }
+
+    craftRecipe CutTurkey
+    {
+        timedAction = SliceMeat_Surface,
+        time = 150,
+        OnCreate = NutritionMakesSense_RecipeCodeOnCreate.cutPoultry,
+        Tags = AnySurfaceCraft;Cooking,
+        category = Cooking,
+        xpAward = Cooking:20,
+        inputs
+        {
+            item 1 tags[base:sharpknife;base:meatcleaver] mode:keep flags[IsNotDull;SharpnessCheck],
+            item 1 [Base.TurkeyWhole] flags[InheritFoodAge;ItemCount],
+        }
+        outputs
+        {
+            item 2 Base.TurkeyLegs,
+            item 2 Base.TurkeyWings,
+            item 2 Base.TurkeyFillet,
+        }
+    }
+}

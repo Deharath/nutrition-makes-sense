@@ -32,6 +32,7 @@ NutritionMakesSense.log = NutritionMakesSense.log or log
 require "NutritionMakesSense_MPCompat"
 require "NutritionMakesSense_Compat"
 require "NutritionMakesSense_DebugSupport"
+require "NutritionMakesSense_RecipeCodeOnCreate"
 require "NutritionMakesSense_MetabolismRuntime"
 
 if NutritionMakesSense.MetabolismRuntime and type(NutritionMakesSense.MetabolismRuntime.install) == "function" then
