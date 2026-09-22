@@ -43,6 +43,15 @@ local function install()
     end
     ClientHooks._installed = true
 
+    require "ISUI/PlayerStats/ISPlayerStatsUI"
+    local originalChangeWeight = ISPlayerStatsUI.onChangeWeight
+    ISPlayerStatsUI.onChangeWeight = function(self, button, playerObj)
+        originalChangeWeight(self, button, playerObj)
+        if not isClient() and button.internal == "OK" then
+            Runtime.setAdminWeight(playerObj, button.parent.entry:getText())
+        end
+    end
+
     if Events then
         if Events.OnPlayerUpdate and type(Events.OnPlayerUpdate.Add) == "function" then
             Events.OnPlayerUpdate.Add(onPlayerUpdate)

@@ -4,37 +4,12 @@ local Settings = NutritionMakesSense.Settings or {}
 NutritionMakesSense.Settings = Settings
 
 local DEFAULTS = {
-    UseCuratedFoodValues = true,
     EnergyBurnMultiplier = 1.0,
     AppetiteRateMultiplier = 1.0,
 }
 
 local MULTIPLIER_MIN = 0.25
 local MULTIPLIER_MAX = 3.0
-
-local function toBoolean(value, fallback)
-    if value == nil then
-        return fallback
-    end
-
-    if type(value) == "boolean" then
-        return value
-    end
-
-    if type(value) == "number" then
-        return value ~= 0
-    end
-
-    local lowered = string.lower(tostring(value))
-    if lowered == "true" or lowered == "1" or lowered == "yes" or lowered == "on" then
-        return true
-    end
-    if lowered == "false" or lowered == "0" or lowered == "no" or lowered == "off" then
-        return false
-    end
-
-    return fallback
-end
 
 local function getSandboxOptionValue(shortName)
     if type(shortName) ~= "string" or shortName == "" or type(SandboxVars) ~= "table" then
@@ -59,10 +34,6 @@ local function getMultiplier(shortName, fallback)
         value = fallback
     end
     return clamp(value, MULTIPLIER_MIN, MULTIPLIER_MAX)
-end
-
-function Settings.useCuratedFoodValues()
-    return toBoolean(getSandboxOptionValue("UseCuratedFoodValues"), DEFAULTS.UseCuratedFoodValues)
 end
 
 function Settings.getEnergyBurnMultiplier()

@@ -72,19 +72,23 @@ local function normalizeNutrition(source, outputs)
     end
 end
 
-function RecipeCode.cutPoultry(data, character)
+-- Only nutrition is replaced; the recipe and vanilla food state stay authoritative.
+function RecipeCode.preserveNutrition(data)
     local source = firstConsumedFood(data)
     local outputs = createdFoods(data)
-    if not source or #outputs == 0
-        or not RecipeCodeOnCreate
-        or type(RecipeCodeOnCreate.cutChicken) ~= "function"
-    then
+    if not source or #outputs == 0 then
         return false
     end
-
-    RecipeCodeOnCreate.cutChicken(data, character)
     normalizeNutrition(source, outputs)
     return true
+end
+
+function RecipeCode.cutPoultry(data, character)
+    if not data then
+        return false
+    end
+    RecipeCodeOnCreate.cutChicken(data, character)
+    return RecipeCode.preserveNutrition(data)
 end
 
 return RecipeCode

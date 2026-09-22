@@ -30,6 +30,17 @@ Support.assertClose(Metabolism.getStrengthXpProteinMultiplier(penaltyBoundary, w
 Support.assertClose(Metabolism.getStrengthXpProteinMultiplier(penaltyBoundary + 0.01, weight), 1.0, 0.000001, "protein neutral range")
 Support.assertClose(Metabolism.getStrengthXpProteinMultiplier(bonusBoundary, weight), 1.5, 0.000001, "protein bonus boundary")
 Support.assertClose(Metabolism.getStrengthXpProteinMultiplier(proteinMax, weight), 1.5, 0.000001, "full protein reserve XP multiplier")
+local proteinNeed = Metabolism.getProteinNeedPerDay(weight)
+Support.assertClose(Metabolism.getNaturalRecoveryMultiplier(0, weight, 1000), 0.85, 0.000001,
+    "empty protein reserve modestly slows natural recovery")
+Support.assertClose(Metabolism.getNaturalRecoveryMultiplier(proteinNeed * 2, weight, 1000), 1.0, 0.000001,
+    "two days of protein adequacy gives baseline recovery")
+Support.assertTrue(Metabolism.getNaturalRecoveryMultiplier(proteinNeed * 4, weight, 1000) > 1.0,
+    "seeded healthy protein supports gradual recovery")
+Support.assertClose(Metabolism.getNaturalRecoveryMultiplier(proteinMax, weight, 1000), 1.20, 0.000001,
+    "full protein reserve caps the recovery bonus")
+Support.assertClose(Metabolism.getNaturalRecoveryMultiplier(proteinMax, weight, 0), 1.0, 0.000001,
+    "depleted energy removes the bonus without additional damage")
 
 Support.assertClose(Metabolism.getDeprivationRegenScale(0), 1.0, 0.000001, "fed endurance regeneration")
 Support.assertClose(Metabolism.getDeprivationRegenScale(1), Metabolism.DEPRIVATION_REGEN_SCALE_MIN, 0.000001, "maximum deprivation regeneration")

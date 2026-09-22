@@ -13,9 +13,7 @@ local normalizeVisibleHungerInput = Runtime.normalizeVisibleHungerInput
 local setStatValue = Runtime.setStatValue
 local safeCall = Runtime.safeCall
 local clamp = Runtime.clamp
-local seedHealthFromFood = Runtime.seedHealthFromFood
 local syncVisibleWeight = Runtime.syncVisibleWeight
-local syncProteinHealing = Runtime.syncProteinHealing
 local setNutritionAnchor = Runtime.setNutritionAnchor
 local getPlayerLabel = Runtime.getPlayerLabel
 local normalizeDeposit = Runtime.normalizeDeposit
@@ -224,7 +222,6 @@ function Runtime.debugResetState(playerObj, reason)
         visibleHunger = visibleHunger,
         lastWorldHours = getWorldHours(),
         depositSequence = tonumber(previous and previous.depositSequence) or 0,
-        baseHealthFromFood = tonumber(previous and previous.baseHealthFromFood) or seedHealthFromFood(bodyDamage),
     })
     local telemetry = replaceTelemetryForState(state, {
         lastMetSource = "debug-reset",
@@ -237,7 +234,6 @@ function Runtime.debugResetState(playerObj, reason)
 
     local nutrition = getPlayerNutrition(playerObj)
     syncVisibleWeight(nutrition, state, telemetry)
-    syncProteinHealing(bodyDamage, state)
     setNutritionAnchor(nutrition)
 
     log(string.format(
@@ -549,7 +545,6 @@ function Runtime.updatePlayer(playerObj, reason)
         setNutritionAnchor(nutrition)
     end
 
-    local zoneBefore = Metabolism.getFuelZone(state.fuel)
 
     local nowHours = getWorldHours()
     local elapsedHours, elapsedContext = resolveActiveElapsedHours(state, telemetry, nowHours, reason)
@@ -600,33 +595,6 @@ function Runtime.updatePlayer(playerObj, reason)
     recordAdvanceTelemetry(telemetry, advanceReport)
     Runtime.syncVisibleShell(playerObj, reason or workload.workTier or "workload")
 
-    local zoneAfter = Metabolism.getFuelZone(state.fuel)
-    if zoneBefore ~= zoneAfter then
-        log(string.format(
-            "[FUEL_ZONE] player=%s from=%s to=%s fuel=%.1f tier=%s met=%.2f correction=%.4f",
-            tostring(playerLabel),
-            tostring(zoneBefore),
-            tostring(zoneAfter),
-            tonumber(state.fuel or 0),
-            tostring(telemetry.lastWorkTier or workload.workTier or "--"),
-            tonumber(advanceReport.averageMet or telemetry.lastMetAverage or Metabolism.MET_REST),
-            tonumber(advanceReport.visibleHungerGain or 0)
-        ))
-    end
-
-    if math.abs(tonumber(advanceReport.weightDeltaKg or 0)) >= 0.001 or tonumber(advanceReport.extraEnduranceDrain or 0) > 0 then
-        log(string.format(
-            "[BODY_STATE] player=%s weight=%.3f deltaKg=%.4f controller=%.2f trait=%s metAvg=%.2f metPeak=%.2f extraEndurance=%.4f",
-            tostring(playerLabel),
-            tonumber(state.weightKg or Metabolism.DEFAULT_WEIGHT_KG),
-            tonumber(advanceReport.weightDeltaKg or 0),
-            tonumber(state.weightController or 0),
-            tostring(Metabolism.getWeightTrait(state.weightKg)),
-            tonumber(advanceReport.averageMet or telemetry.lastMetAverage or Metabolism.MET_REST),
-            tonumber(advanceReport.peakMet or telemetry.lastMetPeak or Metabolism.MET_REST),
-            tonumber(advanceReport.extraEnduranceDrain or 0)
-        ))
-    end
 
 end
 

@@ -29,7 +29,7 @@ local lastTransitionSnapshot = nil
 local pendingFoodActions = {}
 local nextFoodActionId = 0
 local SAMPLE_INTERVAL_MINUTES = 1
-local RECORDING_SCHEMA_VERSION = 2
+local RECORDING_SCHEMA_VERSION = 3
 
 local PANEL_W = 440
 local PANEL_H = 620
@@ -286,7 +286,7 @@ local CSV_COLUMNS = {
     "run_observed_hours", "run_awake_hours", "run_sleep_hours",
     "interval_intake_kcal", "interval_burn_kcal", "interval_hunger_gain",
     "nms_extra_endurance", "nms_end_regen_scale", "nms_end_depriv_drain",
-    "nms_protein_def", "nms_protein_heal_mult",
+    "nms_protein_def",
     "nms_deprivation", "nms_deprivation_target",
     "event_reason", "event_item", "event_fraction",
     "event_correlation_id", "event_deposit_sequence_before",
@@ -577,7 +577,6 @@ local function recordTimelineRow(kind, trigger, snap, event)
         nms_end_regen_scale = s.lastEnduranceRegenScale,
         nms_end_depriv_drain = s.lastEnduranceDeprivDrain,
         nms_protein_def = s.lastProteinDeficiency,
-        nms_protein_heal_mult = s.lastProteinHealingMultiplier,
         nms_deprivation = s.deprivation or 0, nms_deprivation_target = s.lastDeprivationTarget,
         event_reason = ev.reason, event_item = ev.item, event_fraction = ev.fraction,
         event_correlation_id = ev.correlation_id,
@@ -703,9 +702,6 @@ local function recordMetadata(snap)
         ) },
         { "sandbox_day_length", tostring(sandbox.DayLength or "") },
         { "sandbox_nutrition", tostring(sandbox.Nutrition or "") },
-        { "nms_use_curated_food_values", tostring(
-            type(Settings.useCuratedFoodValues) == "function" and Settings.useCuratedFoodValues() or ""
-        ) },
         { "nms_energy_burn_multiplier", tostring(
             type(Settings.getEnergyBurnMultiplier) == "function" and Settings.getEnergyBurnMultiplier() or ""
         ) },
@@ -1176,10 +1172,6 @@ function NMS_DevOverlay:render()
         y = drawRow(self, y, "Deficiency", pct(pd), C.warn)
     end
 
-    local protHeal = tonumber(s.lastProteinHealingMultiplier) or 1
-    if math.abs(protHeal - 1) > 0.005 then
-        y = drawRow(self, y, "Healing", string.format("x%s", fmt(protHeal, 2)), C.warn)
-    end
 
     ---------------------------------------------------------------- Body
     y = drawSection(self, y, "Body")

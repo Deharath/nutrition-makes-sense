@@ -16,7 +16,6 @@ NutritionMakesSense.MPServerRuntime = MPServerRuntime
 local MP = NutritionMakesSense.MP or {}
 local Runtime = NutritionMakesSense.MetabolismRuntime or {}
 local CoreUtils = NutritionMakesSense.CoreUtils or {}
-local MPSnapshot = NutritionMakesSense.MPSnapshot or {}
 local DebugSupport = NutritionMakesSense.DebugSupport or {}
 local devToolsEnabled = type(DebugSupport.canUseDevTools) == "function" and DebugSupport.canUseDevTools() == true
 if devToolsEnabled then
@@ -24,13 +23,12 @@ if devToolsEnabled then
 end
 local CompatTraceServer = devToolsEnabled and (NutritionMakesSense.CompatTraceServer or {}) or {}
 
-local PASSIVE_SNAPSHOT_INTERVAL_SECONDS = 0.5
+local PASSIVE_SNAPSHOT_INTERVAL_SECONDS = 1.0
 local PASSIVE_SNAPSHOT_KEEPALIVE_SECONDS = 4.0
-local SNAPSHOT_FUEL_EPSILON = 0.1
-local SNAPSHOT_HUNGER_EPSILON = 0.0015
-local SNAPSHOT_PROTEIN_EPSILON = 0.1
-local SNAPSHOT_WEIGHT_EPSILON = 0.01
-local SNAPSHOT_MET_EPSILON = 0.05
+local SNAPSHOT_FUEL_EPSILON = 5.0
+local SNAPSHOT_HUNGER_EPSILON = 0.005
+local SNAPSHOT_PROTEIN_EPSILON = 1.0
+local SNAPSHOT_WEIGHT_EPSILON = 0.05
 local SNAPSHOT_DEPRIVATION_EPSILON = 0.01
 local CRITICAL_VISIBLE_HUNGER = 0.60
 local CRITICAL_DEPRIVATION = 0.90
@@ -108,9 +106,6 @@ local function rememberSnapshotState(playerObj, snapshot)
         deprivation = tonumber(state.deprivation) or 0,
         depositSequence = tonumber(state.depositSequence) or 0,
         zone = tostring(state.lastZone or ""),
-        workTier = tostring(state.lastWorkTier or ""),
-        metAverage = tonumber(state.lastMetAverage) or 0,
-        metPeak = tonumber(state.lastMetPeak) or 0,
     }
 end
 
@@ -146,9 +141,6 @@ local function snapshotChangedMeaningfully(previous, snapshot)
     if tostring(previous.zone or "") ~= tostring(state.lastZone or "") then
         return true
     end
-    if tostring(previous.workTier or "") ~= tostring(state.lastWorkTier or "") then
-        return true
-    end
     if (tonumber(previous.depositSequence) or 0) ~= (tonumber(state.depositSequence) or 0) then
         return true
     end
@@ -165,12 +157,6 @@ local function snapshotChangedMeaningfully(previous, snapshot)
         return true
     end
     if math.abs((tonumber(previous.deprivation) or 0) - (tonumber(state.deprivation) or 0)) >= SNAPSHOT_DEPRIVATION_EPSILON then
-        return true
-    end
-    if math.abs((tonumber(previous.metAverage) or 0) - (tonumber(state.lastMetAverage) or 0)) >= SNAPSHOT_MET_EPSILON then
-        return true
-    end
-    if math.abs((tonumber(previous.metPeak) or 0) - (tonumber(state.lastMetPeak) or 0)) >= SNAPSHOT_MET_EPSILON then
         return true
     end
 
@@ -190,7 +176,8 @@ local function shouldSendPassiveSnapshot(playerObj, snapshot, force)
     end
 
     local elapsed = nowSecond - (tonumber(previous.wallSecond) or 0)
-    if snapshotHasCriticalPressure(previous, snapshot) then
+    if snapshotHasCriticalPressure(previous, snapshot)
+        or previous.depositSequence ~= snapshot.state.depositSequence then
         return true
     end
     if elapsed < PASSIVE_SNAPSHOT_INTERVAL_SECONDS then
@@ -217,7 +204,7 @@ local function sendStateSnapshot(playerObj, reason, extra, preparedSnapshot)
 
     local snapshot = preparedSnapshot
     if type(snapshot) ~= "table" and Runtime.buildStateSnapshot then
-        snapshot = Runtime.buildStateSnapshot(playerObj, reason or "server", true)
+        snapshot = Runtime.buildStateSnapshot(playerObj, reason or "server", devToolsEnabled)
     end
     if type(snapshot) ~= "table" or type(snapshot.state) ~= "table" then
         return nil
@@ -228,7 +215,7 @@ local function sendStateSnapshot(playerObj, reason, extra, preparedSnapshot)
     local payload = {
         version = tostring(snapshot.version or MP.SCRIPT_VERSION or "1.0.0"),
         reason = tostring(reason or snapshot.reason or "server"),
-        state = MPSnapshot.copyState(snapshot.state, devToolsEnabled),
+        state = snapshot.state,
         worldHours = tonumber(snapshot.worldHours) or getWorldHours(),
         player = tostring(snapshot.player or getPlayerLabel(playerObj)),
         serverSeq = tonumber(nextServerSnapshotSeq),
@@ -263,7 +250,7 @@ local function maybeSendPassiveSnapshot(playerObj, reason, force)
         return false
     end
 
-    local snapshot = Runtime.buildStateSnapshot(playerObj, reason or "passive-sync", true)
+    local snapshot = Runtime.buildStateSnapshot(playerObj, reason or "passive-sync", devToolsEnabled)
     if not shouldSendPassiveSnapshot(playerObj, snapshot, force) then
         return false
     end
@@ -272,7 +259,7 @@ local function maybeSendPassiveSnapshot(playerObj, reason, force)
 end
 
 local function onPlayerUpdate(playerObj)
-    if not playerObj then
+    if not CoreUtils.isActivePlayer(playerObj) then
         return
     end
 
@@ -295,6 +282,17 @@ local function onPlayerUpdate(playerObj)
 end
 
 local function onClientCommand(module, command, playerObj, args)
+    if module == "player" and command == "setWeight" then
+        local role = safeCall(playerObj, "getRole")
+        if Capability and safeCall(role, "hasCapability", Capability.CanModifyPlayerStatsInThePlayerStatsUI) == true
+            and type(args) == "table" then
+            local target = getPlayerByOnlineID(args.id)
+            if target and Runtime.setAdminWeight(target, args.weight) then
+                sendStateSnapshot(target, "admin-weight")
+            end
+        end
+        return
+    end
     if tostring(module) ~= tostring(MP.NET_MODULE) then
         return
     end
@@ -322,7 +320,8 @@ local function onClientCommand(module, command, playerObj, args)
                     },
                     args and args.worldHours or nil,
                     args and args.reason or "client-report",
-                    args and args.seq or nil
+                    args and args.seq or nil,
+                    args and args.sessionId or nil
                 )
             end
             if Runtime.updatePlayer then
@@ -402,12 +401,22 @@ local function onServerStarted()
 end
 
 local function onEveryOneMinute()
+    local activeKeys = {}
     eachKnownPlayer(function(playerObj)
+        local key = getPlayerCacheKey(playerObj)
+        if key then activeKeys[key] = true end
         if Runtime.updatePlayer then
             Runtime.updatePlayer(playerObj, "minute-maintenance")
         end
         maybeSendPassiveSnapshot(playerObj, "minute-maintenance", false)
     end)
+
+    for key in pairs(lastServerUpdateByPlayerKey) do
+        if not activeKeys[key] then lastServerUpdateByPlayerKey[key] = nil end
+    end
+    for key in pairs(snapshotStateByPlayerKey) do
+        if not activeKeys[key] then snapshotStateByPlayerKey[key] = nil end
+    end
 
     if devToolsEnabled and CompatTraceServer.sampleAll then
         CompatTraceServer.sampleAll()

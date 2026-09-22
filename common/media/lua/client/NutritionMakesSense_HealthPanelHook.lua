@@ -109,21 +109,32 @@ local function collectLines(playerObj, state)
             valueColor = proteinColor,
         }
 
-        local healingMultiplier = tonumber(state.lastProteinHealingMultiplier)
-        if healingMultiplier == nil and Metabolism.getProteinHealingMultiplier then
-            healingMultiplier = Metabolism.getProteinHealingMultiplier(proteins, weightKg)
-        end
-        healingMultiplier = tonumber(healingMultiplier) or 1.0
-        local healingPenalty = math.max(0, (1.0 - healingMultiplier) * 100)
-        if healingPenalty >= 1 then
+        local xpPenalty = (1 - Metabolism.getStrengthXpProteinMultiplier(proteins, weightKg)) * 100
+        if xpPenalty >= 1 then
             baseLines[#baseLines + 1] = {
-                text = UIHelpers.tr("UI_NMS_Protein_HealingPenalty", "Wound Healing") .. ": ",
+                text = UIHelpers.tr("UI_NMS_Protein_StrengthXpPenalty", "Strength XP") .. ": ",
                 color = C_WHITE,
-                valueText = "-" .. UIHelpers.formatPercent(healingPenalty),
+                valueText = "-" .. UIHelpers.formatPercent(xpPenalty),
                 valueColor = C_VALUE,
                 indent = 12,
             }
         end
+    end
+
+    local bodyDamage = playerObj and playerObj.getBodyDamage and playerObj:getBodyDamage() or nil
+    local health = bodyDamage and bodyDamage.getOverallBodyHealth
+        and tonumber(bodyDamage:getOverallBodyHealth()) or nil
+    local recoveryMultiplier = Metabolism.getNaturalRecoveryMultiplier(proteins, weightKg, state.fuel)
+    local recoveryPercent = (recoveryMultiplier - 1.0) * 100
+    if math.abs(recoveryPercent) >= 1 and (recoveryPercent < 0 or (health and health < 99.9)) then
+        baseLines[#baseLines + 1] = {
+            text = UIHelpers.tr("UI_NMS_Protein_AwakeRecovery", "HP recovery") .. ": ",
+            color = C_WHITE,
+            valueText = (recoveryPercent >= 0 and "+" or "-")
+                .. UIHelpers.formatPercent(math.abs(recoveryPercent)),
+            valueColor = recoveryPercent >= 0 and C_GOOD or C_WARN,
+            indent = proteinDef > 0.3 and 12 or nil,
+        }
     end
 
     if type(CompatHelpers.mergeLines) == "function" then

@@ -5,8 +5,6 @@ SandboxVars = nil
 package.loaded["NutritionMakesSense_Settings"] = nil
 local Settings = require "NutritionMakesSense_Settings"
 
-Support.assertEqual(Settings.useCuratedFoodValues(), true,
-    "curated values remain enabled by default")
 Support.assertClose(Settings.getEnergyBurnMultiplier(), 1.0, 0.000001,
     "missing energy tuning preserves existing balance")
 Support.assertClose(Settings.getAppetiteRateMultiplier(), 1.0, 0.000001,
@@ -14,13 +12,10 @@ Support.assertClose(Settings.getAppetiteRateMultiplier(), 1.0, 0.000001,
 
 SandboxVars = {
     NutritionMakesSense = {
-        UseCuratedFoodValues = false,
         EnergyBurnMultiplier = 0.65,
         AppetiteRateMultiplier = 1.4,
     },
 }
-Support.assertEqual(Settings.useCuratedFoodValues(), false,
-    "nested sandbox booleans remain supported")
 Support.assertClose(Settings.getEnergyBurnMultiplier(), 0.65, 0.000001,
     "nested energy tuning is read")
 Support.assertClose(Settings.getAppetiteRateMultiplier(), 1.4, 0.000001,

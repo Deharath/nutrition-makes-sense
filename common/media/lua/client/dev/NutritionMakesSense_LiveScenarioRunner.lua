@@ -1696,7 +1696,7 @@ local function applyBaseline(run)
     Runtime.debugSetStateFields(run.player, run.baselineState, "live-runner-baseline")
     local state = Runtime.getStateCopy and Runtime.getStateCopy(run.player) or nil
     local visible = cloneTable(run.baselineVisible) or {}
-    visible.healthFromFood = tonumber(state and state.baseHealthFromFood) or tonumber(run.snapshot and run.snapshot.visible and run.snapshot.visible.healthFromFood) or 0
+    visible.healthFromFood = tonumber(run.snapshot and run.snapshot.visible and run.snapshot.visible.healthFromFood) or 0
     Runtime.debugSetVisibleBaselines(run.player, visible, "live-runner-baseline")
     local stats = getPlayerStats(run.player)
     if visible.thirst ~= nil then

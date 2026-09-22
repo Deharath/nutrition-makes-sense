@@ -1,13 +1,5 @@
 VERSION = 1,
 
-option NutritionMakesSense.UseCuratedFoodValues
-{
-    type = boolean,
-    default = true,
-    page = NutritionMakesSense,
-    translation = NutritionMakesSense_UseCuratedFoodValues,
-}
-
 option NutritionMakesSense.EnergyBurnMultiplier
 {
     type = double,

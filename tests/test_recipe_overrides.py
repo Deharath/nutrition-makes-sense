@@ -2,6 +2,10 @@
 
 from pathlib import Path
 import re
+import os
+import sys
+import tempfile
+import subprocess
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,64 +36,37 @@ def extract_block(text: str, declaration: str) -> str:
 
 def main() -> None:
     text = RECIPE_OVERRIDES.read_text(encoding="utf-8")
-
-    inherited_recipes = {
-        "SliceFillet": (r"tags\[base:uncutfish\]", "item 2 Base.FishFillet,"),
-        "SmashPumpkin": (r"\[Base\.Pumpkin\]", "item 5 Base.PumpkinSmashed,"),
-        "SmashWatermelon": (
-            r"\[Base\.Watermelon\]",
-            "item 5 Base.WatermelonSmashed,",
-        ),
-        "MakeSquidCalamari": (r"\[Base\.Squid\]", "item 2 Base.SquidCalamari,"),
-        "GetBaconBits": (r"\[Base\.BaconRashers\]", "item 4 Base.BaconBits,"),
-        "GetBaconRashers": (r"\[Base\.Bacon\]", "item 4 Base.BaconRashers,"),
-    }
-
-    for name, (source_pattern, expected_output) in inherited_recipes.items():
+    names = re.findall(r"craftRecipe\s+(\w+)", text)
+    assert set(names) == {"SmashPumpkin", "SmashWatermelon", "MakeSquidCalamari",
+                          "GetBaconBits", "GetBaconRashers", "CutChicken", "CutTurkey"}
+    for name in names:
         block = extract_block(text, f"craftRecipe {name}")
-        source_input = re.search(
-            rf"item\s+1\s+{source_pattern}[^\n]*flags\[([^]]+)\]",
-            block,
-        )
-        assert source_input is not None, f"missing food input for {name}"
-        flags = set(source_input.group(1).split(";"))
-        assert "InheritFood" in flags, f"{name} does not inherit nutrition"
-        assert expected_output in block, f"unexpected output shape for {name}"
+        assert "inputs" not in block and "outputs" not in block, name
+        assert block.count("OnCreate =") == 1, name
+    print("NMS scalar recipe overlay contract passed")
 
-    fish = extract_block(text, "craftRecipe SliceFillet")
-    assert "OnCreate = RecipeCodeOnCreate.cutFish," in fish
-    assert "OnTest = RecipeCodeOnTest.cutFish," in fish
-
-    small_animal = extract_block(text, "craftRecipe ButcherSmallAnimal")
-    assert "OnCreate = RecipeCodeOnCreate.cutSmallAnimal," in small_animal
-    assert "InheritFood" in small_animal
-    assert "item 1 mapper:animalType," in small_animal
-
-    for name, source, outputs in (
-        (
-            "CutChicken",
-            "Base.ChickenWhole",
-            ("Base.Chicken", "Base.ChickenWings", "Base.ChickenFillet"),
-        ),
-        (
-            "CutTurkey",
-            "Base.TurkeyWhole",
-            ("Base.TurkeyLegs", "Base.TurkeyWings", "Base.TurkeyFillet"),
-        ),
-    ):
-        block = extract_block(text, f"craftRecipe {name}")
-        assert "OnCreate = NutritionMakesSense_RecipeCodeOnCreate.cutPoultry," in block
-        source_input = re.search(
-            rf"item\s+1\s+\[{re.escape(source)}\]\s+flags\[([^]]+)\]",
-            block,
-        )
-        assert source_input is not None, f"missing whole-bird input for {name}"
-        flags = set(source_input.group(1).split(";"))
-        assert "InheritFood" not in flags, f"{name} would duplicate nutrition per output type"
-        for output in outputs:
-            assert f"item 2 {output}," in block, f"missing {output} from {name}"
-
-    print("NMS preparation-yield recipe override validation passed")
+    if "--engine" in sys.argv:
+        install = Path(os.environ.get("PZ_INSTALL", "/mnt/c/SteamLibrary/steamapps/common/ProjectZomboid"))
+        java = os.environ.get("PZ_JAVA", "/home/deharath/pzserver42/jre64/bin/java")
+        vanilla = (install / "media/scripts/generated/recipes/recipes_cooking.txt").read_text()
+        with tempfile.TemporaryDirectory(prefix="nms-engine-") as temp:
+            for name in names:
+                Path(temp, name + ".vanilla").write_text(extract_block(vanilla, f"craftRecipe {name}"))
+                Path(temp, name + ".overlay").write_text(extract_block(text, f"craftRecipe {name}"))
+            actions = set(re.findall(r"timedAction\s*=\s*(\w+)",
+                                     "".join(Path(temp, n + ".vanilla").read_text() for n in names)))
+            for path in (install / "media/scripts").rglob("*.txt"):
+                content = path.read_text(encoding="utf-8-sig", errors="replace")
+                for action in list(actions):
+                    if re.search(rf"(?m)^\s*timedAction {action}\s*$", content):
+                        Path(temp, action + ".action").write_text(extract_block(content, f"timedAction {action}"))
+                        actions.remove(action)
+                if not actions:
+                    break
+            assert not actions, f"missing vanilla actions: {actions}"
+            subprocess.run(["javac", "-d", temp, str(ROOT / "tests/engine/NutritionContracts.java")], check=True)
+            subprocess.run([java, "-cp", os.pathsep.join([temp, str(install / "projectzomboid.jar")]),
+                            "NutritionContracts", temp, ",".join(names)], check=True)
 
 
 if __name__ == "__main__":

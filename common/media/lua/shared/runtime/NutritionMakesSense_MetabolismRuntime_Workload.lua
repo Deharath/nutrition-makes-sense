@@ -176,7 +176,31 @@ function Runtime.clearScriptedWorkloadOverride(playerObj, reason)
     return existing ~= nil
 end
 
-function Runtime.reportPlayerWorkload(playerObj, workload, clientWorldHours, reason, seq)
+function Runtime.resetReportedWorkloadSession(playerObj)
+    local cache = getActivityCache(playerObj)
+    if not cache then
+        return
+    end
+
+    cache.reportedWorkload = nil
+    cache.reportedWorkloadSamples = {}
+    cache.reportedWorkloadSeq = nil
+    cache.reportedWorkloadSessionId = nil
+    cache.reportedWorkloadClientWorldHours = nil
+    cache.reportedWorkloadLastSeenHours = nil
+    cache.lastSampleWorldHours = getWorldHours()
+    cache.lastLive = nil
+    cache.weightedMetHours = 0
+    cache.observedHours = 0
+    cache.heavyHours = 0
+    cache.veryHeavyHours = 0
+    cache.peakMet = Metabolism.MET_REST
+    cache.appliedEnduranceDrain = 0
+    cache.sourceHours = {}
+    cache.sleepObserved = false
+end
+
+function Runtime.reportPlayerWorkload(playerObj, workload, clientWorldHours, reason, seq, sessionId)
     if not shouldRunAuthoritativeUpdates() or not playerObj or type(normalizeReportedWorkloadSample) ~= "function" then
         return nil
     end
@@ -184,6 +208,22 @@ function Runtime.reportPlayerWorkload(playerObj, workload, clientWorldHours, rea
     local cache = getActivityCache(playerObj)
     if not cache then
         return nil
+    end
+
+    if type(sessionId) ~= "string" or #sessionId == 0 or #sessionId > 128 then
+        return nil
+    end
+    if cache.reportedWorkloadSessionId ~= sessionId then
+        local retired = cache.retiredReportedWorkloadSessions or {}
+        if retired[sessionId] then
+            return nil
+        end
+        if cache.reportedWorkloadSessionId then
+            retired[cache.reportedWorkloadSessionId] = true
+        end
+        Runtime.resetReportedWorkloadSession(playerObj)
+        cache.retiredReportedWorkloadSessions = retired
+        cache.reportedWorkloadSessionId = sessionId
     end
 
     local normalizedWorkload = normalizeReportedWorkloadSample(workload)
@@ -231,28 +271,6 @@ function Runtime.reportPlayerWorkload(playerObj, workload, clientWorldHours, rea
     cache.reportedWorkloadClientWorldHours = reportedClientWorldHours
     cache.reportedWorkloadLastSeenHours = nowHours or cache.reportedWorkloadLastSeenHours
     cache.lastLive = smoothedWorkload
-
-    local previousAverage = tonumber(previousWorkload and previousWorkload.averageMet) or nil
-    local previousPeak = tonumber(previousWorkload and previousWorkload.peakMet) or nil
-    local previousSource = tostring(previousWorkload and previousWorkload.source or "")
-    if previousAverage == nil
-        or math.abs(previousAverage - smoothedWorkload.averageMet) > 0.10
-        or math.abs((previousPeak or previousAverage or 0) - smoothedWorkload.peakMet) > 0.10
-        or previousSource ~= tostring(smoothedWorkload.source or "") then
-        log(string.format(
-            "[MP_WORKLOAD] player=%s raw=%.2f/%.2f smooth=%.2f/%.2f source=%s previous=%.2f/%.2f source=%s reason=%s",
-            tostring(getPlayerLabel(playerObj)),
-            tonumber(normalizedWorkload.averageMet or 0),
-            tonumber(normalizedWorkload.peakMet or 0),
-            tonumber(smoothedWorkload.averageMet or 0),
-            tonumber(smoothedWorkload.peakMet or 0),
-            tostring(smoothedWorkload.source or "mp_reported"),
-            tonumber(previousAverage or 0),
-            tonumber(previousPeak or previousAverage or 0),
-            tostring(previousSource ~= "" and previousSource or "none"),
-            tostring(reason or "client-report")
-        ))
-    end
 
     return smoothedWorkload
 end

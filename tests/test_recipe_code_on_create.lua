@@ -134,3 +134,13 @@ end
 assert(RecipeCode.cutPoultry(nil) == false)
 
 print("NMS recipe callback tests passed")
+
+local portionSource = Food.new({ calories = 500, carbohydrates = 25, lipids = 30, proteins = 20 })
+local portions = { Food.new({calories = 900}), Food.new({calories = 900}) }
+assert(RecipeCode.preserveNutrition(craftData(portionSource, portions)))
+for _, getter in ipairs({"getCalories", "getCarbohydrates", "getLipids", "getProteins"}) do
+    assertClose(sum(portions, getter), portionSource[getter](portionSource), getter .. " conserved across portions")
+end
+assertClose(portions[1]:getProteins(), 10, "missing template macro divides evenly")
+assert(RecipeCode.preserveNutrition(craftData(portionSource, {})) == false)
+assert(RecipeCode.preserveNutrition(nil) == false)

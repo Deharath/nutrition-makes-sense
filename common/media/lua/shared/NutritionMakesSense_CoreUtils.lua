@@ -207,6 +207,17 @@ function CoreUtils.getPlayerLabel(playerObj, fallback)
     return getPlayerLabel(playerObj, fallback)
 end
 
+-- IsoPlayer-shaped NPCs and dead characters do not own an NMS metabolism session.
+function CoreUtils.isActivePlayer(playerObj)
+    if not playerObj or safeCall(playerObj, "isDead") == true then return false end
+    if type(isServer) == "function" and isServer() then
+        local id = safeCall(playerObj, "getOnlineID")
+        return id ~= nil and type(getPlayerByOnlineID) == "function"
+            and getPlayerByOnlineID(id) == playerObj
+    end
+    return safeCall(playerObj, "isLocalPlayer") ~= false
+end
+
 function CoreUtils.eachKnownPlayer(callback)
     eachKnownPlayer(callback)
 end

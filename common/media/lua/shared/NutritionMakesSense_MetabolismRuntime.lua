@@ -122,7 +122,6 @@ local function buildStateView(state, telemetry)
         or Metabolism.getEnergyAppetiteProgress(view.weightBalanceKcal)
     view.lastProteinDeficiency = tonumber(view.lastProteinDeficiency)
         or Metabolism.getProteinDeficiencyProgress(view.proteins, view.weightKg)
-    view.lastProteinHealingMultiplier = Metabolism.getProteinHealingMultiplier(view.proteins, view.weightKg)
     view.lastMealPreHunger = tonumber(view.lastMealPreHunger) or view.visibleHunger
     view.lastMealTargetHunger = tonumber(view.lastMealTargetHunger) or view.visibleHunger
     return view
@@ -350,30 +349,6 @@ local function getModData(playerObj)
     return modData
 end
 
-local function seedHealthFromFood(bodyDamage)
-    local observed = tonumber(bodyDamage and safeCall(bodyDamage, "getHealthFromFood") or nil)
-    if observed ~= nil and observed > 0 then
-        return observed
-    end
-    return 0.015
-end
-
-local function syncProteinHealing(bodyDamage, state)
-    if not bodyDamage or not state then
-        return 1.0
-    end
-    local baseHealthFromFood = tonumber(state.baseHealthFromFood) or seedHealthFromFood(bodyDamage)
-    state.baseHealthFromFood = baseHealthFromFood
-
-    local healingMultiplier = Metabolism.getProteinHealingMultiplier(state.proteins, state.weightKg)
-    local desired = baseHealthFromFood * healingMultiplier
-    local current = tonumber(safeCall(bodyDamage, "getHealthFromFood")) or nil
-    if current == nil or math.abs(current - desired) > SYNC_EPSILON then
-        safeCall(bodyDamage, "setHealthFromFood", desired)
-    end
-    return healingMultiplier
-end
-
 local function suppressFoodEatenTimer(bodyDamage)
     if not bodyDamage then
         return false
@@ -389,18 +364,17 @@ local function suppressFoodEatenTimer(bodyDamage)
 end
 
 function Runtime.ensureStateForPlayer(playerObj)
+    if not CoreUtils.isActivePlayer(playerObj) then return nil end
     local modData = getModData(playerObj)
     if not modData then
         return nil
     end
 
     local nutrition = getPlayerNutrition(playerObj)
-    local bodyDamage = getPlayerBodyDamage(playerObj)
     local rawState = type(modData[STATE_KEY]) == "table" and modData[STATE_KEY] or {}
     local stats = getPlayerStats(playerObj)
     local telemetry = getTelemetryForState(rawState, rawState)
     local state = Metabolism.ensureState(rawState)
-    state.baseHealthFromFood = tonumber(state.baseHealthFromFood) or seedHealthFromFood(bodyDamage)
     if state.initialized ~= true then
         local weightKg = seedWeight(nutrition)
         local visibleHunger = clamp(
@@ -415,7 +389,6 @@ function Runtime.ensureStateForPlayer(playerObj)
             proteins = seedProteinAdequacy(weightKg),
             visibleHunger = visibleHunger,
             lastWorldHours = getWorldHours(),
-            baseHealthFromFood = tonumber(state.baseHealthFromFood) or seedHealthFromFood(bodyDamage),
         })
         telemetry = replaceTelemetryForState(state, {
             lastMetSource = "seed",
@@ -424,14 +397,6 @@ function Runtime.ensureStateForPlayer(playerObj)
             lastMealTargetHunger = visibleHunger,
             lastSyncedHunger = visibleHunger,
         })
-        log(string.format(
-            "[STATE_INIT] player=%s fuel=%.1f proteins=%.1f weight=%.3f zone=%s",
-            tostring(getPlayerLabel(playerObj)),
-            tonumber(state.fuel or 0),
-            tonumber(state.proteins or 0),
-            tonumber(state.weightKg or Metabolism.DEFAULT_WEIGHT_KG),
-            tostring(Metabolism.getFuelZone(state.fuel))
-        ))
         setNutritionAnchor(nutrition)
     end
 
@@ -711,6 +676,8 @@ local function getActivityCache(playerObj)
         reportedWorkload = nil,
         reportedWorkloadSamples = {},
         reportedWorkloadSeq = nil,
+        reportedWorkloadSessionId = nil,
+        retiredReportedWorkloadSessions = {},
         reportedWorkloadClientWorldHours = nil,
         reportedWorkloadLastSeenHours = nil,
     }
@@ -804,6 +771,23 @@ local function syncVisibleWeight(nutrition, state, telemetry)
         safeCall(nutrition, "setDecWeight", losing)
         safeCall(nutrition, "applyTraitFromWeight")
     end
+end
+
+-- Called only by vanilla's local admin UI or the capability-checked server handler.
+function Runtime.setAdminWeight(playerObj, weightKg)
+    local weight = tonumber(weightKg)
+    if not shouldRunAuthoritativeUpdates() or not weight or weight ~= weight
+        or weight < 30 or weight > 130 then
+        return false
+    end
+    local state = Runtime.ensureStateForPlayer(playerObj)
+    if not state then return false end
+    state.weightKg = clamp(weight, Metabolism.WEIGHT_MIN_KG, Metabolism.WEIGHT_MAX_KG)
+    state.weightController = 0
+    local telemetry = getTelemetryForState(state)
+    telemetry.lastWeightRateKgPerWeek = 0
+    syncVisibleWeight(getPlayerNutrition(playerObj), state, telemetry)
+    return true
 end
 
 local function shouldAdoptManualVisibleHunger(playerObj, reason)
@@ -1010,10 +994,8 @@ Runtime.REPORTED_WORKLOAD_WINDOW_HOURS = REPORTED_WORKLOAD_WINDOW_HOURS
 Runtime.setVisibleHunger = setVisibleHunger
 Runtime.syncVisibleHunger = syncVisibleHunger
 Runtime.syncVisibleWeight = syncVisibleWeight
-Runtime.syncProteinHealing = syncProteinHealing
 Runtime.suppressFoodEatenTimer = suppressFoodEatenTimer
 Runtime.importLiveVisibleHungerDrop = importLiveVisibleHungerDrop
-Runtime.seedHealthFromFood = seedHealthFromFood
 Runtime.setStatValue = setStatValue
 Runtime.normalizeDeposit = normalizeDeposit
 Runtime.consumeWorkloadSummary = consumeWorkloadSummary

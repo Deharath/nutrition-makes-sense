@@ -174,6 +174,21 @@ local function getFrameworkMoodleCount(player)
     return count
 end
 
+local function getLifestyleMoodleCount(player)
+    local moodles = player and player.getModData and player:getModData().LSMoodles or nil
+    if type(moodles) ~= "table" then
+        return 0
+    end
+
+    local count = 0
+    for _, entry in pairs(moodles) do
+        if type(entry) == "table" and (tonumber(entry.Level) or 0) > 0 then
+            count = count + 1
+        end
+    end
+    return count
+end
+
 local function clearVanillaMoodleTooltip(player)
     local playerNum = player and player.getPlayerNum and player:getPlayerNum() or nil
     if playerNum == nil or not UIManager or not UIManager.getMoodleUI then
@@ -262,6 +277,7 @@ function NMSMalnourishedMoodle:getPosition()
     local occupiedSlots = getVanillaActiveMoodleCount(self.player)
         + getAiteronMoodleCount(self.player)
         + getFrameworkMoodleCount(self.player)
+        + getLifestyleMoodleCount(self.player)
     y = y + ((size + SPACING) * occupiedSlots)
     return x, y
 end

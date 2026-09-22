@@ -6,24 +6,6 @@ end
 NutritionMakesSense._bootDone = true
 
 local function log(msg)
-    local text = tostring(msg or "")
-    -- Keep the release runtime quiet while preserving boot, warnings, and failures.
-    local suppressedPrefixes = {
-        "[CLIENT_SNAPSHOT]",
-        "[CLIENT_READY]",
-        "[MP_HOOK_REPORT]",
-        "[CLIENT_WORKLOAD]",
-        "[NMS_CONSUME]",
-        "[STATE_INIT]",
-        "[MP_WORKLOAD]",
-    }
-
-    for _, prefix in ipairs(suppressedPrefixes) do
-        if string.find(text, prefix, 1, true) then
-            return
-        end
-    end
-
     print("[NutritionMakesSense] " .. tostring(msg))
 end
 

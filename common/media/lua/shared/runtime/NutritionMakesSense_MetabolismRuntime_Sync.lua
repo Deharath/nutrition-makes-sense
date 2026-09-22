@@ -11,9 +11,10 @@ local getWorldHours = Runtime.getWorldHours
 local getPlayerLabel = Runtime.getPlayerLabel
 local getPlayerNutrition = Runtime.getPlayerNutrition
 local getPlayerBodyDamage = Runtime.getPlayerBodyDamage
+local safeCall = Runtime.safeCall
+local safeInvoke = NutritionMakesSense.CoreUtils and NutritionMakesSense.CoreUtils.safeInvoke
 local syncVisibleHunger = Runtime.syncVisibleHunger
 local syncVisibleWeight = Runtime.syncVisibleWeight
-local syncProteinHealing = Runtime.syncProteinHealing
 local suppressFoodEatenTimer = Runtime.suppressFoodEatenTimer
 local log = Runtime.log
 local getPlayerStats = Runtime.getPlayerStats
@@ -23,6 +24,46 @@ local setVisibleHunger = Runtime.setVisibleHunger
 local getTelemetryForState = Runtime.getTelemetryForState
 local replaceTelemetryForState = Runtime.replaceTelemetryForState
 local buildStateView = Runtime.buildStateView
+local recoveryByBodyDamage = setmetatable({}, { __mode = "k" })
+local RECOVERY_FIELDS = {
+    { get = "getStandardHealthAddition", set = "setStandardHealthAddition" },
+    { get = "getReducedHealthAddition", set = "setReducedHealthAddition" },
+    { get = "getSeverlyReducedHealthAddition", set = "setSeverlyReducedHealthAddition" },
+}
+
+function Runtime.syncNaturalRecovery(bodyDamage, state)
+    if not bodyDamage or not state then return nil end
+    local multiplier = Metabolism.getNaturalRecoveryMultiplier(state.proteins, state.weightKg, state.fuel)
+    local fields = recoveryByBodyDamage[bodyDamage]
+    if not fields then
+        fields = {}
+        recoveryByBodyDamage[bodyDamage] = fields
+    end
+
+    for _, field in ipairs(RECOVERY_FIELDS) do
+        local current = tonumber(safeCall(bodyDamage, field.get))
+        if current and current >= 0 then
+            local entry = fields[field.get]
+            if not entry then
+                entry = { baseline = current }
+                fields[field.get] = entry
+            elseif entry.applied and math.abs(current - entry.applied) > 0.000001 then
+                -- Another mod changed this field; leave its value under that mod's control.
+                entry.external = true
+            end
+
+            if not entry.external then
+                local desired = entry.baseline * multiplier
+                if math.abs(current - desired) <= 0.0000001 then
+                    entry.applied = current
+                elseif safeInvoke and safeInvoke(bodyDamage, field.set, desired) then
+                    entry.applied = desired
+                end
+            end
+        end
+    end
+    return multiplier
+end
 
 function Runtime.getStateCopy(playerObj)
     local modData = getModData(playerObj)
@@ -63,8 +104,8 @@ function Runtime.syncVisibleIndicators(playerObj, reason)
     local telemetry = getTelemetryForState(state)
     syncVisibleHunger(playerObj, state, reason or "sync-visible-indicators")
     syncVisibleWeight(nutrition, state, telemetry)
+    Runtime.syncNaturalRecovery(bodyDamage, state)
     if Runtime.shouldRunAuthoritativeUpdates() then
-        syncProteinHealing(bodyDamage, state)
         suppressFoodEatenTimer(bodyDamage)
     end
     telemetry.lastTraceReason = tostring(reason or telemetry.lastTraceReason or "sync-visible-indicators")

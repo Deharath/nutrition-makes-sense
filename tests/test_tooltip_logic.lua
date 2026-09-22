@@ -25,3 +25,8 @@ local ingredientRows = TooltipLogic.buildDescriptorRows(makeFood(true), {})
 Support.assertEqual(ingredientRows[1].label, "Energy Content", "CantEat reservoir must not present hunger budget as satiety")
 
 print("nms tooltip characterization passed")
+
+Support.assertNil(TooltipLogic.getSatietyDescriptor({kcal = 0, hunger = 100}), "zero calories cannot promise lasting satiety")
+Support.assertEqual(TooltipLogic.getSatietyDescriptor({kcal = 400, proteins = 30, hunger = 1}),
+    TooltipLogic.getSatietyDescriptor({kcal = 400, proteins = 30, hunger = 100}),
+    "script hunger reservoir does not determine lasting satiety")

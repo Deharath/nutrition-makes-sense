@@ -25,6 +25,16 @@ local DISPLAY_HUNGER_SYNC_EPSILON = 0.0005
 local state = MPClient._state or {}
 MPClient._state = state
 
+local function beginWorkloadSession()
+    state.workloadSessionId = tostring(getTimestampMs and getTimestampMs() or 0) .. ":" .. tostring({})
+    state.nextWorkloadSequence = 0
+    state.lastReportedWorkloadAverageMet = nil
+    state.lastReportedWorkloadPeakMet = nil
+    state.lastReportedWorkloadSource = nil
+    state.lastWorkloadReportWallSecond = nil
+    state.lastWorkloadKeepaliveWallSecond = nil
+end
+
 local function log(msg)
     if NutritionMakesSense.log then
         NutritionMakesSense.log(msg)
@@ -249,6 +259,9 @@ function MPClient.reportWorkload(playerObj, force, reason)
     if type(live) ~= "table" then
         return false
     end
+    if not state.workloadSessionId then
+        beginWorkloadSession()
+    end
 
     local averageMet = tonumber(live.averageMet) or 0
     local peakMet = tonumber(live.peakMet) or averageMet
@@ -277,6 +290,7 @@ function MPClient.reportWorkload(playerObj, force, reason)
     end
 
     local args = {
+        sessionId = state.workloadSessionId,
         seq = tonumber(state.nextWorkloadSequence),
         averageMet = averageMet,
         peakMet = peakMet,
@@ -372,20 +386,11 @@ local function onCreatePlayer(playerIndex, playerObj)
     end
 
     MPClient.clearSnapshot()
+    beginWorkloadSession()
     MPClient.requestSnapshot("create-player", true)
     MPClient.reportWorkload(playerObj or getLocalPlayer(0, nil), true, "create-player")
 
-    if state.bootLogged then
-        return
-    end
-    state.bootLogged = true
 
-    log(string.format(
-        "[CLIENT_READY] player=%s version=%s module=%s sync=snapshot+workload",
-        tostring(getPlayerLabel(playerObj, playerIndex)),
-        tostring(MP.SCRIPT_VERSION or "1.0.0"),
-        tostring(MP.NET_MODULE or "NutritionMakesSenseRuntime")
-    ))
 end
 
 local function onPlayerUpdate(playerObj)

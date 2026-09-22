@@ -10,7 +10,7 @@ NMS uses a vanilla-first food model.
 - The authored CSV is the source for NMS food balancing.
 - The builder emits vanilla script overrides to `common/media/scripts/NutritionMakesSense_food_overrides.txt`.
 - NMS observes positive changes in vanilla calories and macros as its intake signal.
-- NMS owns its metabolism state and writes hunger, weight, weight trends, and protein-dependent healing back to vanilla-facing fields.
+- NMS owns its metabolism state and writes hunger, weight, and weight trends back to vanilla-facing fields.
 - Multiplayer clients report workload; the server advances metabolism and returns authoritative state snapshots.
 
 NMS does not own an item registry, item snapshots, stable-item patching, explicit consume RPCs, or consume reconciliation queues.
@@ -30,7 +30,7 @@ Primary state:
 - `weightController`: long-term direction and strength of weight change
 - `weightKg`: authoritative body weight
 
-The serialized table contains only gameplay state plus lifecycle anchors: the fields above, initialization/schema markers, `lastWorldHours`, the nutrition-deposit sequence, and the original food-healing baseline. Last-tick workload values, recorder totals, shell-sync references, meal-aggregation transactions, and resume bookkeeping live in a weak runtime sidecar keyed by the durable table. Runtime views merge both layers and derive fuel zone, hunger band, weight trait, deprivation target, and current protein-healing values for UI, diagnostics, and MP encoding. Loading a schema-14 save harvests its existing diagnostics into the sidecar before removing those keys from save state.
+The serialized table contains only gameplay state plus lifecycle anchors: the fields above, initialization/schema markers, `lastWorldHours`, the nutrition-deposit sequence. Last-tick workload values, recorder totals, shell-sync references, meal-aggregation transactions, and resume bookkeeping live in a weak runtime sidecar keyed by the durable table. Runtime views merge both layers and derive fuel zone, hunger band, weight trait, deprivation target for UI, diagnostics, and MP encoding. Loading a schema-14 save harvests its existing diagnostics into the sidecar before removing those keys from save state.
 
 Carbohydrate and fat values remain food inputs. They contribute to food composition and satiety calculations, but NMS does not maintain carbohydrate or fat reserves on the player.
 
@@ -87,9 +87,9 @@ There is no separate generic exertion multiplier or fatigue acceleration. Sleep 
 
 Protein adequacy depletes over several days and is replenished by observed food protein.
 
-- deficiency reduces food-based healing by up to 12 percent
 - very low adequacy applies a Strength XP multiplier of `0.7`
 - high adequacy applies a Strength XP multiplier of `1.5`
+- ordinary awake HP recovery ranges from `0.85x` at no protein reserve to `1.20x` at full reserve; two days of adequacy is neutral, and low fuel fades only the positive bonus
 - the middle range leaves Strength XP unchanged
 
 The XP adjustment is installed through the vanilla `Events.AddXP` event and guards its injected adjustment against recursive processing.
@@ -106,7 +106,7 @@ NMS writes weight and trend chevrons to vanilla Nutrition fields and calls vanil
 
 - `MetabolismRuntime_Authority`: intake observation, elapsed-time handling, state advancement, and debug mutation helpers
 - `MetabolismRuntime_Workload`: local workload sampling, MP workload ingestion, and endurance control
-- `MetabolismRuntime_Sync`: state snapshots and vanilla-facing hunger, weight, and authoritative healing output
+- `MetabolismRuntime_Sync`: state snapshots and vanilla-facing hunger and weight output
 - `MetabolismRuntime_Compat`: AMS endurance-coordinator contributions
 - `MetabolismRuntime_XP`: protein-dependent Strength XP handling
 - `MetabolismRuntime_Lifecycle`: event registration and update cadence
@@ -134,7 +134,7 @@ Workload reports:
 State snapshots:
 
 - are server-authoritative
-- are limited to two change-driven sends per second
+- limit ordinary change-driven sends to once per second; meal deposits and critical pressure bypass this interval
 - use a 4-second idle keepalive
 - carry a monotonic server sequence
 - carry the authority's monotonic nutrition-deposit sequence
@@ -144,7 +144,7 @@ State snapshots:
 
 The release contract carries fuel, protein, deprivation, weight, recent energy balance, the weight controller, visible hunger, satiety, nutrition-deposit sequence, and the derived labels needed by player-facing UI. Dev servers extend that contract with explicitly whitelisted diagnostic fields. In-flight meal and resume bookkeeping never enters packets.
 
-Clients reject duplicate or older packet sequences and reset the sequence gate on a new player session, so a restarted server is accepted after reconnect. Between snapshots, the client anchors vanilla hunger to the latest server display target; vanilla client drift therefore cannot repeatedly cross a moodle boundary and then be snapped back. Eat and drink completion still get an immediate local fullness prediction, but it is only a presentation bridge: snapshots whose deposit sequence proves they predate the meal cannot raise hunger above that prediction. Fragmented server deposits may settle below the ceiling, and the prediction is released when the server's deposit sequence and hunger target agree, or after a bounded timeout. The raw server hunger, effective display target, causal sequences, age, and resolution are retained in diagnostics. There is no second client metabolism projection, and clients do not write the server-owned protein-healing effect.
+Clients reject duplicate or older packet sequences and reset the sequence gate on a new player session, so a restarted server is accepted after reconnect. Between snapshots, the client anchors vanilla hunger to the latest server display target; vanilla client drift therefore cannot repeatedly cross a moodle boundary and then be snapped back. Eat and drink completion still get an immediate local fullness prediction, but it is only a presentation bridge: snapshots whose deposit sequence proves they predate the meal cannot raise hunger above that prediction. Fragmented server deposits may settle below the ceiling, and the prediction is released when the server's deposit sequence and hunger target agree, or after a bounded timeout. The raw server hunger, effective display target, causal sequences, age, and resolution are retained in diagnostics. There is no second client metabolism projection.
 
 ## Dev Recording
 
@@ -195,7 +195,7 @@ lua tools/nutrition_makes_sense/run_model_runtime_suite.lua
 
 Offline characterization covers model boundaries, deprivation effects, protein XP thresholds, state invariants, the MP snapshot contract, debug access, per-player weight display state, and retired-source checks. In-game live scenario tools remain the authority for vanilla action integration and gameplay calibration.
 
-The multi-day projector reads the generated shipping script overrides directly. It converts script-scale `HungerChange` values to the runtime `0..1` hunger scale and follows the same strict vanilla moodle boundaries as the live runner. Its reports distinguish time in the `Low` and `Depleted` fuel zones from time under an actual deprivation-driven endurance penalty, and include protein-adequacy, Strength XP, and healing trends. `--food-value Base.ItemName` prints the exact normalized input used for a projected food.
+The multi-day projector reads the generated shipping script overrides directly. It converts script-scale `HungerChange` values to the runtime `0..1` hunger scale and follows the same strict vanilla moodle boundaries as the live runner. Its reports distinguish time in the `Low` and `Depleted` fuel zones from time under an actual deprivation-driven endurance penalty, and include protein-adequacy, and Strength XP trends. `--food-value Base.ItemName` prints the exact normalized input used for a projected food.
 
 The deterministic closed-loop soak (`tools/nutrition_makes_sense/run_closed_loop_soak.lua --strict`) advances the shipping metabolism code while simulated survivors respond to visible hunger rather than a fixed food schedule. Its default matrix covers canonical and recorded exploration workloads, three body sizes, appetite and metabolism traits, workload perturbations, balanced meals, the recorded food pattern, delayed reactions, and sandbox hunger-rate extremes. Sleep is tracked separately from awake comfortable-but-depleted time. `--quick --strict` is included in the normal characterization suite; the full matrix is the balance gate used after appetite changes.
 
@@ -209,3 +209,19 @@ The dev live runner's **Recorded Exploration Autopilot** is the engine-level com
 4. Deploy through `tools/mod_sync/sync_local_mod.sh --mod nutrition`.
 
 Do not hand-edit `NutritionMakesSense_food_overrides.txt`; it is generated output.
+
+## September 2026 repair contracts
+
+Recipe overlays change only `OnCreate`. The B42 loader appends repeated input/output declarations; a full copy of a recipe is not a replacement and can fail with duplicate props. Homogeneous cuts normalize total calories/macros against the consumed food; poultry calls vanilla cutting before normalization. Native fish and small-animal callbacks remain untouched.
+
+Foods without a vanilla `HungerChange` reservoir stay vanilla. Adding one changes whole-item crafting consumption into partial consumption, enabling repeated head processing or frozen-bag unpacking. Curation excludes these definitions and the builder rejects stale classifications.
+
+Protein affects Strength XP and ordinary awake HP recovery. NMS scales the body's standard, reduced, and severely reduced natural recovery rates, leaving the vanilla Food Eaten timer and sleep recovery alone. It yields a rate field if another mod changes it during a session. This does not heal individual wounds faster or inject HP when eating. The former `healthFromFood` multiplier was ineffective while its timer was suppressed. Satiety labels use the model's calorie/macro-based satiety contribution rather than the script hunger reservoir.
+
+Vanilla admin weight edits update the authoritative NMS weight and reset its trend, while preserving fuel and recent calorie history. Multiplayer edits require the vanilla player-stat capability. The model's 35 kg minimum still applies. Dead characters and non-local/NPC player objects are excluded from state creation; servers require the object registered under its online ID. This boundary does not establish compatibility with every NPC mod.
+
+Release snapshots omit diagnostic construction and copying where possible. Fuel/protein/weight/hunger thresholds are 5 kcal, 1 g, 0.05 kg, and 0.005; the four-second keepalive remains. Disconnected server cadence entries are pruned during minute maintenance.
+
+The observed-nutrition intake contract retains a vanilla limitation: a single consumption exceeding the engine's 3,700 kcal counter ceiling can be clipped before NMS sees it. Recovering that amount from item predictions would violate the current no-item-authority design. No speculative compensation is applied.
+
+`python3 tests/test_recipe_overrides.py --engine` additionally compiles a small reflection probe and uses the installed game's actual recipe loader and vanilla timed-action definitions. It checks that all seven overlays retain original input/output objects, resolve their callbacks, and finalize. Set `PZ_INSTALL` and `PZ_JAVA` to run against another installation. This is separate from the portable Lua suite and does not claim a running client/server smoke test.

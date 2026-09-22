@@ -50,7 +50,6 @@ local DIAGNOSTIC_STATE_FIELDS = {
     "lastEnduranceRegenScale",
     "lastEnduranceDeprivDrain",
     "lastProteinDeficiency",
-    "lastProteinHealingMultiplier",
     "lastSatietyQuality",
     "lastSatietyContribution",
     "lastSatietyReturnFactor",

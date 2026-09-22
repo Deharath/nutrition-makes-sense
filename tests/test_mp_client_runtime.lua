@@ -109,6 +109,11 @@ MPClient.install()
 handlers.createPlayer(0, player)
 Support.assertTrue(#sentCommands >= 2,
     "client creation requests an authoritative snapshot and reports workload")
+local firstSessionId = sentCommands[#sentCommands].args.sessionId
+Support.assertTrue(type(firstSessionId) == "string" and #firstSessionId > 0,
+    "workload report carries a client session token")
+Support.assertEqual(sentCommands[#sentCommands].args.seq, 1,
+    "first workload report starts the session sequence")
 
 local function snapshot(seq, hunger, depositSequence)
     handlers.serverCommand(NutritionMakesSense.MP.NET_MODULE, NutritionMakesSense.MP.STATE_SNAPSHOT_COMMAND, {
@@ -190,6 +195,10 @@ Support.assertTrue(suppressionCount > 0, "MP shell checked the Food Eaten timer"
 
 snapshot(99, 0.20, 7)
 handlers.createPlayer(0, player)
+Support.assertTrue(sentCommands[#sentCommands].args.sessionId ~= firstSessionId,
+    "reconnect starts a distinct workload session")
+Support.assertEqual(sentCommands[#sentCommands].args.seq, 1,
+    "reconnect restarts workload sequence")
 snapshot(1, 0.21, 7)
 Support.assertClose(liveHunger, 0.21, 0.000001,
     "a reconnect accepts a restarted server sequence")

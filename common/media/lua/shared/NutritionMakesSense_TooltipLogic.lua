@@ -221,21 +221,21 @@ function TooltipLogic.getVanillaNutritionVisibility(item, viewer)
 end
 
 function TooltipLogic.getSatietyDescriptor(values)
-    local hungerDrop = normalizeHungerValue(values and values.hunger) * 0.01
+    local satiety = Metabolism.getSatietyContribution(values, 1)
 
-    if hungerDrop >= 0.24 then
+    if satiety >= 0.9 then
         return "Very high"
     end
-    if hungerDrop >= 0.18 then
+    if satiety >= 0.6 then
         return "High"
     end
-    if hungerDrop >= 0.10 then
+    if satiety >= 0.3 then
         return "Moderate"
     end
-    if hungerDrop >= 0.045 then
+    if satiety >= 0.1 then
         return "Light"
     end
-    if hungerDrop > 0 then
+    if satiety > 0 then
         return "Minimal"
     end
     return nil

@@ -82,3 +82,63 @@ Support.assertClose(durableCopy.weightBalanceKcal, state.weightBalanceKcal, 0.00
     "copying a runtime view preserves gameplay state")
 
 print("nms runtime telemetry separation passed")
+
+local oldFuel, oldBalance = state.fuel, state.weightBalanceKcal
+Support.assertTrue(Runtime.setAdminWeight(player, 95), "admin edit accepted")
+Support.assertClose(state.weightKg, 95, 0.00001, "admin weight persists in authoritative state")
+Support.assertClose(state.fuel, oldFuel, 0.00001, "weight edit preserves fuel")
+Support.assertClose(state.weightBalanceKcal, oldBalance, 0.00001, "weight edit preserves energy history")
+Support.assertTrue(not Runtime.setAdminWeight(player, 0/0), "NaN rejected")
+Support.assertTrue(not Runtime.setAdminWeight(player, 200), "out of range weight rejected")
+Support.assertNil(state.baseHealthFromFood, "inactive healing baseline removed from saves")
+
+local healingRates = { standard = 0.002, reduced = 0.0013, severe = 0.0008 }
+local foodTimerWrites = 0
+local bodyDamage = {
+    getStandardHealthAddition = function() return healingRates.standard end,
+    setStandardHealthAddition = function(_, value) healingRates.standard = value end,
+    getReducedHealthAddition = function() return healingRates.reduced end,
+    setReducedHealthAddition = function(_, value) healingRates.reduced = value end,
+    getSeverlyReducedHealthAddition = function() return healingRates.severe end,
+    setSeverlyReducedHealthAddition = function(_, value) healingRates.severe = value end,
+    setHealthFromFoodTimer = function() foodTimerWrites = foodTimerWrites + 1 end,
+}
+local recoveryState = { proteins = Metabolism.getProteinAdequacyMax(80), weightKg = 80, fuel = 1000 }
+Support.assertClose(Runtime.syncNaturalRecovery(bodyDamage, recoveryState), 1.2, 0.000001,
+    "well-nourished recovery has a bounded bonus")
+Support.assertClose(healingRates.standard, 0.0024, 0.000001,
+    "recovery adjusts vanilla's ordinary awake healing rate")
+Runtime.syncNaturalRecovery(bodyDamage, recoveryState)
+Support.assertClose(healingRates.standard, 0.0024, 0.000001,
+    "repeated shell sync does not compound the recovery multiplier")
+recoveryState.fuel = 0
+Runtime.syncNaturalRecovery(bodyDamage, recoveryState)
+Support.assertClose(healingRates.standard, 0.002, 0.000001,
+    "losing energy support restores the unmodified vanilla baseline")
+recoveryState.proteins = 0
+Runtime.syncNaturalRecovery(bodyDamage, recoveryState)
+Support.assertClose(healingRates.standard, 0.0017, 0.000001,
+    "protein depletion slows natural recovery without a direct HP write")
+Support.assertEqual(foodTimerWrites, 0, "nutrition recovery never starts the Food Eaten heal timer")
+healingRates.standard = 0.003
+recoveryState.proteins = Metabolism.getProteinAdequacyMax(80)
+recoveryState.fuel = 1000
+Runtime.syncNaturalRecovery(bodyDamage, recoveryState)
+Support.assertClose(healingRates.standard, 0.003, 0.000001,
+    "NMS yields a healing field when another mod changes it")
+
+local workload = { averageMet = 3, peakMet = 3, source = "reconnect-test" }
+Support.assertTrue(Runtime.reportPlayerWorkload(player, workload, 100, "before-reconnect", 30, "session-one") ~= nil,
+    "first client session workload is accepted")
+local cache = Runtime.getActivityCache(player)
+Support.assertEqual(cache.reportedWorkloadSeq, 30, "server remembers the first session sequence")
+Runtime.markPlayerSessionResumed(player, "create-player")
+Support.assertEqual(cache.reportedWorkloadSeq, 30, "snapshot request does not decide the workload session")
+Support.assertTrue(Runtime.reportPlayerWorkload(player, workload, 100, "after-reconnect", 1, "session-two") ~= nil,
+    "new workload session can restart its sequence at one")
+Support.assertEqual(cache.reportedWorkloadSeq, 1, "server tracks the new session sequence")
+Support.assertEqual(cache.reportedWorkloadSessionId, "session-two", "server tracks the new session token")
+Support.assertNil(Runtime.reportPlayerWorkload(player, workload, 100, "late-old-session", 31, "session-one"),
+    "late reports from a retired session cannot replace the new session")
+Support.assertNil(Runtime.reportPlayerWorkload(player, workload, 100, "duplicate", 1, "session-two"),
+    "duplicate reports within one session are rejected")
