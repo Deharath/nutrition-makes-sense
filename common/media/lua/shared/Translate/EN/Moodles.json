@@ -2,9 +2,14 @@
     "Moodles_Malnourished_lvl1": "Slightly Malnourished",
     "Moodles_Malnourished_lvl2": "Malnourished",
     "Moodles_Malnourished_lvl3": "Severely Malnourished",
-    "Moodles_Malnourished_lvl4": "Severely Malnourished",
-    "Moodles_Malnourished_desc_lvl1": "Missed meals are starting to wear on you.",
-    "Moodles_Malnourished_desc_lvl2": "Your body is underfed and you tire more easily.",
+    "Moodles_Malnourished_lvl4": "Starved",
+    "Moodles_Malnourished_desc_lvl1": "Poor eating is starting to wear on you.",
+    "Moodles_Malnourished_desc_lvl2": "Your body is underfed. You tire faster and heal slower.",
     "Moodles_Malnourished_desc_lvl3": "Sustained underfeeding has left you severely weakened.",
-    "Moodles_Malnourished_desc_lvl4": "Sustained underfeeding has left you severely weakened."
+    "Moodles_Malnourished_desc_lvl4": "Your body is breaking down from lack of food.",
+    "Moodles_Malnourished_cause_calories": "You need more calories.",
+    "Moodles_Malnourished_cause_protein": "You need more protein.",
+    "Moodles_Malnourished_cause_both": "You need more calories and protein.",
+    "Moodles_Malnourished_worsening": "It is getting worse.",
+    "Moodles_Malnourished_recovering": "You are recovering."
 }

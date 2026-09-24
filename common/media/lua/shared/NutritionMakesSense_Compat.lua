@@ -1,9 +1,7 @@
 NutritionMakesSense = NutritionMakesSense or {}
 
 local PROTOCOL = "mscompat-v1"
-local Metabolism = NutritionMakesSense.Metabolism or {}
-
-local clamp = Metabolism.clamp or function(value, minimum, maximum)
+local function clamp(value, minimum, maximum)
     local v = tonumber(value)
     if v == nil then
         return minimum

@@ -1,101 +1,21 @@
 NutritionMakesSense = NutritionMakesSense or {}
 
-require "NutritionMakesSense_Metabolism"
+require "NutritionMakesSense_Model"
 require "NutritionMakesSense_CoreUtils"
 
 local TooltipLogic = NutritionMakesSense.TooltipLogic or {}
 NutritionMakesSense.TooltipLogic = TooltipLogic
-local Metabolism = NutritionMakesSense.Metabolism
+local Model = NutritionMakesSense.Model
 local CoreUtils = NutritionMakesSense.CoreUtils or {}
 
-local TT_LABEL_DEFAULT = { 1.0, 1.0, 0.8, 1.0 }
-local TT_VALUE_DEFAULT = { 1.0, 1.0, 1.0, 1.0 }
-
 local safeCall = CoreUtils.safeCall
-local rawLookup = CoreUtils.rawLookup
-local hasTrait = CoreUtils.hasTrait
-
-local function addLayoutRow(layout, payload)
-    local layoutItem = safeCall(layout, "addItem")
-    if not layoutItem then
-        return nil
-    end
-
-    local labelColor = payload.labelColor or TT_LABEL_DEFAULT
-    safeCall(layoutItem, "setLabel", payload.label or "", labelColor[1], labelColor[2], labelColor[3], labelColor[4])
-
-    if payload.value ~= nil then
-        local valueColor = payload.valueColor or TT_VALUE_DEFAULT
-        safeCall(layoutItem, "setValue", tostring(payload.value), valueColor[1], valueColor[2], valueColor[3], valueColor[4])
-    end
-
-    return layoutItem
-end
-
-local function getModData(item)
-    if not item then
-        return nil
-    end
-    return safeCall(item, "getModData") or item.modData
-end
-
-local function normalizeHungerValue(rawHunger)
-    local hunger = math.abs(tonumber(rawHunger) or 0)
-    if hunger <= 1 then
-        return hunger * 100
-    end
-    return hunger
-end
 
 local function readFoodValues(item)
-    local hunger = safeCall(item, "getHungerChange")
-    if hunger == nil then
-        hunger = safeCall(item, "getHungChange")
-    end
-
     return {
-        hunger = normalizeHungerValue(hunger or item.hunger),
         kcal = math.max(0, tonumber(safeCall(item, "getCalories") or item.kcal) or 0),
         carbs = math.max(0, tonumber(safeCall(item, "getCarbohydrates") or item.carbs) or 0),
         fats = math.max(0, tonumber(safeCall(item, "getLipids") or item.fats) or 0),
         proteins = math.max(0, tonumber(safeCall(item, "getProteins") or item.proteins) or 0),
-    }
-end
-
-local function resolveViewer(viewer)
-    local character = viewer
-    if type(viewer) == "table" and viewer.character ~= nil then
-        character = viewer.character
-    end
-
-    local illiterate = false
-    local nutritionist = false
-    local tooDark = false
-
-    if type(viewer) == "table" then
-        if viewer.illiterate ~= nil then
-            illiterate = viewer.illiterate == true
-        end
-        if viewer.nutritionist ~= nil then
-            nutritionist = viewer.nutritionist == true
-        end
-        if viewer.tooDark ~= nil then
-            tooDark = viewer.tooDark == true
-        end
-    end
-
-    illiterate = illiterate or hasTrait(character, "Illiterate", "ILLITERATE")
-    nutritionist = nutritionist
-        or hasTrait(character, "Nutritionist", "NUTRITIONIST")
-        or hasTrait(character, "Nutritionist2", "NUTRITIONIST2")
-    tooDark = tooDark or (safeCall(character, "tooDarkToRead") == true)
-
-    return {
-        character = character,
-        hasCharacter = character ~= nil,
-        illiterate = illiterate,
-        nutritionist = nutritionist,
-        tooDark = tooDark,
     }
 end
 
@@ -147,234 +67,58 @@ function TooltipLogic.isFoodItem(item)
         or safeCall(item, "getProteins") ~= nil
 end
 
-function TooltipLogic.getVanillaNutritionVisibility(item, viewer)
-    if not TooltipLogic.isFoodItem(item) then
-        return {
-            exactNumbersVisible = false,
-            reason = "not_food",
-            blocker = nil,
-            packaged = false,
-        }
+-- Pip scales share units with the Nutrition window: a satiety pip is one hour of fullness,
+-- an energy pip is the kcal that fill one hour at neutral composition.
+TooltipLogic.PIP_COUNT = 5
+TooltipLogic.SATIETY_HOURS_PER_PIP = 1
+TooltipLogic.ENERGY_KCAL_PER_PIP = Model.FILL_KCAL_PER_HOUR
+TooltipLogic.PROTEIN_G_PER_PIP = 10
+
+local function tr(key, fallback)
+    local text = type(getText) == "function" and getText(key) or nil
+    if not text or text == key then
+        return fallback
     end
-
-    local resolvedViewer = resolveViewer(viewer)
-    local packaged = safeCall(item, "isPackaged") == true or item.packaged == true
-    local noLabel = rawLookup(getModData(item), "NoLabel") ~= nil or item.noLabel == true
-
-    if resolvedViewer.nutritionist then
-        return {
-            exactNumbersVisible = true,
-            reason = "nutritionist",
-            blocker = nil,
-            packaged = packaged,
-        }
-    end
-
-    local canReadPackage = packaged
-        and resolvedViewer.hasCharacter
-        and not resolvedViewer.illiterate
-        and not resolvedViewer.tooDark
-        and not noLabel
-
-    if canReadPackage then
-        return {
-            exactNumbersVisible = true,
-            reason = "packaged_label",
-            blocker = nil,
-            packaged = packaged,
-        }
-    end
-
-    if packaged and resolvedViewer.illiterate then
-        return {
-            exactNumbersVisible = false,
-            reason = "packaged_blocked",
-            blocker = "illiterate",
-            packaged = packaged,
-        }
-    end
-
-    if packaged and resolvedViewer.tooDark then
-        return {
-            exactNumbersVisible = false,
-            reason = "packaged_blocked",
-            blocker = "too_dark",
-            packaged = packaged,
-        }
-    end
-
-    if packaged and noLabel then
-        return {
-            exactNumbersVisible = false,
-            reason = "packaged_blocked",
-            blocker = "no_label",
-            packaged = packaged,
-        }
-    end
-
-    return {
-        exactNumbersVisible = false,
-        reason = "descriptors_only",
-        blocker = nil,
-        packaged = packaged,
-    }
+    return text
 end
 
-function TooltipLogic.getSatietyDescriptor(values)
-    local satiety = Metabolism.getSatietyContribution(values, 1)
-
-    if satiety >= 0.9 then
-        return "Very high"
-    end
-    if satiety >= 0.6 then
-        return "High"
-    end
-    if satiety >= 0.3 then
-        return "Moderate"
-    end
-    if satiety >= 0.1 then
-        return "Light"
-    end
-    if satiety > 0 then
-        return "Minimal"
-    end
-    return nil
+function TooltipLogic.readFoodValues(item)
+    return readFoodValues(item)
 end
 
-function TooltipLogic.getEnergyDescriptor(values)
-    local kcal = math.max(0, tonumber(values and values.kcal) or 0)
-    if kcal >= 700 then
-        return "Very high"
-    end
-    if kcal >= 350 then
-        return "High"
-    end
-    if kcal >= 150 then
-        return "Moderate"
-    end
-    if kcal >= 60 then
-        return "Light"
-    end
-    if kcal > 0 then
-        return "Minimal"
-    end
-    return nil
-end
-
-function TooltipLogic.getDominantMacroDescriptor(values)
-    local carbKcal = math.max(0, tonumber(values and values.carbs) or 0) * 4
-    local fatKcal = math.max(0, tonumber(values and values.fats) or 0) * 9
-    local proteinKcal = math.max(0, tonumber(values and values.proteins) or 0) * 4
-    local total = carbKcal + fatKcal + proteinKcal
-    if total < 40 then
-        return nil
-    end
-
-    local ranked = {
-        { key = "carbs", label = "Mostly carbs", share = carbKcal / total },
-        { key = "fats", label = "Mostly fat", share = fatKcal / total },
-        { key = "proteins", label = "Mostly protein", share = proteinKcal / total },
-    }
-
-    table.sort(ranked, function(a, b)
-        return a.share > b.share
-    end)
-
-    local top = ranked[1]
-    local second = ranked[2]
-    if top.share < 0.52 then
-        return nil
-    end
-    if (top.share - second.share) < 0.09 then
-        return nil
-    end
-    return top.label
-end
-
-function TooltipLogic.buildDescriptorRows(item, viewer)
+-- Rows: { key, label, pips, color key, debugText? }.
+function TooltipLogic.buildPipRows(item)
     if not TooltipLogic.isFoodItem(item) then
         return {}
     end
-
     local values = readFoodValues(item)
-    local rows = {}
     local debugMode = isDebugTooltipMode()
-    local visibility = TooltipLogic.getVanillaNutritionVisibility(item, viewer)
     local scriptItem = safeCall(item, "getScriptItem")
     local directlyEdible = safeCall(scriptItem, "isCantEat") ~= true
+    local rows = {}
 
     if directlyEdible then
-        local satiety = TooltipLogic.getSatietyDescriptor(values) or "None"
-        local satietyLabel = debugMode
-            and string.format("Hunger Effect [%s]", formatDebugNumber(normalizeHungerValue(values.hunger) * 0.01, 2))
-            or "Satiety"
-        rows[#rows + 1] = { label = satietyLabel, value = satiety }
-
-        if debugMode and Metabolism and type(Metabolism.getSatietyContribution) == "function" then
-            rows[#rows + 1] = {
-                label = "Staying Power",
-                value = formatDebugNumber(Metabolism.getSatietyContribution(values, 1), 2),
-            }
-        end
+        local hours = Model.fillHours(values.kcal, values.fats, values.proteins)
+        rows[#rows + 1] = {
+            key = "satiety",
+            label = tr("UI_NMS_Tooltip_Satiety", "Satiety"),
+            pips = hours / TooltipLogic.SATIETY_HOURS_PER_PIP,
+            debugText = debugMode and (formatDebugNumber(hours, 1) .. " h") or nil,
+        }
     end
-
-    local energy = TooltipLogic.getEnergyDescriptor(values) or "None"
-    local energyLabel = "Energy Content"
-    if debugMode then
-        energyLabel = string.format("Energy Content [%s kcal]", formatDebugNumber(values.kcal, 0))
-    end
-    rows[#rows + 1] = { label = energyLabel, value = energy }
-
-    local macro = TooltipLogic.getDominantMacroDescriptor(values)
-    if macro and not visibility.exactNumbersVisible then
-        local label = "Macro"
-        if debugMode then
-            label = string.format(
-                "Macro [%sc/%sf/%sp]",
-                formatDebugNumber(values.carbs, 1),
-                formatDebugNumber(values.fats, 1),
-                formatDebugNumber(values.proteins, 1)
-            )
-        end
-        rows[#rows + 1] = { label = label, value = macro }
-    end
-
-    return rows
-end
-
-function TooltipLogic.buildFixtureSnapshot(item, viewer)
-    local visibility = TooltipLogic.getVanillaNutritionVisibility(item, viewer)
-    return {
-        fullType = safeCall(item, "getFullType") or item.id or item.fullType,
-        visibility = visibility.reason,
-        blocker = visibility.blocker,
-        exactNumbersVisible = visibility.exactNumbersVisible,
-        descriptors = TooltipLogic.buildDescriptorRows(item, viewer),
+    rows[#rows + 1] = {
+        key = "energy",
+        label = tr("UI_NMS_Tooltip_Energy", "Energy"),
+        pips = values.kcal / TooltipLogic.ENERGY_KCAL_PER_PIP,
+        debugText = debugMode and (formatDebugNumber(values.kcal, 0) .. " kcal") or nil,
     }
-end
-
-function TooltipLogic.appendDescriptorRowsToLayout(layout, item)
-    return TooltipLogic.appendDescriptorRowsToLayoutForViewer(layout, item, nil)
-end
-
-function TooltipLogic.appendDescriptorRowsToLayoutForViewer(layout, item, viewer)
-    if not layout or not item or not TooltipLogic.isFoodItem(item) then
-        return false
-    end
-
-    local rows = TooltipLogic.buildDescriptorRows(item, viewer)
-    if #rows == 0 then
-        return false
-    end
-
-    for _, row in ipairs(rows) do
-        addLayoutRow(layout, {
-            label = tostring(row.label) .. ":",
-            value = tostring(row.value),
-        })
-    end
-
-    return true
+    rows[#rows + 1] = {
+        key = "protein",
+        label = tr("UI_NMS_Tooltip_Protein", "Protein"),
+        pips = values.proteins / TooltipLogic.PROTEIN_G_PER_PIP,
+        debugText = debugMode and (formatDebugNumber(values.proteins, 0) .. " g") or nil,
+    }
+    return rows
 end
 
 return TooltipLogic

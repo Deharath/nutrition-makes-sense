@@ -2,12 +2,16 @@ NutritionMakesSense = NutritionMakesSense or {}
 
 require "NutritionMakesSense_CoreUtils"
 require "NutritionMakesSense_TooltipLogic"
+require "ui/NutritionMakesSense_Draw"
+require "ui/NutritionMakesSense_UIHelpers"
 
 local TooltipOverlay = NutritionMakesSense.TooltipOverlay or {}
 NutritionMakesSense.TooltipOverlay = TooltipOverlay
 
 local CoreUtils = NutritionMakesSense.CoreUtils or {}
 local TooltipLogic = NutritionMakesSense.TooltipLogic or {}
+local Draw = NutritionMakesSense.Draw
+local UIHelpers = NutritionMakesSense.UIHelpers
 local safeCall = CoreUtils.safeCall
 local loggedMessages = {}
 
@@ -15,6 +19,18 @@ local TOOLTIP_MIN_LABEL_WIDTH = 80
 local TOOLTIP_MIN_VALUE_WIDTH = 80
 local TOOLTIP_MIN_WIDTH = 150
 local TOOLTIP_TITLE_GAP = 5
+local PIP_BLOCK_GAP = 3
+local LABEL_COLOR = { r = 1.0, g = 1.0, b = 0.8 }
+
+-- Labels vanilla food tooltips can emit; the shared label column must clear all of them so
+-- NMS pips line up with vanilla values.
+local VANILLA_LABEL_KEYS = {
+    "Tooltip_item_Weight", "Tooltip_item_StackWeight", "Tooltip_food_Hunger", "Tooltip_food_Thirst",
+    "Tooltip_food_Endurance", "Tooltip_food_Stress", "Tooltip_food_Boredom", "Tooltip_food_Unhappiness",
+    "Tooltip_food_Calories", "Tooltip_food_Carbs", "Tooltip_food_Prots", "Tooltip_food_Fat",
+    "Tooltip_item_Fatigue", "Tooltip_item_Discomfort", "Tooltip_food_MinutesToCook",
+}
+local PIP_COLOR_KEYS = { satiety = "stomach", energy = "energy", protein = "protein" }
 
 local function logOnce(key, message)
     if loggedMessages[key] then
@@ -89,13 +105,70 @@ local function withHiddenVanillaHunger(item, callback)
     return ok, result
 end
 
+local function labelColumnWidth(font, rows)
+    local width = TOOLTIP_MIN_LABEL_WIDTH
+    for _, key in ipairs(VANILLA_LABEL_KEYS) do
+        local text = getText(key)
+        if text and text ~= key then
+            width = math.max(width, Draw.textWidth(font, text .. ":"))
+        end
+    end
+    for _, row in ipairs(rows) do
+        width = math.max(width, Draw.textWidth(font, row.label .. ":"))
+    end
+    return width
+end
+
+-- NMS rows sit under the vanilla layout, drawn directly so each row can carry a pip strip.
+local function renderPipBlock(tooltip, rows, padLeft, top, labelColumn)
+    local font = safeCall(tooltip, "getFont")
+    local lineSpacing = tonumber(safeCall(tooltip, "getLineSpacing")) or 14
+    local measureOnly = safeCall(tooltip, "isMeasureOnly") == true
+    local padX = math.max(Draw.textWidth(font, "W"), 8)
+    local valueX = padLeft + labelColumn + padX
+    local size, gap = Draw.pipGeometry(lineSpacing)
+    local count = TooltipLogic.PIP_COUNT
+    local stripWidth = Draw.pipStripWidth(count, size, gap)
+    local sink = (not measureOnly) and Draw.tooltipSink(tooltip) or nil
+    local detailed = UIHelpers.isDetailed(getPlayer and getPlayer() or nil)
+    local right = valueX + stripWidth
+    local y = top + PIP_BLOCK_GAP
+
+    for _, row in ipairs(rows) do
+        local color = Draw.C[PIP_COLOR_KEYS[row.key] or "text"]
+        local pips = row.pips
+        if not detailed and not row.debugText then
+            -- An untrained eye judges in whole portions: round, keep a trace visible, never show overflow.
+            pips = math.min(count, math.max(pips >= 0.25 and 1 or 0, math.floor(pips + 0.5)))
+        end
+        local extra = pips > count and "+" or nil
+        if row.debugText then
+            extra = (extra or "") .. " " .. row.debugText
+        end
+        if sink then
+            tooltip:DrawText(font, row.label .. ":", padLeft, y, LABEL_COLOR.r, LABEL_COLOR.g, LABEL_COLOR.b, 1)
+            Draw.pips(sink, valueX, y + math.floor((lineSpacing - size) / 2), count, pips, size, gap, color)
+            if extra then
+                tooltip:DrawText(font, extra, valueX + stripWidth + 3, y, color.r, color.g, color.b, 1)
+            end
+        end
+        if extra then
+            right = math.max(right, valueX + stripWidth + 3 + Draw.textWidth(font, extra))
+        end
+        y = y + lineSpacing
+    end
+    return y, right
+end
+
 local function renderCombinedTooltip(tooltip, item)
     local layout = safeCall(tooltip, "beginLayout")
     if not layout then
         return false
     end
 
-    safeCall(layout, "setMinLabelWidth", TOOLTIP_MIN_LABEL_WIDTH)
+    local rows = TooltipLogic.buildPipRows(item)
+    local labelColumn = labelColumnWidth(safeCall(tooltip, "getFont"), rows)
+    safeCall(layout, "setMinLabelWidth", labelColumn)
     safeCall(layout, "setMinValueWidth", TOOLTIP_MIN_VALUE_WIDTH)
 
     local embedded = item and item.DoTooltipEmbedded or nil
@@ -112,20 +185,20 @@ local function renderCombinedTooltip(tooltip, item)
         error(failure)
     end
 
-    TooltipLogic.appendDescriptorRowsToLayoutForViewer(
-        layout,
-        item,
-        safeCall(tooltip, "getCharacter")
-    )
-
     local padLeft, contentY, padBottom = tooltipLayoutGeometry(tooltip, item)
     local height = tonumber(safeCall(layout, "render", padLeft, contentY, tooltip)) or contentY
     safeCall(tooltip, "endLayout", layout)
+
+    local right = 0
+    if #rows > 0 then
+        height, right = renderPipBlock(tooltip, rows, padLeft, height, labelColumn)
+    end
     safeCall(tooltip, "setHeight", math.floor(height + padBottom))
 
     local width = tonumber(safeCall(tooltip, "getWidth")) or 0
-    if width < TOOLTIP_MIN_WIDTH then
-        safeCall(tooltip, "setWidth", TOOLTIP_MIN_WIDTH)
+    local needed = math.max(TOOLTIP_MIN_WIDTH, right + padLeft)
+    if width < needed then
+        safeCall(tooltip, "setWidth", needed)
     end
     return true
 end

@@ -54,6 +54,13 @@ function ClientOptions.ensureRegistered()
         return false
     end
 
+    if type(options.getOption) == "function" and not options:getOption("displayMode") then
+        local combo = options:addComboBox("displayMode", getText("UI_NMS_ModOptions_Display"),
+            getText("UI_NMS_ModOptions_Display_Tooltip"))
+        combo:addItem("UI_NMS_ModOptions_Display_Immersive", true)
+        combo:addItem("UI_NMS_ModOptions_Display_Detailed", false)
+    end
+
     if DebugSupport.isDebugLaunch and DebugSupport.isDebugLaunch() then
         options:addTitle(getText("UI_NMS_ModOptions_Debug_Title"))
         ensureTickBox(
@@ -92,11 +99,20 @@ function ClientOptions.getShowDebugFoodTooltips()
     return true
 end
 
+-- Immersive (default) shows what the character feels; Detailed shows exact amounts and times.
+function ClientOptions.isDetailedDisplay()
+    ClientOptions.ensureRegistered()
+    local options = getOptionsObject()
+    local option = options and options:getOption("displayMode") or nil
+    return option ~= nil and type(option.getValue) == "function" and option:getValue() == 2
+end
+
 local function install()
     if ClientOptions._installed then
         return ClientOptions
     end
     ClientOptions._installed = true
+    ClientOptions.ensureRegistered()
 
     if Events and Events.OnMainMenuEnter and type(Events.OnMainMenuEnter.Add) == "function" then
         Events.OnMainMenuEnter.Add(function()

@@ -1,8 +1,6 @@
 NutritionMakesSense = NutritionMakesSense or {}
 
 require "NutritionMakesSense_Boot"
-require "NutritionMakesSense_MPServerRuntime_Vanilla"
+require "NutritionMakesSense_MPServer"
 
-if NutritionMakesSense.MPServerRuntime and type(NutritionMakesSense.MPServerRuntime.install) == "function" then
-    NutritionMakesSense.MPServerRuntime.install()
-end
+NutritionMakesSense.MPServer.install()

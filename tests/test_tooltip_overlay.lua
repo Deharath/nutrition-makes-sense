@@ -18,8 +18,10 @@ getTextManager = function()
     return {
         MeasureStringX = function(_, font, text)
             Support.assertEqual(font, "TooltipFont", "tooltip geometry uses the active font")
-            Support.assertEqual(text, "0", "tooltip geometry derives padding from a public font metric")
-            return 10
+            if text == "0" then
+                return 10
+            end
+            return 6 * #text
         end,
     }
 end
@@ -120,6 +122,12 @@ function tooltip:getWidth() return tooltipWidth end
 function tooltip:getHeight() return tooltipHeight end
 function tooltip:setWidth(value) tooltipWidth = value end
 function tooltip:setHeight(value) tooltipHeight = value end
+local drawnLabels = {}
+local pipRects = 0
+local measureOnly = false
+function tooltip:isMeasureOnly() return measureOnly end
+function tooltip:DrawText(_, text) drawnLabels[#drawnLabels + 1] = text end
+function tooltip:DrawTextureScaledColor() pipRects = pipRects + 1 end
 
 local originalRender = function(panel)
     panel.item:DoTooltip(panel.tooltip)
@@ -138,17 +146,18 @@ Support.assertEqual(embeddedSawHiddenHunger, 2, "the vanilla numeric hunger row 
 Support.assertEqual(hiddenTags[ItemTag.HIDE_HUNGER_CHANGE], nil, "temporary hunger suppression is restored")
 Support.assertEqual(#completedLayouts, 2, "each owner pass receives one combined layout")
 for _, layout in ipairs(completedLayouts) do
-    Support.assertEqual(layout.minLabelWidth, 80, "combined layout preserves the vanilla minimum label width")
+    Support.assertEqual(layout.minLabelWidth, 80, "the shared label column keeps the vanilla minimum")
     Support.assertEqual(layout.minValueWidth, 80, "combined layout preserves the vanilla minimum value width")
-    Support.assertEqual(#layout.rows, 3, "vanilla and NMS rows share one layout")
+    Support.assertEqual(#layout.rows, 1, "vanilla rows own the layout")
     Support.assertEqual(layout.rows[1].label, "Weight:", "vanilla rows remain first")
-    Support.assertEqual(layout.rows[2].label, "Satiety:", "NMS satiety follows vanilla rows")
-    Support.assertEqual(layout.rows[3].label, "Energy Content:", "NMS energy follows satiety")
     Support.assertEqual(layout.renderX, 10, "layout uses font-derived left padding")
     Support.assertEqual(layout.renderY, 55, "layout accounts for the vanilla title and ingredient strip")
 end
-Support.assertEqual(tooltipWidth, 150, "combined tooltip enforces the vanilla minimum width")
-Support.assertEqual(tooltipHeight, 102, "combined layout owns the final height")
+Support.assertEqual(table.concat(drawnLabels, ","), "Satiety:,Energy:,Protein:,Satiety:,Energy:,Protein:",
+    "each pass draws satiety, energy and protein pip rows under the vanilla layout")
+Support.assertEqual(pipRects, 2 * (15 + 2), "five track pips per row plus fills for the two non-empty rows")
+Support.assertEqual(tooltipWidth, 174, "the tooltip widens to fit the pip strip")
+Support.assertEqual(tooltipHeight, 137, "pip rows extend the final height")
 Support.assertEqual(reflectionCalls, 0, "release rendering avoids debug-only reflection")
 
 local previousWrapper = ISToolTipInv.render

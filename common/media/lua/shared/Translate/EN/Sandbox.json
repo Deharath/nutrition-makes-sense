@@ -1,7 +1,7 @@
 {
     "Sandbox_NutritionMakesSense": "Nutrition Makes Sense",
     "Sandbox_NutritionMakesSense_EnergyBurnMultiplier": "Energy Burn Multiplier",
-    "Sandbox_NutritionMakesSense_EnergyBurnMultiplier_tooltip": "Multiplies how quickly NMS burns dietary energy during rest, movement, work, and sleep. This affects fuel reserves and long-term weight balance. 1.0 keeps the intended NMS balance.",
+    "Sandbox_NutritionMakesSense_EnergyBurnMultiplier_tooltip": "Multiplies how quickly calories are burned during rest, movement, work, and sleep. This affects the energy reserve and long-term weight change. 1.0 keeps the intended NMS balance.",
     "Sandbox_NutritionMakesSense_AppetiteRateMultiplier": "Appetite Rate Multiplier",
-    "Sandbox_NutritionMakesSense_AppetiteRateMultiplier_tooltip": "Multiplies how quickly visible hunger returns. This stacks with Project Zomboid's Stats Decrease setting but does not directly change calorie burn or weight. 1.0 keeps the intended NMS balance."
+    "Sandbox_NutritionMakesSense_AppetiteRateMultiplier_tooltip": "Multiplies how quickly hunger returns. Stacks with Project Zomboid's Stats Decrease setting. Does not change calorie burn or weight. 1.0 keeps the intended NMS balance."
 }

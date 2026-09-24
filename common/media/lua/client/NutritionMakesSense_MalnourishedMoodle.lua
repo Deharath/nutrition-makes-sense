@@ -1,14 +1,15 @@
 NutritionMakesSense = NutritionMakesSense or {}
 
 require "ui/NutritionMakesSense_UIHelpers"
+require "NutritionMakesSense_Model"
 
-local Metabolism = NutritionMakesSense.Metabolism or {}
+local Model = NutritionMakesSense.Model
 local UIHelpers = NutritionMakesSense.UIHelpers or {}
 
 local MoodleUI = {}
 NutritionMakesSense.MalnourishedMoodle = MoodleUI
 
-local ACTIVE_THRESHOLD = tonumber(Metabolism.DEPRIVATION_PENALTY_ONSET) or 0.10
+local ACTIVE_THRESHOLD = 0.10
 local LEVEL_TWO_THRESHOLD = 0.30
 local LEVEL_THREE_THRESHOLD = 0.60
 local LEVEL_FOUR_THRESHOLD = 0.85
@@ -55,16 +56,7 @@ local VANILLA_MOODLE_TYPES = {
     "FOOD_EATEN",
 }
 
-local clamp = Metabolism.clamp or function(value, minValue, maxValue)
-    local numeric = tonumber(value) or minValue
-    if numeric < minValue then
-        return minValue
-    end
-    if numeric > maxValue then
-        return maxValue
-    end
-    return numeric
-end
+local clamp = Model.clamp
 
 local function getTextManagerSafe()
     if type(getTextManager) == "function" then
@@ -76,18 +68,10 @@ local function getTextManagerSafe()
     return _G.TextManager and TextManager.instance or nil
 end
 
-local function getPlayerState(player)
-    return UIHelpers.getStateCopy(player)
-end
-
 local function getValueAndLevel(player)
-    local state = getPlayerState(player)
-    local deprivation = tonumber(state and state.deprivation) or 0
-    local target = tonumber(state and state.lastDeprivationTarget)
-    if target == nil and Metabolism.getDeprivationTarget then
-        target = Metabolism.getDeprivationTarget(state)
-    end
-    target = tonumber(target) or deprivation
+    local state = UIHelpers.getDisplay(player)
+    local deprivation = tonumber(state and state.malnutrition) or 0
+    local target = tonumber(state and state.malnutritionTarget) or deprivation
     local direction = "stable"
     if target > deprivation + 0.01 then
         direction = "worsening"
@@ -106,7 +90,7 @@ local function getValueAndLevel(player)
         level = 1
     end
 
-    return deprivation, level, direction
+    return deprivation, level, direction, state and state.cause or nil
 end
 
 local function getMoodleSize()
@@ -136,7 +120,7 @@ local function getVanillaActiveMoodleCount(player)
         local moodleType = MoodleType and MoodleType[fieldName] or nil
         if moodleType then
             local level = tonumber(moodles:getMoodleLevel(moodleType)) or 0
-            if (moodleType ~= MoodleType.FOOD_EATEN and level ~= 0) or level >= 3 then
+            if level ~= 0 then
                 count = count + 1
             end
         end
@@ -286,8 +270,24 @@ function NMSMalnourishedMoodle:getTitle()
     return getText(string.format("Moodles_Malnourished_lvl%d", self.level))
 end
 
+local CAUSE_KEYS = {
+    calories = "Moodles_Malnourished_cause_calories",
+    protein = "Moodles_Malnourished_cause_protein",
+    both = "Moodles_Malnourished_cause_both",
+}
+
 function NMSMalnourishedMoodle:getDescription()
-    return getText(string.format("Moodles_Malnourished_desc_lvl%d", self.level))
+    local text = getText(string.format("Moodles_Malnourished_desc_lvl%d", self.level))
+    local causeKey = self.cause and CAUSE_KEYS[self.cause] or nil
+    if causeKey then
+        text = text .. " " .. getText(causeKey)
+    end
+    if self.direction == "worsening" then
+        text = text .. " " .. getText("Moodles_Malnourished_worsening")
+    elseif self.direction == "recovering" then
+        text = text .. " " .. getText("Moodles_Malnourished_recovering")
+    end
+    return text
 end
 
 function NMSMalnourishedMoodle:syncVisibility()
@@ -310,7 +310,8 @@ function NMSMalnourishedMoodle:updateFromState()
         return
     end
 
-    local deprivation, level, direction = getValueAndLevel(self.player)
+    local deprivation, level, direction, cause = getValueAndLevel(self.player)
+    self.cause = cause
     if level ~= self.level then
         self.oscillationLevel = 1
     end

@@ -1,8 +1,0 @@
-1.4.2
-
-- Fixed the world-loading crash introduced by 1.4.1. Smashing pumpkins and watermelons, preparing squid and bacon, and cutting poultry work again while keeping the food's intended nutrition.
-- Animal heads and brains can no longer be processed repeatedly for unlimited outputs. Items already in a save may still have the old behavior.
-- Protein reserves now affect natural HP recovery while awake: ample protein gives a modest bonus, while severe deficiency slows recovery. The Health tab shows the current modifier when it matters.
-- Low-protein warnings now show the Strength XP penalty instead of an inactive healing penalty. Food tooltips better describe how filling meals are.
-- Admin weight changes now stick. In multiplayer, activity-based energy use resumes correctly after reconnecting, and disconnected characters no longer keep updating.
-- The Malnourished moodle no longer overlaps Lifestyle's moodles.

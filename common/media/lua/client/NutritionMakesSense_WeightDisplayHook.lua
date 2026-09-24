@@ -10,19 +10,16 @@ local UI_BORDER_SPACING = 10
 local FONT = UIFont.Small
 local FONT_HGT_MEDIUM = getTextManager():getFontHeight(UIFont.Medium)
 
-local function getState(player)
-    return UIHelpers.getStateCopy(player)
-end
 
 local originalRender = nil
 
 local function hookedRender(self)
     originalRender(self)
 
-    local state = getState(self.char)
-    if not state then return end
+    local display = UIHelpers.getDisplay(self.char)
+    if not display then return end
 
-    local rate = tonumber(state.lastWeightRateKgPerWeek) or 0
+    local rate = tonumber(display.trendKgPerWeek) or 0
     if math.abs(rate) < 0.005 then
         rate = 0
     end

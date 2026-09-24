@@ -44,6 +44,14 @@ function Settings.getAppetiteRateMultiplier()
     return getMultiplier("AppetiteRateMultiplier", DEFAULTS.AppetiteRateMultiplier)
 end
 
+-- Vanilla "Stats Decrease" sandbox level (1 very fast .. 5 very slow), as SandboxOptions.getStatsDecreaseMultiplier.
+local STATS_DECREASE_MULTIPLIERS = { 2.0, 1.6, 1.0, 0.8, 0.65 }
+
+function Settings.getVanillaStatsDecreaseMultiplier()
+    local level = type(SandboxVars) == "table" and tonumber(SandboxVars.StatsDecrease) or nil
+    return STATS_DECREASE_MULTIPLIERS[level or 3] or 1.0
+end
+
 Settings.DEFAULTS = DEFAULTS
 Settings.MULTIPLIER_MIN = MULTIPLIER_MIN
 Settings.MULTIPLIER_MAX = MULTIPLIER_MAX

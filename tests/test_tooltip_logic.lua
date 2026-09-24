@@ -18,15 +18,21 @@ local function makeFood(cantEat)
     }
 end
 
-local edibleRows = TooltipLogic.buildDescriptorRows(makeFood(false), {})
-Support.assertEqual(edibleRows[1].label, "Satiety", "direct food keeps a fullness descriptor")
+local edibleRows = TooltipLogic.buildPipRows(makeFood(false))
+Support.assertEqual(edibleRows[1].key, "satiety", "direct food leads with satiety")
+Support.assertEqual(#edibleRows, 3, "satiety, energy, protein")
+Support.assertTrue(math.abs(edibleRows[2].pips - 1650 / 250) < 1e-9, "an energy pip is 250 kcal")
+Support.assertTrue(math.abs(edibleRows[3].pips - 4.8) < 1e-9, "a protein pip is 10 g")
 
-local ingredientRows = TooltipLogic.buildDescriptorRows(makeFood(true), {})
-Support.assertEqual(ingredientRows[1].label, "Energy Content", "CantEat reservoir must not present hunger budget as satiety")
+local ingredientRows = TooltipLogic.buildPipRows(makeFood(true))
+Support.assertEqual(ingredientRows[1].key, "energy", "CantEat reservoirs do not promise satiety")
+
+local Model = NutritionMakesSense.Model
+local lean = TooltipLogic.buildPipRows({ isFood = function() return true end, getCalories = function() return 500 end,
+    getProteins = function() return 60 end, getLipids = function() return 5 end })
+local sugary = TooltipLogic.buildPipRows({ isFood = function() return true end, getCalories = function() return 500 end,
+    getProteins = function() return 0 end, getLipids = function() return 0 end })
+Support.assertTrue(lean[1].pips > sugary[1].pips, "protein keeps you full longer at equal energy")
+Support.assertTrue(math.abs(sugary[1].pips - Model.fillHours(500, 0, 0)) < 1e-9, "a satiety pip is one hour of fullness")
 
 print("nms tooltip characterization passed")
-
-Support.assertNil(TooltipLogic.getSatietyDescriptor({kcal = 0, hunger = 100}), "zero calories cannot promise lasting satiety")
-Support.assertEqual(TooltipLogic.getSatietyDescriptor({kcal = 400, proteins = 30, hunger = 1}),
-    TooltipLogic.getSatietyDescriptor({kcal = 400, proteins = 30, hunger = 100}),
-    "script hunger reservoir does not determine lasting satiety")
