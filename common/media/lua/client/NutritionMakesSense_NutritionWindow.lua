@@ -364,8 +364,7 @@ function NMS_NutritionWindow:fitHeight(h)
     end
 end
 
-function NutritionWindow.show()
-    local playerObj = getPlayer and getPlayer() or nil
+function NutritionWindow.show(playerObj)
     if not playerObj then
         return
     end
@@ -399,12 +398,17 @@ function NutritionWindow.hide()
     end
 end
 
-function NutritionWindow.toggle()
-    if instance and instance:isReallyVisible() then
+function NutritionWindow.toggle(playerObj)
+    playerObj = playerObj or (getPlayer and getPlayer() or nil)
+    if instance and instance.playerObj == playerObj and instance:isReallyVisible() then
         NutritionWindow.hide()
     else
-        NutritionWindow.show()
+        NutritionWindow.show(playerObj)
     end
 end
+
+-- Public entry point for mods that replace the Health panel and carry the Nutrition button themselves
+-- (Wounds Overhaul calls PlayerStatusPanel.toggle() and labels it with UI_NMS_StatusPanel_Button).
+NutritionMakesSense.PlayerStatusPanel = { toggle = NutritionWindow.toggle }
 
 return NutritionWindow

@@ -302,8 +302,8 @@ local function hookedRender(self)
     end
 end
 
-local function onNmsStatusButton()
-    NutritionMakesSense.NutritionWindow.toggle()
+local function onNmsStatusButton(self)
+    NutritionMakesSense.NutritionWindow.toggle(self:getPatient())
 end
 
 local function ensureNmsStatusButton(self)
@@ -311,7 +311,7 @@ local function ensureNmsStatusButton(self)
         return
     end
 
-    local label = T("UI_NMS_Window_Button")
+    local label = T("UI_NMS_StatusPanel_Button")
     self.nmsStatusButton = ISButton:new(
         self.fitness:getRight() + NMS_BUTTON_GAP,
         self.fitness:getY(),

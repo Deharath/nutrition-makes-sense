@@ -220,6 +220,31 @@ local function providerOwnsFoodTooltips()
         and controller.providers.NutritionMakesSense == TooltipOverlay._provider
 end
 
+-- One persistent DoTooltip wrapper per item class. It only takes over while a
+-- patched owner has published a matching item/tooltip pair, so other mods
+-- that wrap DoTooltip never capture or restore a transient NMS closure.
+TooltipOverlay._wrappedMethods = TooltipOverlay._wrappedMethods or {}
+
+local function ensureDoTooltipWrapped(item)
+    local methods = getItemMethods(item)
+    if not methods or TooltipOverlay._wrappedMethods[methods] then
+        return methods ~= nil
+    end
+    local original = methods.DoTooltip
+    if type(original) ~= "function" then
+        return false
+    end
+    TooltipOverlay._wrappedMethods[methods] = original
+    methods.DoTooltip = function(target, targetTooltip, ...)
+        local active = TooltipOverlay._active
+        if active and active.item == target and active.tooltip == targetTooltip then
+            return renderCombinedTooltip(targetTooltip, target)
+        end
+        return original(target, targetTooltip, ...)
+    end
+    return true
+end
+
 local function withFoodTooltipExtension(item, tooltip, delegateToController, callback)
     if not item or not tooltip or not TooltipLogic.isFoodItem(item) then
         return callback()
@@ -227,28 +252,16 @@ local function withFoodTooltipExtension(item, tooltip, delegateToController, cal
     if delegateToController and providerOwnsFoodTooltips() then
         return callback()
     end
-
-    local methods = getItemMethods(item)
-    local originalDoTooltip = methods and methods.DoTooltip or nil
-    if type(originalDoTooltip) ~= "function" then
+    if not ensureDoTooltipWrapped(item) then
         return callback()
     end
 
-    local replacement
-    replacement = function(target, targetTooltip, ...)
-        if target == item and targetTooltip == tooltip then
-            return renderCombinedTooltip(targetTooltip, target)
-        end
-        return originalDoTooltip(target, targetTooltip, ...)
-    end
-    methods.DoTooltip = replacement
-
+    local previous = TooltipOverlay._active
+    TooltipOverlay._active = { item = item, tooltip = tooltip }
     local ok, result = pcall(callback)
-    if methods.DoTooltip == replacement then
-        methods.DoTooltip = originalDoTooltip
-    end
+    TooltipOverlay._active = previous
     if not ok then
-        error(result)
+        error(result, 0)
     end
     return result
 end

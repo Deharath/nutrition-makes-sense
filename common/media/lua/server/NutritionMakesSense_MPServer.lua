@@ -1,6 +1,7 @@
 NutritionMakesSense = NutritionMakesSense or {}
 
 require "NutritionMakesSense_MPCompat"
+require "NutritionMakesSense_CoreUtils"
 require "NutritionMakesSense_Runtime"
 require "NutritionMakesSense_Workload"
 
@@ -10,6 +11,7 @@ local MPServer = NutritionMakesSense.MPServer or {}
 NutritionMakesSense.MPServer = MPServer
 
 local MP = NutritionMakesSense.MP
+local CoreUtils = NutritionMakesSense.CoreUtils
 local Runtime = NutritionMakesSense.Runtime
 local Workload = NutritionMakesSense.Workload
 
@@ -61,8 +63,13 @@ local function onClientCommand(module, command, playerObj, args)
     end
 end
 
-local function onPlayerUpdate(playerObj)
-    sendSnapshot(playerObj, false)
+-- IsoPlayer.update returns before OnPlayerUpdate for remote players, so the server drives every
+-- connected player from the game clock instead.
+local function onEveryOneMinute()
+    CoreUtils.eachKnownPlayer(function(playerObj)
+        Runtime.tick(playerObj, false)
+        sendSnapshot(playerObj, false)
+    end)
 end
 
 function MPServer.install()
@@ -71,7 +78,7 @@ function MPServer.install()
     end
     MPServer._installed = true
     Events.OnClientCommand.Add(onClientCommand)
-    Events.OnPlayerUpdate.Add(onPlayerUpdate)
+    Events.EveryOneMinute.Add(onEveryOneMinute)
 end
 
 return MPServer

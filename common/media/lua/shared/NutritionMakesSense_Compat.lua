@@ -145,4 +145,19 @@ end
 local Compat = ensureCompat()
 NutritionMakesSense.Compat = Compat
 
+-- registerProvider replaces the whole entry, so every NMS module merges into one provider.
+function NutritionMakesSense.registerCompatProvider(capabilities, callbacks)
+    local compat = rawget(_G, "MakesSenseCompat")
+    if type(compat) ~= "table" or type(compat.registerProvider) ~= "function" then
+        return
+    end
+    local existing = type(compat.providers) == "table" and compat.providers.NutritionMakesSense or nil
+    local merged = { capabilities = {}, callbacks = {} }
+    for _, part in ipairs({ existing or {}, { capabilities = capabilities, callbacks = callbacks } }) do
+        for k, v in pairs(part.capabilities or {}) do merged.capabilities[k] = v end
+        for k, v in pairs(part.callbacks or {}) do merged.callbacks[k] = v end
+    end
+    compat:registerProvider("NutritionMakesSense", merged)
+end
+
 return Compat

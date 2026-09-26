@@ -173,4 +173,37 @@ Support.assertClose(display.malnutrition, 0.5, 1e-9, "MP clients display the ser
 Support.assertClose(display.hunger, remote.statValues.HUNGER, 1e-9, "MP clients read replicated vanilla hunger")
 clientMode = false
 
+-- Dedicated server: connected players are remote, so OnPlayerUpdate never fires for them there.
+-- The server must drive the authority tick and snapshots from EveryOneMinute.
+local testsDir = string.match(string.sub(debug.getinfo(1, "S").source, 2), "(.*/)") or "./"
+package.path = testsDir .. "../common/media/lua/server/?.lua;" .. package.path
+serverMode = true
+local online = newPlayer({ hunger = 0.3 })
+function online:getOnlineID() return 7 end
+function getOnlinePlayers()
+    return { size = function() return 1 end, get = function(_, i) return i == 0 and online or nil end }
+end
+function getPlayerByOnlineID(id) return id == 7 and online or nil end
+local sent = {}
+function sendServerCommand(target, module, command, args) sent[#sent + 1] = { target = target, command = command } end
+handlers.OnPlayerUpdate, handlers.EveryOneMinute = nil, nil
+Runtime._installed = nil
+Runtime.install()
+Support.assertNil(handlers.OnPlayerUpdate, "the server does not rely on OnPlayerUpdate for the authority tick")
+require "NutritionMakesSense_MPServer"
+NutritionMakesSense.MPServer.install()
+Support.assertTrue(handlers.EveryOneMinute ~= nil, "the server ticks players from EveryOneMinute")
+local function fireMinute()
+    worldHours = worldHours + 1 / 60
+    wallMs = wallMs + 2500
+    online.statValues.HUNGER = math.min(1, online.statValues.HUNGER + 0.0006)
+    for _, fn in ipairs(handlers.EveryOneMinute) do fn() end
+end
+fireMinute()
+Support.assertTrue(type(online.modData[Runtime.STATE_KEY]) == "table", "the server minute tick seeds connected players")
+for _ = 1, 60 do fireMinute() end
+Support.assertTrue(online.nutrition.calories < 800 - 60, "the server minute tick burns calories for connected players")
+Support.assertTrue(#sent > 0 and sent[1].target == online, "the server minute tick pushes display snapshots")
+serverMode = false
+
 print("nms runtime characterization passed")

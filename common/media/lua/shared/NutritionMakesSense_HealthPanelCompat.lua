@@ -1,4 +1,6 @@
 NutritionMakesSense = NutritionMakesSense or {}
+require "NutritionMakesSense_Compat"
+
 NutritionMakesSense.HealthPanelCompat = NutritionMakesSense.HealthPanelCompat or {}
 
 local HealthPanelCompat = NutritionMakesSense.HealthPanelCompat
@@ -15,17 +17,7 @@ local function getCompat()
 end
 
 function HealthPanelCompat.registerCoordinator()
-    local compat = getCompat()
-    if not compat or type(compat.registerProvider) ~= "function" then
-        return
-    end
-
-    compat:registerProvider("NutritionMakesSense", {
-        capabilities = {
-            health_panel_coordinator = true,
-        },
-        callbacks = {},
-    })
+    NutritionMakesSense.registerCompatProvider({ health_panel_coordinator = true }, {})
 end
 
 function HealthPanelCompat.collectExternalLines(compat, playerObj)

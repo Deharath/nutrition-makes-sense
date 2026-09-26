@@ -549,7 +549,8 @@ function Runtime.install()
         return
     end
     Runtime._installed = true
-    if Events and Events.OnPlayerUpdate then
+    -- Dedicated servers never fire OnPlayerUpdate for connected (remote) players; MPServer ticks them instead.
+    if Events and Events.OnPlayerUpdate and not (type(isServer) == "function" and isServer()) then
         Events.OnPlayerUpdate.Add(onPlayerUpdate)
     end
     if Events and Events.OnPlayerDeath then

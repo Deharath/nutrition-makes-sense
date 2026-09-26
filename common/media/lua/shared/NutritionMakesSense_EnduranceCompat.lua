@@ -56,16 +56,8 @@ local function buildTraceSnapshot(playerObj, _args)
     }
 end
 
-local compat = NutritionMakesSense.Compat or rawget(_G, "MakesSenseCompat")
-if type(compat) == "table" and type(compat.registerProvider) == "function" then
-    compat:registerProvider("NutritionMakesSense", {
-        capabilities = {
-            endurance_provider = true,
-        },
-        callbacks = {
-            computeEnduranceContribution = computeEnduranceContribution,
-            recordEnduranceResult = recordEnduranceResult,
-            buildTraceSnapshot = buildTraceSnapshot,
-        },
-    })
-end
+NutritionMakesSense.registerCompatProvider({ endurance_provider = true }, {
+    computeEnduranceContribution = computeEnduranceContribution,
+    recordEnduranceResult = recordEnduranceResult,
+    buildTraceSnapshot = buildTraceSnapshot,
+})

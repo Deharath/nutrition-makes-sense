@@ -129,6 +129,7 @@ function tooltip:isMeasureOnly() return measureOnly end
 function tooltip:DrawText(_, text) drawnLabels[#drawnLabels + 1] = text end
 function tooltip:DrawTextureScaledColor() pipRects = pipRects + 1 end
 
+local vanillaDoTooltip = itemMethods.DoTooltip
 local originalRender = function(panel)
     panel.item:DoTooltip(panel.tooltip)
     panel.item:DoTooltip(panel.tooltip)
@@ -139,7 +140,8 @@ TooltipOverlay.install()
 local panel = { item = item, tooltip = tooltip }
 ISToolTipInv.render(panel)
 
-Support.assertEqual(itemMethods.DoTooltip, getmetatable(item).__index.DoTooltip, "NMS restores the item method after rendering")
+Support.assertTrue(itemMethods.DoTooltip ~= vanillaDoTooltip, "NMS installs one persistent class wrapper")
+Support.assertEqual(TooltipOverlay._active, nil, "active render cleared after the owner render")
 Support.assertEqual(originalTooltipCalls, 0, "standalone NMS routes food through the embedded tooltip contract")
 Support.assertEqual(embeddedTooltipCalls, 2, "NMS preserves every owner render pass")
 Support.assertEqual(embeddedSawHiddenHunger, 2, "the vanilla numeric hunger row is hidden during embedded rendering")
@@ -159,6 +161,11 @@ Support.assertEqual(pipRects, 2 * (15 + 2), "five track pips per row plus fills 
 Support.assertEqual(tooltipWidth, 174, "the tooltip widens to fit the pip strip")
 Support.assertEqual(tooltipHeight, 137, "pip rows extend the final height")
 Support.assertEqual(reflectionCalls, 0, "release rendering avoids debug-only reflection")
+local sizeW, sizeH = tooltipWidth, tooltipHeight
+item:DoTooltip(tooltip)
+Support.assertEqual(originalTooltipCalls, 1, "outside an NMS render the wrapper defers to vanilla")
+originalTooltipCalls = 0
+tooltipWidth, tooltipHeight = sizeW, sizeH
 
 local previousWrapper = ISToolTipInv.render
 ISToolTipInv.render = function(self)

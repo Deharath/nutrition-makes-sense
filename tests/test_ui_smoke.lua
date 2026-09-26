@@ -50,6 +50,7 @@ local function loadJson(path)
 end
 loadJson(rootDir .. "/common/media/lua/shared/Translate/EN/UI.json")
 loadJson(rootDir .. "/common/media/lua/shared/Translate/EN/Moodles.json")
+translations.ContextMenu_Fitness = "Fitness"
 local missing = {}
 function getText(key, ...)
     local text = translations[key]
@@ -217,7 +218,7 @@ end
 
 fire("OnCreatePlayer", 0)
 tick(0.5)
-NutritionWindow.show()
+NutritionWindow.show(player)
 DevPanel.show()
 
 -- The window instance is local to its module; reach it through the upvalue of show().
@@ -358,6 +359,60 @@ detailedMode = false
 for _, line in ipairs(lines) do
     recordText(line.text .. (line.valueText or "") .. (line.suffixText or ""))
 end
+
+-- The Nutrition button sits next to vanilla's Fitness button and opens the window.
+function Element:getRight() return self.x + self.width end
+function Element:getWidth() return self.width end
+function Element:getHeight() return self.height end
+function Element:setX(x) self.x = x end
+function Element:setY(y) self.y = y end
+function Element:getChildren() return self.children end
+ISHealthPanel = Element:derive("ISHealthPanel")
+function ISHealthPanel:createChildren()
+    self.fitness = ISButton:new(10, 11, 100, 20, "Fitness", self, function() end)
+    self:addChild(self.fitness)
+    self.healthPanel = Element.new(Element, 0, 0, 120, 300)
+    self.listbox = Element.new(Element, 130, 100, 200, 200)
+    self.listbox.vscroll = Element.new(Element, 0, 0, 10, 200)
+    self.listbox.getHeight = function(lb) return lb.height end
+    self.listbox.setY = function(lb, y) lb.y = y end
+end
+function ISHealthPanel:update() end
+function ISHealthPanel:render() end
+function ISHealthPanel:getPatient() return self.character end
+function ISHealthPanel:setWidthAndParentWidth(w) self.width = w end
+HealthPanelHook.install()
+local healthView = Element.new(ISHealthPanel, 0, 0, 400, 400)
+healthView.character = player
+healthView:instantiate()
+healthView:addToUIManager()
+healthView:update()
+healthView:render()
+local nmsButton = healthView.nmsStatusButton
+Support.assertTrue(nmsButton ~= nil, "health panel creates the Nutrition button")
+Support.assertTrue(nmsButton.visible ~= false, "Nutrition button is visible")
+Support.assertEqual(nmsButton.title, "Nutrition", "Nutrition button label")
+Support.assertTrue(nmsButton.x >= healthView.fitness:getRight(), "Nutrition button sits right of Fitness")
+nmsButton.onclick(nmsButton.target, nmsButton)
+Support.assertTrue(not window:isReallyVisible(), "Nutrition button closes the open window")
+nmsButton.onclick(nmsButton.target, nmsButton)
+Support.assertTrue(window:isReallyVisible() and window.playerObj == player, "Nutrition button opens the patient's window")
+
+-- Health-panel replacements (Wounds Overhaul) carry the button through the public entry point.
+local PlayerStatusPanel = NutritionMakesSense.PlayerStatusPanel
+Support.assertTrue(PlayerStatusPanel ~= nil and type(PlayerStatusPanel.toggle) == "function", "public PlayerStatusPanel.toggle exists")
+Support.assertEqual(getText("UI_NMS_StatusPanel_Button"), "Nutrition", "public button label key is translated")
+PlayerStatusPanel.toggle()
+Support.assertTrue(not window:isReallyVisible(), "PlayerStatusPanel.toggle() closes the window")
+PlayerStatusPanel.toggle()
+Support.assertTrue(window:isReallyVisible() and window.playerObj == player, "PlayerStatusPanel.toggle() opens the local player's window")
+
+-- Both NMS provider registrations survive on the shared mscompat registry.
+require "NutritionMakesSense_EnduranceCompat"
+local compat = MakesSenseCompat
+Support.assertTrue(compat:hasCapability("NutritionMakesSense", "health_panel_coordinator"), "health panel coordinator registered")
+Support.assertTrue(compat:hasCapability("NutritionMakesSense", "endurance_provider"), "endurance provider kept")
+Support.assertTrue(compat:getCallback("NutritionMakesSense", "computeEnduranceContribution") ~= nil, "endurance callback kept")
 
 local keys = {}
 for key in pairs(missing) do keys[#keys + 1] = key end
