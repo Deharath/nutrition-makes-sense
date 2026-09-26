@@ -8,6 +8,6 @@ MP.MOD_STATE_KEY = "NutritionMakesSenseState"
 MP.REQUEST_SNAPSHOT_COMMAND = "requestSnapshot"
 MP.REPORT_WORKLOAD_COMMAND = "reportWorkload"
 MP.DISPLAY_SNAPSHOT_COMMAND = "displaySnapshot"
-MP.SCRIPT_VERSION = "2.0.1"
+MP.SCRIPT_VERSION = "2.0.2"
 
 return MP

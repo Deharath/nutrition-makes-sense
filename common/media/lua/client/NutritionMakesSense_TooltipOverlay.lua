@@ -299,7 +299,8 @@ local function installInventoryTooltipPatch()
     if not ISToolTipInv or type(ISToolTipInv.render) ~= "function" then
         return false
     end
-    if ISToolTipInv.render == ISToolTipInv._nmsTooltipRenderWrapper then
+    -- Install once per class; re-wrapping whenever another mod sits on top grows the render chain.
+    if ISToolTipInv._nmsTooltipRenderWrapper then
         return true
     end
 
@@ -332,7 +333,7 @@ local function installItemSlotTooltipPatch()
     if not ISItemSlot or type(ISItemSlot.drawTooltip) ~= "function" then
         return false
     end
-    if ISItemSlot.drawTooltip == ISItemSlot._nmsTooltipDrawWrapper then
+    if ISItemSlot._nmsTooltipDrawWrapper then
         return true
     end
 

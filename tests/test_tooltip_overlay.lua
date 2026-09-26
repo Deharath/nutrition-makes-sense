@@ -168,12 +168,14 @@ originalTooltipCalls = 0
 tooltipWidth, tooltipHeight = sizeW, sizeH
 
 local previousWrapper = ISToolTipInv.render
-ISToolTipInv.render = function(self)
+local competitor = function(self)
     return previousWrapper(self)
 end
-TooltipOverlay.install()
+ISToolTipInv.render = competitor
+for _ = 1, 50 do TooltipOverlay.install() end
+Support.assertEqual(ISToolTipInv.render, competitor, "install does not re-wrap over another mod's wrapper")
 ISToolTipInv.render(panel)
-Support.assertEqual(embeddedTooltipCalls, 4, "rewrapping a competing owner preserves the embedded path")
+Support.assertEqual(embeddedTooltipCalls, 4, "a competing owner on top preserves the embedded path")
 
 EuryTooltipController = {
     installed = true,
@@ -205,6 +207,11 @@ ISItemSlot = {
     end,
 }
 TooltipOverlay.install()
+local slotWrapper = ISItemSlot.drawTooltip
+local slotCompetitor = function(slot, targetTooltip) return slotWrapper(slot, targetTooltip) end
+ISItemSlot.drawTooltip = slotCompetitor
+for _ = 1, 50 do TooltipOverlay.install() end
+Support.assertEqual(ISItemSlot.drawTooltip, slotCompetitor, "item-slot install does not re-wrap over another mod")
 ISItemSlot.drawTooltip({ resource = item }, tooltip)
 Support.assertEqual(slotOriginalCalls, 1, "item-slot ownership remains intact")
 Support.assertEqual(originalTooltipCalls, originalBeforeDelegation + 2, "item slots use the embedded path instead of the legacy food renderer")
